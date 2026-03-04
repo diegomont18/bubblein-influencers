@@ -1,0 +1,3 @@
+#!/bin/bash
+lsof -ti:3021 | xargs kill -9 2>/dev/null
+exec npm run dev -- -p 3021
