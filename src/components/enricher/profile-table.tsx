@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
 import type { Database } from "@/lib/supabase/types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -16,17 +15,14 @@ interface Filters {
   tag: string;
 }
 
-const EDITABLE_FIELDS = [
-  "name",
-  "headline",
-  "company_current",
-  "role_current",
-  "current_job",
-  "followers_count",
-  "location",
-] as const;
-
-type EditableField = (typeof EDITABLE_FIELDS)[number];
+type EditableField =
+  | "name"
+  | "headline"
+  | "company_current"
+  | "role_current"
+  | "current_job"
+  | "followers_count"
+  | "location";
 
 function EditableCell({
   profileId,

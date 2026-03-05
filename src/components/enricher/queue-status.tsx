@@ -55,7 +55,7 @@ export function QueueStatus() {
       const data: ProcessResponse = await res.json();
       setLastRun(data);
       await fetchStats();
-    } catch (err) {
+    } catch (_err) {
       setLastRun({
         processed: 0,
         results: [],
