@@ -14,9 +14,12 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Influencer Intelligence Platform",
+  title: "BubbleIn — Influencer Intelligence Platform",
   description:
     "LinkedIn influencer discovery, casting, and monitoring platform",
+  icons: {
+    icon: "/favicon.png",
+  },
 };
 
 export default function RootLayout({

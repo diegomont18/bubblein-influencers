@@ -126,6 +126,7 @@ export function ProfileTable() {
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50 text-left">
               <th className="px-4 py-3 font-medium text-gray-500">Name</th>
+              <th className="px-4 py-3 font-medium text-gray-500">Profile</th>
               <th className="px-4 py-3 font-medium text-gray-500">Headline</th>
               <th className="px-4 py-3 font-medium text-gray-500">Company</th>
               <th className="px-4 py-3 font-medium text-gray-500">Followers</th>
@@ -138,13 +139,13 @@ export function ProfileTable() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
                   Loading...
                 </td>
               </tr>
             ) : profiles.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
                   No profiles found
                 </td>
               </tr>
@@ -158,6 +159,20 @@ export function ProfileTable() {
                     >
                       {p.name ?? "—"}
                     </Link>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {p.url ? (
+                      <a
+                        href={p.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        /{p.url.match(/linkedin\.com\/in\/([^/?#]+)/)?.[1] ?? "—"}
+                      </a>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="px-4 py-3 max-w-xs truncate text-gray-600">
                     {p.headline ?? "—"}
@@ -178,8 +193,8 @@ export function ProfileTable() {
                       ))}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {p.posting_frequency ?? "—"}
+                  <td className={`px-4 py-3 ${(p.posting_frequency_score ?? 0) < 3 ? "text-red-600" : "text-gray-600"}`}>
+                    {p.posting_frequency_score != null ? p.posting_frequency_score : "—"}
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={p.enrichment_status} />

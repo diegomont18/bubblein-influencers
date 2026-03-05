@@ -33,8 +33,11 @@ export async function POST(request: Request) {
     .limit(5);
 
   if (!jobs || jobs.length === 0) {
-    return NextResponse.json({ processed: 0, results: [] });
+    console.log("[enrichment] No queued jobs found");
+    return NextResponse.json({ processed: 0, results: [], errors: 0 });
   }
+
+  console.log(`[enrichment] Found ${jobs.length} queued job(s) to process`);
 
   // Fetch profile URLs for these jobs
   const profileIds = jobs.map((j) => j.profile_id);
@@ -48,13 +51,20 @@ export async function POST(request: Request) {
 
   const results: Array<{
     profileId: string;
+    slug?: string;
     status: string;
     error?: string;
+    scrapingdog_status?: number;
+    topics?: string[];
+    has_embedding?: boolean;
   }> = [];
 
   for (const job of jobs) {
     const profileUrl = urlMap.get(job.profile_id);
+    console.log(`[enrichment] Job ${job.id}: profile_id=${job.profile_id} url=${profileUrl ?? "MISSING"} attempt=${job.attempt_count + 1}`);
+
     if (!profileUrl) {
+      console.error(`[enrichment] Job ${job.id}: No profile URL found — skipping`);
       results.push({
         profileId: job.profile_id,
         status: "failed",
@@ -65,6 +75,7 @@ export async function POST(request: Request) {
 
     const slug = extractSlug(profileUrl);
     if (!slug) {
+      console.error(`[enrichment] Job ${job.id}: Could not extract slug from URL "${profileUrl}"`);
       results.push({
         profileId: job.profile_id,
         status: "failed",
@@ -97,7 +108,9 @@ export async function POST(request: Request) {
       .eq("id", job.profile_id);
 
     // Call Scrapingdog
+    console.log(`[enrichment] Job ${job.id}: Calling ScrapingDog for slug="${slug}"`);
     const result = await fetchLinkedInProfile(slug);
+    console.log(`[enrichment] Job ${job.id}: ScrapingDog response status=${result.status}${result.error ? ` error="${result.error}"` : ""}`);
 
     if (result.status === 200 && result.data) {
       // Normalize profile data
@@ -109,11 +122,13 @@ export async function POST(request: Request) {
         .map((e) => e.role)
         .filter(Boolean) as string[];
 
+      console.log(`[enrichment] Job ${job.id}: Classifying topics...`);
       const topics = await classifyTopics(
         profileData.headline ?? null,
         profileData.about ?? null,
         roles
       );
+      console.log(`[enrichment] Job ${job.id}: Topics: ${JSON.stringify(topics)}`);
 
       // Generate embedding
       const embeddingText = [
@@ -123,10 +138,12 @@ export async function POST(request: Request) {
       ]
         .filter(Boolean)
         .join(" ");
+      console.log(`[enrichment] Job ${job.id}: Generating embedding...`);
       const embedding = await generateEmbedding(embeddingText);
+      console.log(`[enrichment] Job ${job.id}: Embedding: ${embedding ? `${embedding.length} dims` : "none"}`);
 
       // Update profile
-      await service
+      const { error: updateErr } = await service
         .from("profiles")
         .update({
           ...profileData,
@@ -141,6 +158,10 @@ export async function POST(request: Request) {
           last_enriched_at: new Date().toISOString(),
         })
         .eq("id", job.profile_id);
+
+      if (updateErr) {
+        console.error(`[enrichment] Job ${job.id}: Profile update failed: ${updateErr.message}`);
+      }
 
       // Save experiences
       const experiences = normalizeExperiences(result.data, job.profile_id);
@@ -163,9 +184,17 @@ export async function POST(request: Request) {
         })
         .eq("id", job.id);
 
-      results.push({ profileId: job.profile_id, status: "done" });
+      console.log(`[enrichment] Job ${job.id}: ✓ Done`);
+      results.push({
+        profileId: job.profile_id,
+        slug,
+        status: "done",
+        scrapingdog_status: 200,
+        topics,
+        has_embedding: !!embedding,
+      });
     } else if (result.status === 202) {
-      // Still processing — leave as processing, will retry next run
+      // Still processing — leave as queued, will retry next run
       await service
         .from("enrichment_jobs")
         .update({ status: "queued", scrapingdog_status: 202 })
@@ -176,18 +205,27 @@ export async function POST(request: Request) {
         .update({ enrichment_status: "pending" })
         .eq("id", job.profile_id);
 
-      results.push({ profileId: job.profile_id, status: "retry" });
+      console.log(`[enrichment] Job ${job.id}: 202 — re-queued for async retry`);
+      results.push({
+        profileId: job.profile_id,
+        slug,
+        status: "retry",
+        scrapingdog_status: 202,
+      });
     } else {
       // Error
       const attempts = job.attempt_count + 1;
       const isFailed = attempts >= 3;
+      const errorMsg = result.error ?? `HTTP ${result.status}`;
+
+      console.error(`[enrichment] Job ${job.id}: Error — status=${result.status} error="${errorMsg}" attempt=${attempts}/3 → ${isFailed ? "FAILED" : "re-queued"}`);
 
       await service
         .from("enrichment_jobs")
         .update({
           status: isFailed ? "failed" : "queued",
           scrapingdog_status: result.status,
-          last_error: result.error ?? `HTTP ${result.status}`,
+          last_error: errorMsg,
           completed_at: isFailed ? new Date().toISOString() : null,
         })
         .eq("id", job.id);
@@ -201,11 +239,16 @@ export async function POST(request: Request) {
 
       results.push({
         profileId: job.profile_id,
+        slug,
         status: isFailed ? "failed" : "retry",
-        error: result.error,
+        error: errorMsg,
+        scrapingdog_status: result.status,
       });
     }
   }
 
-  return NextResponse.json({ processed: jobs.length, results });
+  const errorCount = results.filter((r) => r.status === "failed" || r.error).length;
+  console.log(`[enrichment] Batch complete: processed=${jobs.length} done=${results.filter((r) => r.status === "done").length} retry=${results.filter((r) => r.status === "retry").length} errors=${errorCount}`);
+
+  return NextResponse.json({ processed: jobs.length, results, errors: errorCount });
 }

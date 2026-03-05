@@ -41,9 +41,15 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 font-[family-name:var(--font-geist-sans)]">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Sign In</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Influencer Intelligence Platform
+          <img
+            src="/logo.png"
+            alt="BubbleIn"
+            width={160}
+            height={57}
+            className="mx-auto"
+          />
+          <p className="mt-3 text-sm text-gray-600">
+            Sign in to your account
           </p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">

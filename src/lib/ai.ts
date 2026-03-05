@@ -4,7 +4,10 @@ export async function classifyTopics(
   roles: string[]
 ): Promise<string[]> {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return [];
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping topic classification");
+    return [];
+  }
 
   const text = [headline, about, ...roles].filter(Boolean).join("\n");
   if (!text.trim()) return [];
@@ -34,13 +37,20 @@ export async function classifyTopics(
       }),
     });
 
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[ai] classifyTopics failed: status=${res.status} body=${errText.slice(0, 300)}`);
+      return [];
+    }
 
     const json = await res.json();
     const content = json.choices?.[0]?.message?.content ?? "";
     const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? parsed.slice(0, 5) : [];
-  } catch {
+    const result = Array.isArray(parsed) ? parsed.slice(0, 5) : [];
+    console.log(`[ai] classifyTopics result: ${JSON.stringify(result)}`);
+    return result;
+  } catch (err) {
+    console.error(`[ai] classifyTopics exception: ${err instanceof Error ? err.message : err}`);
     return [];
   }
 }
@@ -48,29 +58,39 @@ export async function classifyTopics(
 export async function generateEmbedding(
   text: string
 ): Promise<number[] | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping embedding generation");
+    return null;
+  }
 
   if (!text.trim()) return null;
 
   try {
-    const res = await fetch("https://api.openai.com/v1/embeddings", {
+    const res = await fetch("https://openrouter.ai/api/v1/embeddings", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "text-embedding-3-small",
+        model: "openai/text-embedding-3-small",
         input: text.slice(0, 8000),
       }),
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[ai] generateEmbedding failed: status=${res.status} body=${errText.slice(0, 300)}`);
+      return null;
+    }
 
     const json = await res.json();
-    return json.data?.[0]?.embedding ?? null;
-  } catch {
+    const embedding = json.data?.[0]?.embedding ?? null;
+    console.log(`[ai] generateEmbedding: ${embedding ? `${embedding.length} dimensions` : "no embedding returned"}`);
+    return embedding;
+  } catch (err) {
+    console.error(`[ai] generateEmbedding exception: ${err instanceof Error ? err.message : err}`);
     return null;
   }
 }
