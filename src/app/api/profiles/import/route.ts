@@ -84,9 +84,15 @@ export async function POST(request: Request) {
     }
   }
 
+  const duplicateSlugs = duplicates.map((u) => {
+    const match = u.match(/linkedin\.com\/in\/([^/?#]+)/);
+    return match?.[1] ?? u;
+  });
+
   return NextResponse.json({
     queued: uniqueNewUrls.length,
     duplicates: duplicates.length,
+    duplicate_urls: duplicateSlugs,
     invalid: invalid.length,
   });
 }

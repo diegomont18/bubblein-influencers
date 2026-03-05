@@ -8,9 +8,11 @@ export function ImportForm() {
   const [result, setResult] = useState<{
     queued: number;
     duplicates: number;
+    duplicate_urls: string[];
     invalid: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showDuplicates, setShowDuplicates] = useState(false);
 
   function parseUrls(input: string): string[] {
     return input
@@ -55,6 +57,7 @@ export function ImportForm() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setShowDuplicates(false);
 
     try {
       const res = await fetch("/api/profiles/import", {
@@ -108,14 +111,55 @@ export function ImportForm() {
         >
           {loading ? "Importing..." : "Import"}
         </button>
-        {result && (
-          <span className="text-sm text-gray-600">
-            Queued {result.queued}, {result.duplicates} duplicates,{" "}
-            {result.invalid} invalid
-          </span>
-        )}
         {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
+
+      {result && (
+        <div className="mt-3 space-y-2">
+          {result.queued > 0 && result.duplicates === 0 && (
+            <p className="text-sm text-green-700">
+              Queued {result.queued} profile(s) for enrichment.
+            </p>
+          )}
+          {result.queued > 0 && result.duplicates > 0 && (
+            <p className="text-sm text-green-700">
+              Queued {result.queued} profile(s).{" "}
+              <span className="text-amber-600 font-medium">
+                {result.duplicates} duplicate(s) skipped.
+              </span>
+            </p>
+          )}
+          {result.duplicates > 0 && result.queued === 0 && (
+            <p className="text-sm font-medium text-amber-600">
+              All URLs already exist — nothing imported.
+            </p>
+          )}
+          {result.invalid > 0 && (
+            <p className="text-sm text-gray-500">
+              {result.invalid} invalid URL(s) ignored.
+            </p>
+          )}
+          {result.duplicates > 0 && result.duplicate_urls?.length > 0 && (
+            <div>
+              <button
+                onClick={() => setShowDuplicates(!showDuplicates)}
+                className="text-xs text-amber-600 hover:underline"
+              >
+                {showDuplicates ? "Hide" : "Show"} duplicate slugs ({result.duplicate_urls.length})
+              </button>
+              {showDuplicates && (
+                <ul className="mt-1 max-h-32 overflow-y-auto rounded border border-amber-200 bg-amber-50 p-2">
+                  {result.duplicate_urls.map((slug) => (
+                    <li key={slug} className="text-xs text-amber-700 font-mono">
+                      /{slug}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
