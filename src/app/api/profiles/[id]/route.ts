@@ -10,6 +10,7 @@ const EDITABLE_FIELDS = new Set([
   "current_job",
   "followers_count",
   "location",
+  "posting_frequency_score",
 ]);
 
 export async function PATCH(

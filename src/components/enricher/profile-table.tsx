@@ -22,7 +22,8 @@ type EditableField =
   | "role_current"
   | "current_job"
   | "followers_count"
-  | "location";
+  | "location"
+  | "posting_frequency_score";
 
 function EditableCell({
   profileId,
@@ -291,8 +292,9 @@ export function ProfileTable() {
     if (!profile) return;
 
     // Get the original value for comparison
-    const originalValue = field === "followers_count"
-      ? String(profile.followers_count ?? "")
+    const isNumeric = field === "followers_count" || field === "posting_frequency_score";
+    const originalValue = isNumeric
+      ? String((profile as Record<string, unknown>)[field] ?? "")
       : String((profile as Record<string, unknown>)[field] ?? "");
 
     // If unchanged, just cancel
@@ -302,8 +304,8 @@ export function ProfileTable() {
     }
 
     const body: Record<string, unknown> = {};
-    if (field === "followers_count") {
-      body[field] = editValue ? parseInt(editValue, 10) : null;
+    if (field === "followers_count" || field === "posting_frequency_score") {
+      body[field] = editValue ? parseFloat(editValue) : null;
     } else {
       body[field] = editValue || null;
     }
@@ -418,6 +420,11 @@ export function ProfileTable() {
     if (field === "followers_count") {
       return profile.followers_count != null
         ? String(profile.followers_count)
+        : "—";
+    }
+    if (field === "posting_frequency_score") {
+      return profile.posting_frequency_score != null
+        ? String(profile.posting_frequency_score)
         : "—";
     }
     return (profile[field] as string) ?? "—";
@@ -571,7 +578,7 @@ export function ProfileTable() {
               <SortableHeader column="followers_count" label="Followers" />
               <th className="px-4 py-3 font-medium text-gray-500">Topics</th>
               <th className="px-4 py-3 font-medium text-gray-500">Tags</th>
-              <SortableHeader column="posting_frequency_score" label="Freq /month" />
+              <SortableHeader column="posting_frequency_score" label="Posts /month" />
               <SortableHeader column="enrichment_status" label="Status" />
               <th className="px-4 py-3 font-medium text-gray-500"></th>
             </tr>
@@ -716,9 +723,25 @@ export function ProfileTable() {
                       </button>
                     </div>
                   </td>
-                  <td className={`px-4 py-3 ${(p.posting_frequency_score ?? 0) < 3 ? "text-red-600" : "text-gray-600"}`}>
-                    {p.posting_frequency_score != null ? p.posting_frequency_score : "—"}
-                  </td>
+                  <EditableCell
+                    profileId={p.id}
+                    field="posting_frequency_score"
+                    value={p.posting_frequency_score != null ? String(p.posting_frequency_score) : "—"}
+                    isEdited={isFieldEdited(p, "posting_frequency_score")}
+                    editingCell={editingCell}
+                    onStartEdit={(id, field) =>
+                      handleStartEdit(
+                        id,
+                        field,
+                        p.posting_frequency_score != null ? String(p.posting_frequency_score) : ""
+                      )
+                    }
+                    onSave={handleSaveEdit}
+                    onCancel={handleCancelEdit}
+                    editValue={editValue}
+                    onEditValueChange={setEditValue}
+                    className={`px-4 py-3 ${(p.posting_frequency_score ?? 0) < 3 ? "text-red-600" : "text-gray-600"}`}
+                  />
                   <td className="px-4 py-3">
                     <StatusBadge status={p.enrichment_status} />
                   </td>
