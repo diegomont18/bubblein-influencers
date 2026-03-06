@@ -28,6 +28,7 @@ export function QueueStatus() {
   const [processing, setProcessing] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [reEnriching, setReEnriching] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [lastRun, setLastRun] = useState<ProcessResponse | null>(null);
 
   async function fetchStats() {
@@ -76,6 +77,17 @@ export function QueueStatus() {
     }
   }
 
+  async function handleDeleteQueued() {
+    if (!window.confirm("Delete all queued jobs and their profiles? This cannot be undone.")) return;
+    setDeleting(true);
+    try {
+      await fetch("/api/enrichment/jobs", { method: "DELETE" });
+      await fetchStats();
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function handleReEnrichAll() {
     setReEnriching(true);
     try {
@@ -121,6 +133,15 @@ export function QueueStatus() {
             className="rounded-md border border-red-300 px-4 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 transition-colors"
           >
             {retrying ? "Retrying..." : `Retry Failed (${stats.jobs.failed})`}
+          </button>
+        )}
+        {stats.jobs.queued > 0 && (
+          <button
+            onClick={handleDeleteQueued}
+            disabled={deleting}
+            className="rounded-md border border-red-300 bg-red-50 px-4 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 transition-colors"
+          >
+            {deleting ? "Deleting..." : `Delete Queued (${stats.jobs.queued})`}
           </button>
         )}
         {stats.profiles.done > 0 && (

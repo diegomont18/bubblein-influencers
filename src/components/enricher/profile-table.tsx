@@ -6,6 +6,7 @@ import type { Database } from "@/lib/supabase/types";
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 
 interface Filters {
+  name: string;
   topic: string;
   company: string;
   role: string;
@@ -98,6 +99,7 @@ export function ProfileTable() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Filters>({
+    name: "",
     topic: "",
     company: "",
     role: "",
@@ -129,9 +131,10 @@ export function ProfileTable() {
 
   const limit = 20;
 
-  const fetchProfiles = useCallback(async () => {
-    setLoading(true);
+  const fetchProfiles = useCallback(async (silent?: boolean) => {
+    if (!silent) setLoading(true);
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (filters.name) params.set("name", filters.name);
     if (filters.topic) params.set("topic", filters.topic);
     if (filters.company) params.set("company", filters.company);
     if (filters.role) params.set("role", filters.role);
@@ -159,6 +162,16 @@ export function ProfileTable() {
   useEffect(() => {
     fetchProfiles();
   }, [fetchProfiles]);
+
+  // Auto-refresh polling (silent, skips loading spinner)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!editingCell) {
+        fetchProfiles(true);
+      }
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [fetchProfiles, editingCell]);
 
   // Fetch all tags for autocomplete
   useEffect(() => {
@@ -398,6 +411,7 @@ export function ProfileTable() {
 
   function handleExportCsv() {
     const params = new URLSearchParams();
+    if (filters.name) params.set("name", filters.name);
     if (filters.topic) params.set("topic", filters.topic);
     if (filters.company) params.set("company", filters.company);
     if (filters.role) params.set("role", filters.role);
@@ -436,6 +450,12 @@ export function ProfileTable() {
       <div className="border-b border-gray-200 p-4">
         <div className="flex flex-wrap gap-3">
           <input
+            placeholder="Name"
+            value={filters.name}
+            onChange={(e) => updateFilter("name", e.target.value)}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm w-32"
+          />
+          <input
             placeholder="Topic"
             value={filters.topic}
             onChange={(e) => updateFilter("topic", e.target.value)}
@@ -473,6 +493,7 @@ export function ProfileTable() {
             className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
           >
             <option value="">All tags</option>
+            <option value="__none__">No tags</option>
             {allTags.map((t) => (
               <option key={t} value={t}>
                 {t}
@@ -579,6 +600,7 @@ export function ProfileTable() {
               <th className="px-4 py-3 font-medium text-gray-500">Topics</th>
               <th className="px-4 py-3 font-medium text-gray-500">Tags</th>
               <SortableHeader column="posting_frequency_score" label="Posts /month" />
+              <SortableHeader column="last_enriched_at" label="Extracted" />
               <SortableHeader column="enrichment_status" label="Status" />
               <th className="px-4 py-3 font-medium text-gray-500"></th>
             </tr>
@@ -586,13 +608,13 @@ export function ProfileTable() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={12} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={13} className="px-4 py-8 text-center text-gray-400">
                   Loading...
                 </td>
               </tr>
             ) : profiles.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={13} className="px-4 py-8 text-center text-gray-400">
                   No profiles found
                 </td>
               </tr>
@@ -742,6 +764,11 @@ export function ProfileTable() {
                     onEditValueChange={setEditValue}
                     className={`px-4 py-3 ${(p.posting_frequency_score ?? 0) < 3 ? "text-red-600" : "text-gray-600"}`}
                   />
+                  <td className="px-4 py-3 text-gray-600">
+                    {p.last_enriched_at
+                      ? new Date(p.last_enriched_at).toLocaleDateString()
+                      : "—"}
+                  </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={p.enrichment_status} />
                   </td>

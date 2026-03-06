@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const page = parseInt(searchParams.get("page") ?? "1", 10);
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "20", 10), 100);
+  const name = searchParams.get("name");
   const topic = searchParams.get("topic");
   const company = searchParams.get("company");
   const role = searchParams.get("role");
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
 
   const SORTABLE_COLUMNS = new Set([
     "name", "headline", "company_current", "current_job",
-    "followers_count", "posting_frequency_score", "enrichment_status", "created_at",
+    "followers_count", "posting_frequency_score", "enrichment_status", "created_at", "last_enriched_at",
   ]);
   const sortBy = sortByParam && SORTABLE_COLUMNS.has(sortByParam) ? sortByParam : "created_at";
   const sortDir = sortDirParam === "asc" ? "asc" : "desc";
@@ -33,6 +34,9 @@ export async function GET(request: Request) {
   const service = createServiceClient();
   let query = service.from("profiles").select("*", { count: "exact" });
 
+  if (name) {
+    query = query.or(`name.ilike.%${name}%,url.ilike.%${name}%`);
+  }
   if (topic) {
     query = query.contains("topics", [topic]);
   }
@@ -51,7 +55,9 @@ export async function GET(request: Request) {
   if (status) {
     query = query.eq("enrichment_status", status);
   }
-  if (tag) {
+  if (tag === "__none__") {
+    query = query.eq("tags", "{}");
+  } else if (tag) {
     query = query.contains("tags", [tag]);
   }
 

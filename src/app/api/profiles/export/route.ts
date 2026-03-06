@@ -54,7 +54,9 @@ export async function GET(request: Request) {
   if (status) {
     query = query.eq("enrichment_status", status);
   }
-  if (tag) {
+  if (tag === "__none__") {
+    query = query.eq("tags", "{}");
+  } else if (tag) {
     query = query.contains("tags", [tag]);
   }
 

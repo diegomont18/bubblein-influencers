@@ -62,6 +62,16 @@ export function JobsTable() {
     });
   }
 
+  async function handleDeleteJob(jobId: string) {
+    if (!window.confirm("Delete this queued job and its profile?")) return;
+    await fetch("/api/enrichment/jobs", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_ids: [jobId] }),
+    });
+    fetchJobs();
+  }
+
   const statusColors: Record<string, string> = {
     queued: "bg-yellow-100 text-yellow-800",
     processing: "bg-blue-100 text-blue-800",
@@ -106,18 +116,19 @@ export function JobsTable() {
               <th className="px-4 py-3 font-medium text-gray-500">Error</th>
               <th className="px-4 py-3 font-medium text-gray-500">Queued</th>
               <th className="px-4 py-3 font-medium text-gray-500">Completed</th>
+              <th className="px-4 py-3 font-medium text-gray-500">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                   Loading...
                 </td>
               </tr>
             ) : jobs.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                   No jobs found
                 </td>
               </tr>
@@ -146,6 +157,16 @@ export function JobsTable() {
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">
                     {formatDate(j.completed_at)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {j.status === "queued" && (
+                      <button
+                        onClick={() => handleDeleteJob(j.id)}
+                        className="rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))

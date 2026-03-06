@@ -9,7 +9,7 @@ export function normalizeProfileData(
 ): ProfileUpdate {
   return {
     name: str(raw.fullName) || str(raw.full_name) || str(raw.name),
-    headline: str(raw.headline) || str(raw.sub_title),
+    headline: str(raw.headline) || str(raw.sub_title) || buildFallbackHeadline(raw),
     company_current: str(raw.company) || extractCurrentCompany(raw),
     role_current: str(raw.title) || extractCurrentRole(raw),
     location: str(raw.location?.toString()),
@@ -87,6 +87,13 @@ function parseAbbreviatedNumber(val: unknown): number | null {
   return Math.round(base * multiplier);
 }
 
+function buildFallbackHeadline(raw: Record<string, unknown>): string | null {
+  const desc = raw.description as Record<string, unknown> | undefined;
+  if (!desc) return null;
+  const parts = [str(desc.description1), str(desc.description2)].filter(Boolean);
+  return parts.length > 0 ? parts.join(" | ") : null;
+}
+
 function extractCurrentCompany(raw: Record<string, unknown>): string | null {
   // Try description.description1 first (ScrapingDog format)
   const desc = raw.description as Record<string, unknown> | undefined;
@@ -123,6 +130,5 @@ export function buildCurrentJob(
 ): string | null {
   if (role && company) return `${role} at ${company}`;
   if (role) return role;
-  if (company) return company;
-  return null;
+  return null;  // Don't return just company — it duplicates company_current
 }
