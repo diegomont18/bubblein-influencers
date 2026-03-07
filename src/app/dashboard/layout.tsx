@@ -3,6 +3,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 
 const navItems = [
   { label: "Overview", href: "/dashboard", soon: false },
+  { label: "Checker", href: "/dashboard/checker", soon: false },
   { label: "Profile Enricher", href: "/dashboard/enricher", soon: false },
   { label: "Casting", href: "/dashboard/casting", soon: true },
   { label: "Monitoring", href: "/dashboard/monitoring", soon: true },

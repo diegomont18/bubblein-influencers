@@ -355,6 +355,41 @@ export interface Database {
           created_at?: string;
         };
       };
+      checker_entries: {
+        Row: {
+          id: string;
+          name: string;
+          headline: string;
+          original_url: string;
+          verified_url: string | null;
+          status: string;
+          search_results: Json | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          headline?: string;
+          original_url: string;
+          verified_url?: string | null;
+          status?: string;
+          search_results?: Json | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          headline?: string;
+          original_url?: string;
+          verified_url?: string | null;
+          status?: string;
+          search_results?: Json | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
       scraping_jobs: {
         Row: {
           id: string;

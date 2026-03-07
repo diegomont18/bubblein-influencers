@@ -4,6 +4,39 @@ export interface ScrapingdogResult {
   error?: string;
 }
 
+export interface GoogleSearchResult {
+  title: string;
+  link: string;
+  snippet: string;
+}
+
+export async function searchGoogle(
+  query: string
+): Promise<{ results: GoogleSearchResult[] }> {
+  const apiKey = process.env.SCRAPINGDOG_API_KEY;
+  if (!apiKey) {
+    console.error("[scrapingdog] SCRAPINGDOG_API_KEY is not set");
+    return { results: [] };
+  }
+
+  const url = `https://api.scrapingdog.com/google/?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(query)}&results=5`;
+  console.log(`[scrapingdog] Google SERP query="${query}"`);
+
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      console.error(`[scrapingdog] Google SERP error status=${res.status}`);
+      return { results: [] };
+    }
+    const data = await res.json();
+    return { results: data.organic_results ?? [] };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error(`[scrapingdog] Google SERP exception: ${message}`);
+    return { results: [] };
+  }
+}
+
 export async function fetchLinkedInProfile(
   slug: string
 ): Promise<ScrapingdogResult> {
