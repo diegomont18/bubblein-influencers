@@ -29,6 +29,7 @@ export function QueueStatus() {
   const [retrying, setRetrying] = useState(false);
   const [reEnriching, setReEnriching] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [promoting, setPromoting] = useState(false);
   const [lastRun, setLastRun] = useState<ProcessResponse | null>(null);
 
   async function fetchStats() {
@@ -88,6 +89,16 @@ export function QueueStatus() {
     }
   }
 
+  async function handlePromoteQueued() {
+    setPromoting(true);
+    try {
+      await fetch("/api/enrichment/jobs", { method: "PATCH" });
+      await fetchStats();
+    } finally {
+      setPromoting(false);
+    }
+  }
+
   async function handleReEnrichAll() {
     setReEnriching(true);
     try {
@@ -133,6 +144,15 @@ export function QueueStatus() {
             className="rounded-md border border-red-300 px-4 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 transition-colors"
           >
             {retrying ? "Retrying..." : `Retry Failed (${stats.jobs.failed})`}
+          </button>
+        )}
+        {stats.jobs.queued > 0 && (
+          <button
+            onClick={handlePromoteQueued}
+            disabled={promoting}
+            className="rounded-md border border-teal-300 px-4 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-50 transition-colors"
+          >
+            {promoting ? "Moving..." : `Move to Profiles (${stats.jobs.queued})`}
           </button>
         )}
         {stats.jobs.queued > 0 && (

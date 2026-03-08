@@ -129,6 +129,42 @@ export default function CastingPage() {
     }
   }
 
+  async function handleDeleteProfile(slug: string) {
+    if (!viewingListId) return;
+
+    // Optimistically remove from state
+    setProfiles((prev) => prev.filter((p) => p.slug !== slug));
+    setTotalCandidates((prev) => Math.max(0, prev - 1));
+
+    try {
+      const res = await fetch(
+        `/api/casting/lists/profiles?listId=${viewingListId}&profileId=${slug}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error ?? "Failed to remove profile");
+      }
+      // Update the profile count in past lists
+      setPastLists((prev) =>
+        prev.map((l) =>
+          l.id === viewingListId
+            ? {
+                ...l,
+                casting_list_profiles: [
+                  { count: Math.max(0, (l.casting_list_profiles?.[0]?.count ?? 1) - 1) },
+                ],
+              }
+            : l
+        )
+      );
+    } catch (err) {
+      // Revert on failure — reload the list
+      setError(err instanceof Error ? err.message : "Failed to remove profile");
+      handleViewList(viewingListId);
+    }
+  }
+
   async function handleViewList(listId: string) {
     setViewingListId(listId);
     setError(null);
@@ -156,6 +192,7 @@ export default function CastingPage() {
               followers: notes?.followers ?? 0,
               posts_per_month: notes?.posts_per_month ?? 0,
               linkedin_url: notes?.linkedin_url ?? `https://linkedin.com/in/${p.profile_id}`,
+              focus: notes?.focus ?? null,
             };
           } catch (e) {
             console.warn(`[casting] Failed to parse notes for profile ${p.profile_id}`, e);
@@ -302,7 +339,11 @@ export default function CastingPage() {
               Loading casting list...
             </p>
           ) : (
-            <CastingResults profiles={profiles} />
+            <CastingResults
+              profiles={profiles}
+              listId={viewingListId}
+              onDeleteProfile={handleDeleteProfile}
+            />
           )}
         </div>
       )}

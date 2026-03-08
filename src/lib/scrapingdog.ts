@@ -14,6 +14,7 @@ export interface GoogleSearchOptions {
   language?: string;
   country?: string;
   domain?: string;
+  lr?: string;
   page?: number;
   results?: number;
 }
@@ -36,6 +37,7 @@ export async function searchGoogle(
   if (options?.language) params.set("language", options.language);
   if (options?.country) params.set("country", options.country);
   if (options?.domain) params.set("domain", options.domain);
+  if (options?.lr) params.set("lr", options.lr);
   if (options?.page !== undefined) params.set("page", String(options.page));
 
   const url = `https://api.scrapingdog.com/google/?${params.toString()}`;

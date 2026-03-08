@@ -121,12 +121,24 @@ export async function checkRelevance(
   }
 }
 
-export async function generateSearchSynonyms(theme: string): Promise<string[]> {
+const LANGUAGE_NAMES: Record<string, string> = {
+  lang_pt: "Portuguese",
+  lang_en: "English",
+  lang_es: "Spanish",
+  lang_fr: "French",
+};
+
+export async function generateSearchSynonyms(theme: string, language?: string): Promise<string[]> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     console.error("[ai] OPENROUTER_API_KEY is not set — skipping synonym generation");
     return [];
   }
+
+  const languageName = language ? LANGUAGE_NAMES[language] : null;
+  const languageInstruction = languageName
+    ? `All synonyms MUST be in ${languageName}. Do NOT return synonyms in other languages.`
+    : "";
 
   try {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -140,7 +152,7 @@ export async function generateSearchSynonyms(theme: string): Promise<string[]> {
         messages: [
           {
             role: "user",
-            content: `Generate 5 alternative search queries (synonyms, related terms) for finding LinkedIn posts about: ${theme}. Return ONLY a JSON array of strings. No explanation.`,
+            content: `Generate 5 alternative search queries (synonyms, related terms) for finding LinkedIn posts about: ${theme}.\n${languageInstruction}\nReturn ONLY a JSON array of strings. No explanation.`,
           },
         ],
         temperature: 0.7,
@@ -166,6 +178,87 @@ export async function generateSearchSynonyms(theme: string): Promise<string[]> {
   } catch (err) {
     console.error(`[ai] generateSearchSynonyms exception: ${err instanceof Error ? err.message : err}`);
     return [];
+  }
+}
+
+export async function checkPublishLanguage(
+  profileData: Record<string, unknown>,
+  targetLanguage: string
+): Promise<boolean> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping language check");
+    return true;
+  }
+
+  const languageName = LANGUAGE_NAMES[targetLanguage];
+  if (!languageName) return true;
+
+  const parts: string[] = [];
+  if (profileData.headline) parts.push(`Headline: ${profileData.headline}`);
+  if (profileData.about) parts.push(`About: ${profileData.about}`);
+
+  const activities = profileData.activities;
+  if (Array.isArray(activities)) {
+    const activityTexts = activities
+      .slice(0, 10)
+      .map((a: unknown) => {
+        if (typeof a === "string") return a;
+        if (a && typeof a === "object") {
+          const obj = a as Record<string, unknown>;
+          return obj.text ?? obj.title ?? obj.content ?? "";
+        }
+        return "";
+      })
+      .filter(Boolean);
+    if (activityTexts.length > 0) {
+      parts.push(`Recent posts:\n${activityTexts.join("\n")}`);
+    }
+  }
+
+  if (parts.length === 0) return true;
+
+  const profileText = parts.join("\n\n").slice(0, 3000);
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You determine if a LinkedIn user publishes content primarily in ${languageName}. Analyze their headline, about section, and recent posts. Return ONLY a JSON object: {"publishes_in_language": true/false}. No explanation.`,
+          },
+          {
+            role: "user",
+            content: profileText,
+          },
+        ],
+        temperature: 0,
+        max_tokens: 50,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[ai] checkPublishLanguage failed: status=${res.status} body=${errText.slice(0, 300)}`);
+      return true;
+    }
+
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(content);
+    const result = Boolean(parsed.publishes_in_language);
+    console.log(`[ai] checkPublishLanguage: ${result} for language=${targetLanguage}`);
+    return result;
+  } catch (err) {
+    console.error(`[ai] checkPublishLanguage exception: ${err instanceof Error ? err.message : err}`);
+    return true;
   }
 }
 

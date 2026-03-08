@@ -86,3 +86,54 @@ export async function DELETE(request: Request) {
 
   return NextResponse.json({ deleted: jobs.length });
 }
+
+export async function PATCH() {
+  const supabase = createServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const service = createServiceClient();
+
+  // Find all queued jobs
+  const { data: jobs, error: fetchError } = await service
+    .from("enrichment_jobs")
+    .select("id, profile_id")
+    .eq("status", "queued");
+
+  if (fetchError) {
+    return NextResponse.json({ error: fetchError.message }, { status: 500 });
+  }
+
+  if (!jobs || jobs.length === 0) {
+    return NextResponse.json({ promoted: 0 });
+  }
+
+  const profileIds = jobs.map((j) => j.profile_id);
+  const jobIds = jobs.map((j) => j.id);
+
+  // Mark profiles as done
+  const { error: profileError } = await service
+    .from("profiles")
+    .update({ enrichment_status: "done" })
+    .in("id", profileIds);
+
+  if (profileError) {
+    return NextResponse.json({ error: profileError.message }, { status: 500 });
+  }
+
+  // Mark jobs as done
+  const { error: jobError } = await service
+    .from("enrichment_jobs")
+    .update({ status: "done", completed_at: new Date().toISOString() })
+    .in("id", jobIds);
+
+  if (jobError) {
+    return NextResponse.json({ error: jobError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ promoted: jobs.length });
+}

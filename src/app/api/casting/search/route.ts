@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { searchGoogle, fetchLinkedInProfile } from "@/lib/scrapingdog";
 import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency } from "@/lib/normalize";
-import { generateSearchSynonyms } from "@/lib/ai";
+import { generateSearchSynonyms, checkPublishLanguage } from "@/lib/ai";
 
 
 interface SearchBody {
@@ -66,14 +66,44 @@ export async function POST(request: Request) {
     posts_per_month: number;
     relevance_score: number;
     linkedin_url: string;
+    focus: number;
   }> = [];
 
-  // Track SERP pagination state per theme
-  const themePages = themes.map(theme => ({ theme, page: 0, exhausted: false }));
+  // Track focus score per candidate slug (3=original, 2=synonym, 1=broad)
+  const slugFocus = new Map<string, number>();
+
+  // Build all 3 tiers of search queries upfront
+  interface ThemePage {
+    theme: string;
+    page: number;
+    exhausted: boolean;
+    focus: number;
+  }
+
+  // Focus 3: original themes (exact match)
+  const themePages: ThemePage[] = themes.map(theme => ({
+    theme, page: 0, exhausted: false, focus: 3,
+  }));
+
+  // Focus 2: synonym themes (exact match)
+  console.log("[casting] Generating synonym queries upfront…");
+  for (const theme of themes) {
+    const synonyms = await generateSearchSynonyms(theme, language);
+    for (const syn of synonyms) {
+      themePages.push({ theme: syn, page: 0, exhausted: false, focus: 2 });
+    }
+  }
+
+  // Focus 1: original themes (broad, no quotes)
+  for (const theme of themes) {
+    themePages.push({ theme, page: 0, exhausted: false, focus: 1 });
+  }
+
+  console.log(`[casting] Total search tiers: ${themePages.length} queries (focus 3: ${themes.length}, focus 2: ${themePages.filter(t => t.focus === 2).length}, focus 1: ${themes.length})`);
+
   const maxPages = 20;
   let candidateIndex = 0;
   let totalCandidatesProcessed = 0;
-  let synonymsGenerated = false;
 
   while (matchedProfiles.length < resultsCount) {
     // Process any unprocessed candidates first
@@ -107,6 +137,12 @@ export async function POST(request: Request) {
         continue;
       }
 
+      const publishesInLanguage = await checkPublishLanguage(data, language);
+      if (!publishesInLanguage) {
+        console.log(`[casting] Skipping ${slug}: does not publish in ${language}`);
+        continue;
+      }
+
       matchedProfiles.push({
         slug,
         name: String(data.fullName ?? data.full_name ?? data.name ?? "Unknown"),
@@ -118,6 +154,7 @@ export async function POST(request: Request) {
         posts_per_month: postsPerMonth,
         relevance_score: 1.0,
         linkedin_url: `https://linkedin.com/in/${slug}`,
+        focus: slugFocus.get(slug) ?? 1,
       });
     }
 
@@ -128,11 +165,14 @@ export async function POST(request: Request) {
     for (const tp of themePages) {
       if (tp.exhausted || tp.page >= maxPages) continue;
 
-      const query = `site:linkedin.com/posts "${tp.theme}"`;
+      const query = tp.focus >= 2
+        ? `site:linkedin.com/posts "${tp.theme}"`
+        : `site:linkedin.com/posts ${tp.theme}`;
       const { results } = await searchGoogle(query, {
         language,
         country,
         domain,
+        lr: language,
         page: tp.page,
         results: 50,
       });
@@ -148,24 +188,15 @@ export async function POST(request: Request) {
         if (slug && !seenSlugs.has(slug)) {
           seenSlugs.add(slug);
           candidateSlugs.push(slug);
+          slugFocus.set(slug, tp.focus);
         }
       }
       fetched = true;
     }
 
     if (!fetched) {
-      if (!synonymsGenerated) {
-        synonymsGenerated = true;
-        console.log("[casting] Original themes exhausted, generating synonym queries…");
-        for (const theme of themes) {
-          const synonyms = await generateSearchSynonyms(theme);
-          for (const syn of synonyms) {
-            themePages.push({ theme: syn, page: 0, exhausted: false });
-          }
-        }
-        continue; // re-enter loop to search with synonym queries
-      }
-      break; // synonyms also exhausted
+      console.log("[casting] All search tiers exhausted");
+      break;
     }
   }
 
@@ -203,6 +234,7 @@ export async function POST(request: Request) {
       frequency_score: p.posts_per_month,
       composite_score: null,
       rank_position: i + 1,
+      focus: p.focus,
       notes: JSON.stringify({
         name: p.name,
         headline: p.headline,
@@ -212,6 +244,7 @@ export async function POST(request: Request) {
         followers: p.followers,
         posts_per_month: p.posts_per_month,
         linkedin_url: p.linkedin_url,
+        focus: p.focus,
       }),
       status: "found",
     }));
