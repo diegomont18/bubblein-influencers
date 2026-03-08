@@ -55,6 +55,120 @@ export async function classifyTopics(
   }
 }
 
+export async function checkRelevance(
+  searchThemes: string[],
+  headline: string | null,
+  about: string | null,
+  roles: string[]
+): Promise<{ relevant: boolean; score: number }> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping relevance check");
+    return { relevant: true, score: 0 };
+  }
+
+  const profileText = [
+    headline ? `Headline: ${headline}` : null,
+    about ? `About: ${about}` : null,
+    roles.length > 0 ? `Roles: ${roles.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (!profileText.trim()) return { relevant: true, score: 0 };
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              'You evaluate whether a LinkedIn profile is relevant to specific search themes based on what the person TALKS ABOUT and POSTS ABOUT, not their job title or profession. A person is relevant if their content, posts, or areas of interest relate to the search themes — regardless of their formal profession. For example, an engineer who posts about marketing metrics IS relevant to marketing themes. Only mark as irrelevant if the person clearly does not discuss or create content related to the search themes at all. When in doubt, mark as relevant. Search themes may be in any language. Return JSON only: {"relevant": boolean, "score": 0.0-1.0, "reason": string}',
+          },
+          {
+            role: "user",
+            content: `Search themes: ${searchThemes.join(", ")}\n\nProfile:\n${profileText}`,
+          },
+        ],
+        temperature: 0,
+        max_tokens: 200,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[ai] checkRelevance failed: status=${res.status} body=${errText.slice(0, 300)}`);
+      return { relevant: true, score: 0 };
+    }
+
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(content);
+    const relevant = Boolean(parsed.relevant);
+    const score = typeof parsed.score === "number" ? parsed.score : 0;
+    console.log(`[ai] checkRelevance: relevant=${relevant}, score=${score}, reason=${parsed.reason ?? ""}`);
+    return { relevant, score };
+  } catch (err) {
+    console.error(`[ai] checkRelevance exception: ${err instanceof Error ? err.message : err}`);
+    return { relevant: true, score: 0 };
+  }
+}
+
+export async function generateSearchSynonyms(theme: string): Promise<string[]> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping synonym generation");
+    return [];
+  }
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-3-8b-instruct",
+        messages: [
+          {
+            role: "user",
+            content: `Generate 5 alternative search queries (synonyms, related terms) for finding LinkedIn posts about: ${theme}. Return ONLY a JSON array of strings. No explanation.`,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 200,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[ai] generateSearchSynonyms failed: status=${res.status} body=${errText.slice(0, 300)}`);
+      return [];
+    }
+
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content ?? "";
+    // Extract JSON array from response (may contain markdown fences)
+    const match = content.match(/\[[\s\S]*?\]/);
+    if (!match) return [];
+    const parsed = JSON.parse(match[0]);
+    const result = Array.isArray(parsed) ? parsed.slice(0, 5).map(String) : [];
+    console.log(`[ai] generateSearchSynonyms for "${theme}": ${JSON.stringify(result)}`);
+    return result;
+  } catch (err) {
+    console.error(`[ai] generateSearchSynonyms exception: ${err instanceof Error ? err.message : err}`);
+    return [];
+  }
+}
+
 export async function generateEmbedding(
   text: string
 ): Promise<number[] | null> {

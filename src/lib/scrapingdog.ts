@@ -10,8 +10,17 @@ export interface GoogleSearchResult {
   snippet: string;
 }
 
+export interface GoogleSearchOptions {
+  language?: string;
+  country?: string;
+  domain?: string;
+  page?: number;
+  results?: number;
+}
+
 export async function searchGoogle(
-  query: string
+  query: string,
+  options?: GoogleSearchOptions
 ): Promise<{ results: GoogleSearchResult[] }> {
   const apiKey = process.env.SCRAPINGDOG_API_KEY;
   if (!apiKey) {
@@ -19,8 +28,18 @@ export async function searchGoogle(
     return { results: [] };
   }
 
-  const url = `https://api.scrapingdog.com/google/?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(query)}&results=5`;
-  console.log(`[scrapingdog] Google SERP query="${query}"`);
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    query,
+    results: String(options?.results ?? 10),
+  });
+  if (options?.language) params.set("language", options.language);
+  if (options?.country) params.set("country", options.country);
+  if (options?.domain) params.set("domain", options.domain);
+  if (options?.page !== undefined) params.set("page", String(options.page));
+
+  const url = `https://api.scrapingdog.com/google/?${params.toString()}`;
+  console.log(`[scrapingdog] Google SERP query="${query}" page=${options?.page ?? 0}`);
 
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -64,7 +83,28 @@ export async function fetchLinkedInProfile(
     }
 
     if (status === 202) {
-      console.log(`[scrapingdog] 202 — async processing, will retry later`);
+      console.log(`[scrapingdog] 202 — async processing, retrying...`);
+      // Retry up to 2 times with 3s delay for async processing
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log(`[scrapingdog] Retrying 202 for slug="${slug}" attempt=${attempt}`);
+        const retryRes = await fetch(url, { cache: "no-store" });
+        const retryStatus = retryRes.status;
+        console.log(`[scrapingdog] Retry status=${retryStatus} for slug="${slug}"`);
+        if (retryStatus === 200) {
+          let retryData = await retryRes.json();
+          if (Array.isArray(retryData) && retryData.length > 0) {
+            retryData = retryData[0];
+          }
+          return { status: 200, data: retryData };
+        }
+        if (retryStatus !== 202) {
+          const retryText = await retryRes.text();
+          console.error(`[scrapingdog] Retry error status=${retryStatus} body=${retryText.slice(0, 500)}`);
+          return { status: retryStatus, data: null, error: retryText };
+        }
+      }
+      console.log(`[scrapingdog] 202 retries exhausted for slug="${slug}"`);
       return { status: 202, data: null };
     }
 

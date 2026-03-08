@@ -58,7 +58,43 @@ export function calculatePostingFrequency(
   const articles = source.articles as Array<Record<string, unknown>> | undefined;
   const posts = source.posts as Array<Record<string, unknown>> | undefined;
   const postItems = source.post_items as Array<Record<string, unknown>> | undefined;
-  const totalCount = (activities?.length ?? 0) + (articles?.length ?? 0) + (posts?.length ?? 0) + (postItems?.length ?? 0);
+
+  // Debug: log the first activity item's structure so we can see what ScrapingDog returns
+  if (activities && activities.length > 0) {
+    const first = activities[0];
+    const sampleKeys = Object.keys(first);
+    const sampleValues: Record<string, unknown> = {};
+    for (const k of sampleKeys.slice(0, 10)) {
+      const v = first[k];
+      sampleValues[k] = typeof v === "string" ? v.slice(0, 80) : v;
+    }
+    console.log(`[posting-frequency] First activity item keys: ${JSON.stringify(sampleKeys)}`);
+    console.log(`[posting-frequency] First activity sample: ${JSON.stringify(sampleValues)}`);
+    console.log(`[posting-frequency] activity_status=${first.activity_status}, status=${first.status}, type=${first.type}`);
+  }
+
+  // Filter activities to only count original posts, not reactions/comments/shares
+  const isOriginalPost = (item: Record<string, unknown>): boolean => {
+    const status = String(item.activity_status ?? item.status ?? item.type ?? "").toLowerCase();
+    if (status) {
+      // Exclude items explicitly marked as reactions/comments
+      if (/liked|reacted|commented|celebrated|voted|suggested|supported|funny|insightful|love|curious/i.test(status)) {
+        return false;
+      }
+      // Include items explicitly marked as original posts
+      if (/posted|shared|published/i.test(status)) {
+        return true;
+      }
+    }
+    // Fallback: count only items with meaningful text content (reactions typically don't have text)
+    const text = String(item.title ?? item.text ?? item.message ?? "");
+    return text.trim().length > 20;
+  };
+
+  const originalPosts = (activities ?? []).filter(isOriginalPost);
+  console.log(`[posting-frequency] activities total=${activities?.length ?? 0}, original posts=${originalPosts.length}`);
+
+  const totalCount = originalPosts.length + (articles?.length ?? 0) + (posts?.length ?? 0) + (postItems?.length ?? 0);
 
   // ScrapingDog returns a snapshot of recent items (typically ~20).
   // Estimate posts per month: assume the snapshot covers roughly 1 month.
@@ -76,7 +112,7 @@ function str(val: unknown): string | null {
   return null;
 }
 
-function parseAbbreviatedNumber(val: unknown): number | null {
+export function parseAbbreviatedNumber(val: unknown): number | null {
   if (typeof val === "number") return val;
   if (typeof val !== "string") return null;
   const match = val.match(/([\d,.]+)\s*([KkMm])?/);

@@ -11,3 +11,7 @@ migrations/<NNN>_<description>.sql
 Example: `migrations/001_initial_schema.sql`, `migrations/002_add_rls_policies.sql`
 
 Increment the number sequentially based on the last existing migration file.
+
+## Verification Steps
+
+After every implementation, always provide the user with clear steps to verify the changes work correctly.

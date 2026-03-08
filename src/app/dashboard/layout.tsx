@@ -5,7 +5,7 @@ const navItems = [
   { label: "Overview", href: "/dashboard", soon: false },
   { label: "Checker", href: "/dashboard/checker", soon: false },
   { label: "Profile Enricher", href: "/dashboard/enricher", soon: false },
-  { label: "Casting", href: "/dashboard/casting", soon: true },
+  { label: "Casting", href: "/dashboard/casting", soon: false },
   { label: "Monitoring", href: "/dashboard/monitoring", soon: true },
 ];
 
