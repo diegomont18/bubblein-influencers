@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   let query = service
     .from("profiles")
     .select(
-      "name, url, headline, company_current, role_current, current_job, location, followers_count, connections_count, topics, tags, posting_frequency_score, enrichment_status, last_enriched_at"
+      "name, url, headline, company_current, role_current, current_job, location, followers_count, connections_count, topics, tags, posting_frequency_score, enrichment_status, last_enriched_at, checked"
     );
 
   if (topic) {
@@ -86,6 +86,7 @@ export async function GET(request: Request) {
     "Posting Frequency",
     "Enrichment Status",
     "Last Enriched At",
+    "Checked",
   ];
 
   const rows = (data ?? []).map((row) =>
@@ -104,6 +105,7 @@ export async function GET(request: Request) {
       row.posting_frequency_score != null ? String(row.posting_frequency_score) : "",
       row.enrichment_status ?? "",
       row.last_enriched_at ?? "",
+      row.checked ? "Yes" : "No",
     ])
   );
 

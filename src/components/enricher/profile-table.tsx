@@ -358,6 +358,25 @@ export function ProfileTable() {
     setEditingCell(null);
   }
 
+  async function handleToggleChecked(id: string, checked: boolean) {
+    // Optimistic update
+    setProfiles((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, checked } : p))
+    );
+    try {
+      const res = await fetch(`/api/profiles/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checked }),
+      });
+      if (!res.ok) {
+        await fetchProfiles();
+      }
+    } catch {
+      await fetchProfiles();
+    }
+  }
+
   // Delete profiles
   async function handleDeleteProfiles(ids: string[]) {
     const count = ids.length;
@@ -593,6 +612,7 @@ export function ProfileTable() {
               </th>
               <SortableHeader column="name" label="Name" />
               <th className="px-4 py-3 font-medium text-gray-500">Profile</th>
+              <th className="px-4 py-3 font-medium text-gray-500">Checked</th>
               <SortableHeader column="headline" label="Headline" />
               <SortableHeader column="company_current" label="Company" />
               <SortableHeader column="current_job" label="Current Job" />
@@ -608,13 +628,13 @@ export function ProfileTable() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={13} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={14} className="px-4 py-8 text-center text-gray-400">
                   Loading...
                 </td>
               </tr>
             ) : profiles.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={14} className="px-4 py-8 text-center text-gray-400">
                   No profiles found
                 </td>
               </tr>
@@ -655,6 +675,14 @@ export function ProfileTable() {
                     ) : (
                       "—"
                     )}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={!!p.checked}
+                      onChange={() => handleToggleChecked(p.id, !p.checked)}
+                      className="rounded border-gray-300"
+                    />
                   </td>
                   <EditableCell
                     profileId={p.id}

@@ -11,6 +11,7 @@ const EDITABLE_FIELDS = new Set([
   "followers_count",
   "location",
   "posting_frequency_score",
+  "checked",
 ]);
 
 export async function PATCH(
@@ -39,10 +40,12 @@ export async function PATCH(
       );
     }
     updateFields[key] = body[key];
-    editedFieldNames.push(key);
+    if (key !== "checked") {
+      editedFieldNames.push(key);
+    }
   }
 
-  if (editedFieldNames.length === 0) {
+  if (Object.keys(updateFields).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
@@ -59,10 +62,12 @@ export async function PATCH(
     return NextResponse.json({ error: "Profile not found" }, { status: 404 });
   }
 
-  // Merge edited_fields
+  // Merge edited_fields (only if content fields were edited, not just "checked")
   const existingEdited: string[] = (profile.edited_fields as string[]) ?? [];
   const mergedEdited = Array.from(new Set([...existingEdited, ...editedFieldNames]));
-  updateFields.edited_fields = mergedEdited;
+  if (editedFieldNames.length > 0) {
+    updateFields.edited_fields = mergedEdited;
+  }
 
   // If role_current or company_current changed, recompute current_job
   if ("role_current" in updateFields || "company_current" in updateFields) {

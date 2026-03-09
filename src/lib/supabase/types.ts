@@ -26,6 +26,7 @@ export interface Database {
           topics: string[] | null;
           tags: string[];
           edited_fields: string[];
+          checked: boolean;
           topics_embedding: string | null;
           posting_frequency: string | null;
           posting_frequency_score: number | null;
@@ -51,6 +52,7 @@ export interface Database {
           topics?: string[] | null;
           tags?: string[];
           edited_fields?: string[];
+          checked?: boolean;
           topics_embedding?: string | null;
           posting_frequency?: string | null;
           posting_frequency_score?: number | null;
@@ -76,6 +78,7 @@ export interface Database {
           topics?: string[] | null;
           tags?: string[];
           edited_fields?: string[];
+          checked?: boolean;
           topics_embedding?: string | null;
           posting_frequency?: string | null;
           posting_frequency_score?: number | null;
