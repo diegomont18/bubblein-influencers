@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   let query = service
     .from("profiles")
     .select(
-      "name, url, headline, company_current, role_current, current_job, location, followers_count, connections_count, topics, tags, posting_frequency_score, enrichment_status, last_enriched_at, checked"
+      "name, url, headline, company_current, role_current, current_job, location, followers_count, connections_count, topics, tags, posting_frequency_score, avg_likes_per_post, avg_comments_per_post, enrichment_status, last_enriched_at, checked, casting_keywords"
     );
 
   if (topic) {
@@ -84,9 +84,12 @@ export async function GET(request: Request) {
     "Topics",
     "Tags",
     "Posting Frequency",
+    "Avg Likes/Post",
+    "Avg Comments/Post",
     "Enrichment Status",
     "Last Enriched At",
     "Checked",
+    "Keywords",
   ];
 
   const rows = (data ?? []).map((row) =>
@@ -103,9 +106,12 @@ export async function GET(request: Request) {
       (row.topics ?? []).join("; "),
       (row.tags ?? []).join("; "),
       row.posting_frequency_score != null ? String(row.posting_frequency_score) : "",
+      row.avg_likes_per_post != null ? String(row.avg_likes_per_post) : "",
+      row.avg_comments_per_post != null ? String(row.avg_comments_per_post) : "",
       row.enrichment_status ?? "",
       row.last_enriched_at ?? "",
       row.checked ? "Yes" : "No",
+      row.casting_keywords ?? "",
     ])
   );
 

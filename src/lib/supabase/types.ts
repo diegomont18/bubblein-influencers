@@ -33,6 +33,9 @@ export interface Database {
           enrichment_status: string;
           raw_data: Json | null;
           last_enriched_at: string | null;
+          avg_likes_per_post: number | null;
+          avg_comments_per_post: number | null;
+          casting_keywords: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -59,6 +62,9 @@ export interface Database {
           enrichment_status?: string;
           raw_data?: Json | null;
           last_enriched_at?: string | null;
+          avg_likes_per_post?: number | null;
+          avg_comments_per_post?: number | null;
+          casting_keywords?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -85,6 +91,9 @@ export interface Database {
           enrichment_status?: string;
           raw_data?: Json | null;
           last_enriched_at?: string | null;
+          avg_likes_per_post?: number | null;
+          avg_comments_per_post?: number | null;
+          casting_keywords?: string | null;
           created_at?: string;
           updated_at?: string;
         };

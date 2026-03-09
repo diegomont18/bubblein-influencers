@@ -40,6 +40,24 @@ export function normalizeExperiences(
   }));
 }
 
+// Shared helper: determines if an activity item is an original post (not a reaction/comment/share)
+function isOriginalPost(item: Record<string, unknown>): boolean {
+  const status = String(item.activity_status ?? item.status ?? item.type ?? item.activity ?? "").toLowerCase();
+  if (status) {
+    // Exclude items explicitly marked as reactions/comments
+    if (/liked|reacted|commented|celebrated|voted|suggested|supported|funny|insightful|love|curious/i.test(status)) {
+      return false;
+    }
+    // Include items explicitly marked as original posts
+    if (/posted|shared|published/i.test(status)) {
+      return true;
+    }
+  }
+  // Fallback: count only items with meaningful text content (reactions typically don't have text)
+  const text = String(item.title ?? item.text ?? item.message ?? "");
+  return text.trim().length > 20;
+}
+
 export function calculatePostingFrequency(
   raw: Record<string, unknown>,
   postsData?: Record<string, unknown> | null
@@ -73,24 +91,6 @@ export function calculatePostingFrequency(
     console.log(`[posting-frequency] activity_status=${first.activity_status}, status=${first.status}, type=${first.type}`);
   }
 
-  // Filter activities to only count original posts, not reactions/comments/shares
-  const isOriginalPost = (item: Record<string, unknown>): boolean => {
-    const status = String(item.activity_status ?? item.status ?? item.type ?? "").toLowerCase();
-    if (status) {
-      // Exclude items explicitly marked as reactions/comments
-      if (/liked|reacted|commented|celebrated|voted|suggested|supported|funny|insightful|love|curious/i.test(status)) {
-        return false;
-      }
-      // Include items explicitly marked as original posts
-      if (/posted|shared|published/i.test(status)) {
-        return true;
-      }
-    }
-    // Fallback: count only items with meaningful text content (reactions typically don't have text)
-    const text = String(item.title ?? item.text ?? item.message ?? "");
-    return text.trim().length > 20;
-  };
-
   const originalPosts = (activities ?? []).filter(isOriginalPost);
   console.log(`[posting-frequency] activities total=${activities?.length ?? 0}, original posts=${originalPosts.length}`);
 
@@ -105,6 +105,181 @@ export function calculatePostingFrequency(
     label: postsPerMonth > 0 ? `${postsPerMonth}/mo` : "0/mo",
     score: postsPerMonth,
   };
+}
+
+export function calculateEngagementMetrics(
+  raw: Record<string, unknown>
+): { avgLikes: number | null; avgComments: number | null } {
+  const activities = raw.activities as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(activities) || activities.length === 0) {
+    return { avgLikes: null, avgComments: null };
+  }
+
+  // Log engagement-related keys from first activity for debugging
+  const first = activities[0];
+  const engagementKeys = Object.keys(first).filter(k =>
+    /like|reaction|comment|social|count|num/i.test(k)
+  );
+  console.log(`[engagement] First activity engagement-related keys: ${JSON.stringify(engagementKeys)}`);
+  for (const k of engagementKeys) {
+    console.log(`[engagement]   ${k} = ${JSON.stringify(first[k])}`);
+  }
+
+  const originalPosts = activities.filter(isOriginalPost);
+  if (originalPosts.length === 0) {
+    return { avgLikes: null, avgComments: null };
+  }
+
+  let likesSum = 0;
+  let likesCount = 0;
+  let commentsSum = 0;
+  let commentsCount = 0;
+
+  for (const post of originalPosts) {
+    // Try multiple field name patterns for likes/reactions
+    const likes = extractNumeric(post, [
+      "num_likes", "reactionCount", "reaction_count", "likes_count", "likes", "total_likes",
+    ]) ?? extractNested(post, [
+      ["social_detail", "totalSocialActivityCounts", "numLikes"],
+      ["socialDetail", "reactionCount"],
+      ["social_counts", "likes"],
+    ]);
+
+    if (likes != null) {
+      likesSum += likes;
+      likesCount++;
+    }
+
+    // Try multiple field name patterns for comments
+    const comments = extractNumeric(post, [
+      "num_comments", "commentCount", "comment_count", "comments_count", "comments", "total_comments",
+    ]) ?? extractNested(post, [
+      ["social_detail", "totalSocialActivityCounts", "numComments"],
+      ["socialDetail", "commentCount"],
+      ["social_counts", "comments"],
+    ]);
+
+    if (comments != null) {
+      commentsSum += comments;
+      commentsCount++;
+    }
+  }
+
+  const avgLikes = likesCount > 0 ? Math.round((likesSum / likesCount) * 10) / 10 : null;
+  const avgComments = commentsCount > 0 ? Math.round((commentsSum / commentsCount) * 10) / 10 : null;
+
+  console.log(`[engagement] originalPosts=${originalPosts.length} avgLikes=${avgLikes} (from ${likesCount} posts) avgComments=${avgComments} (from ${commentsCount} posts)`);
+
+  return { avgLikes, avgComments };
+}
+
+/**
+ * Extract up to `limit` post URLs from activity items that are original posts.
+ */
+export function getOriginalPostLinks(
+  raw: Record<string, unknown>,
+  limit = 3
+): string[] {
+  const activities = raw.activities as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(activities)) return [];
+
+  const links: string[] = [];
+  for (const item of activities) {
+    if (links.length >= limit) break;
+    if (!isOriginalPost(item)) continue;
+    const link = typeof item.link === "string" ? item.link.trim() : null;
+    if (link && link.startsWith("http")) {
+      links.push(link);
+    }
+  }
+  console.log(`[engagement] Found ${links.length} original post links (from ${activities.length} activities)`);
+  return links;
+}
+
+/**
+ * Compute average likes/comments from fetched post data objects.
+ */
+export function computeEngagementFromPosts(
+  postDataList: Array<Record<string, unknown>>
+): { avgLikes: number | null; avgComments: number | null } {
+  let likesSum = 0;
+  let likesCount = 0;
+  let commentsSum = 0;
+  let commentsCount = 0;
+
+  if (postDataList.length > 0) {
+    const first = postDataList[0];
+    console.log(`[engagement] First post data keys: ${JSON.stringify(Object.keys(first))}`);
+    const sampleLikes = first["reactions_count"] ?? first["reaction_count"] ?? first["num_likes"];
+    const sampleComments = first["comment_count"] ?? first["num_comments"];
+    console.log(`[engagement] Sample values: reactions_count=${first["reactions_count"]} comment_count=${first["comment_count"]} (raw: likes=${sampleLikes} comments=${sampleComments})`);
+  }
+
+  for (const post of postDataList) {
+    // ScrapingDog post endpoint returns fields like num_likes, num_comments,
+    // or nested social_counts. Try multiple patterns.
+    const likes = extractNumeric(post, [
+      "num_likes", "reactionCount", "reaction_count", "reactions_count", "likes_count", "likes",
+      "total_likes", "numLikes", "total_reaction_count",
+    ]) ?? extractNested(post, [
+      ["social_detail", "totalSocialActivityCounts", "numLikes"],
+      ["socialDetail", "reactionCount"],
+      ["social_counts", "likes"],
+    ]);
+
+    if (likes != null) {
+      likesSum += likes;
+      likesCount++;
+    }
+
+    const comments = extractNumeric(post, [
+      "num_comments", "commentCount", "comment_count", "comments_count",
+      "comments", "total_comments", "numComments", "total_comment_count",
+    ]) ?? extractNested(post, [
+      ["social_detail", "totalSocialActivityCounts", "numComments"],
+      ["socialDetail", "commentCount"],
+      ["social_counts", "comments"],
+    ]);
+
+    if (comments != null) {
+      commentsSum += comments;
+      commentsCount++;
+    }
+  }
+
+  const avgLikes = likesCount > 0 ? Math.round((likesSum / likesCount) * 10) / 10 : null;
+  const avgComments = commentsCount > 0 ? Math.round((commentsSum / commentsCount) * 10) / 10 : null;
+
+  console.log(`[engagement] From ${postDataList.length} fetched posts: avgLikes=${avgLikes} (${likesCount} had data) avgComments=${avgComments} (${commentsCount} had data)`);
+  return { avgLikes, avgComments };
+}
+
+function extractNumeric(obj: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const val = obj[key];
+    if (typeof val === "number") return val;
+    if (typeof val === "string") {
+      const n = parseFloat(val);
+      if (!isNaN(n)) return n;
+    }
+  }
+  return null;
+}
+
+function extractNested(obj: Record<string, unknown>, paths: string[][]): number | null {
+  for (const path of paths) {
+    let current: unknown = obj;
+    for (const key of path) {
+      if (current == null || typeof current !== "object") { current = undefined; break; }
+      current = (current as Record<string, unknown>)[key];
+    }
+    if (typeof current === "number") return current;
+    if (typeof current === "string") {
+      const n = parseFloat(current);
+      if (!isNaN(n)) return n;
+    }
+  }
+  return null;
 }
 
 function str(val: unknown): string | null {

@@ -26,7 +26,8 @@ export async function GET(request: Request) {
 
   const SORTABLE_COLUMNS = new Set([
     "name", "headline", "company_current", "current_job",
-    "followers_count", "posting_frequency_score", "enrichment_status", "created_at", "last_enriched_at",
+    "followers_count", "posting_frequency_score", "avg_likes_per_post", "avg_comments_per_post",
+    "enrichment_status", "created_at", "last_enriched_at",
   ]);
   const sortBy = sortByParam && SORTABLE_COLUMNS.has(sortByParam) ? sortByParam : "created_at";
   const sortDir = sortDirParam === "asc" ? "asc" : "desc";

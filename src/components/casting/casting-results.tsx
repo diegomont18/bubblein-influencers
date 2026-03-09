@@ -12,6 +12,8 @@ export interface CastingProfile {
   location: string;
   followers: number;
   posts_per_month: number;
+  avg_likes_per_post?: number | null;
+  avg_comments_per_post?: number | null;
   linkedin_url: string;
   focus?: number;
 }
@@ -20,9 +22,10 @@ interface CastingResultsProps {
   profiles: CastingProfile[];
   listId?: string | null;
   onDeleteProfile?: (slug: string) => void;
+  queryTheme?: string;
 }
 
-export function CastingResults({ profiles, listId, onDeleteProfile }: CastingResultsProps) {
+export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }: CastingResultsProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [copyTargets, setCopyTargets] = useState<CastingProfile[] | null>(null);
   const [feedback, setFeedback] = useState<{ queued: number; duplicates: number } | null>(null);
@@ -65,7 +68,7 @@ export function CastingResults({ profiles, listId, onDeleteProfile }: CastingRes
       const res = await fetch("/api/profiles/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls, tags }),
+        body: JSON.stringify({ urls, tags, ...(queryTheme ? { casting_keywords: queryTheme.replace(/\n/g, ", ") } : {}) }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -97,7 +100,10 @@ export function CastingResults({ profiles, listId, onDeleteProfile }: CastingRes
       <th className="px-4 py-3 font-medium text-gray-500">Topics</th>
       <th className="px-4 py-3 font-medium text-gray-500">Tags</th>
       <th className="px-4 py-3 font-medium text-gray-500">Posts /month</th>
+      <th className="px-4 py-3 font-medium text-gray-500">Avg Likes</th>
+      <th className="px-4 py-3 font-medium text-gray-500">Avg Comments</th>
       <th className="px-4 py-3 font-medium text-gray-500">Focus</th>
+      <th className="px-4 py-3 font-medium text-gray-500">Keywords</th>
       <th className="px-4 py-3 font-medium text-gray-500">Extracted</th>
       <th className="px-4 py-3 font-medium text-gray-500">Status</th>
       <th className="px-4 py-3 font-medium text-gray-500">Actions</th>
@@ -112,7 +118,7 @@ export function CastingResults({ profiles, listId, onDeleteProfile }: CastingRes
             <thead>{headerRow}</thead>
             <tbody>
               <tr>
-                <td colSpan={14} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={17} className="px-4 py-8 text-center text-gray-400">
                   No profiles found matching your criteria.
                 </td>
               </tr>
@@ -225,6 +231,12 @@ export function CastingResults({ profiles, listId, onDeleteProfile }: CastingRes
                     <td className={`px-4 py-3 ${(p.posts_per_month ?? 0) < 3 ? "text-red-600" : "text-gray-600"}`}>
                       {p.posts_per_month != null ? String(Math.round(p.posts_per_month)) : "—"}
                     </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {p.avg_comments_per_post != null ? String(Math.round(p.avg_comments_per_post)) : "—"}
+                    </td>
                     <td className="px-4 py-3">
                       {p.focus === 3 ? (
                         <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">High</span>
@@ -235,6 +247,9 @@ export function CastingResults({ profiles, listId, onDeleteProfile }: CastingRes
                       ) : (
                         <span className="text-gray-400">—</span>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 max-w-xs truncate">
+                      {queryTheme ? queryTheme.replace(/\n/g, ", ") : "—"}
                     </td>
                     <td className="px-4 py-3 text-gray-400">—</td>
                     <td className="px-4 py-3">

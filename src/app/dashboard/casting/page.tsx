@@ -191,6 +191,8 @@ export default function CastingPage() {
               location: notes?.location ?? "",
               followers: notes?.followers ?? 0,
               posts_per_month: notes?.posts_per_month ?? 0,
+              avg_likes_per_post: notes?.avg_likes_per_post ?? null,
+              avg_comments_per_post: notes?.avg_comments_per_post ?? null,
               linkedin_url: notes?.linkedin_url ?? `https://linkedin.com/in/${p.profile_id}`,
               focus: notes?.focus ?? null,
             };
@@ -343,6 +345,11 @@ export default function CastingPage() {
               profiles={profiles}
               listId={viewingListId}
               onDeleteProfile={handleDeleteProfile}
+              queryTheme={
+                viewingListId
+                  ? pastLists.find((l) => l.id === viewingListId)?.query_theme
+                  : themes
+              }
             />
           )}
         </div>

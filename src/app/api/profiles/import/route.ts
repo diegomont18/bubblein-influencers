@@ -17,6 +17,7 @@ export async function POST(request: Request) {
   const body = await request.json();
   const urls: string[] = body.urls;
   const tags: string[] = Array.isArray(body.tags) ? body.tags : [];
+  const castingKeywords: string | undefined = typeof body.casting_keywords === "string" ? body.casting_keywords : undefined;
   if (!Array.isArray(urls) || urls.length === 0) {
     return NextResponse.json(
       { error: "urls must be a non-empty array" },
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
       url,
       enrichment_status: "pending",
       ...(tags.length > 0 ? { tags } : {}),
+      ...(castingKeywords ? { casting_keywords: castingKeywords } : {}),
     }));
 
     const { data: inserted, error: insertError } = await service

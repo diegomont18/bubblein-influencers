@@ -28,6 +28,7 @@ export function QueueStatus() {
   const [processing, setProcessing] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [reEnriching, setReEnriching] = useState(false);
+  const [reEnrichProgress, setReEnrichProgress] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [lastRun, setLastRun] = useState<ProcessResponse | null>(null);
@@ -102,10 +103,27 @@ export function QueueStatus() {
   async function handleReEnrichAll() {
     setReEnriching(true);
     try {
-      await fetch("/api/enrichment/re-enrich-all", { method: "POST" });
+      // Step 1: Reset all done jobs to queued
+      const resetRes = await fetch("/api/enrichment/re-enrich-all", { method: "POST" });
+      const { reset } = await resetRes.json();
       await fetchStats();
+
+      if (reset === 0) return;
+
+      // Step 2: Process in a loop until no more queued jobs
+      let totalProcessed = 0;
+      while (true) {
+        setReEnrichProgress(`Processing ${totalProcessed}/${reset}...`);
+        const res = await fetch("/api/enrichment/process", { method: "POST" });
+        const data: ProcessResponse = await res.json();
+        totalProcessed += data.processed;
+        await fetchStats();
+        if (data.processed === 0) break;
+      }
+      setLastRun({ processed: totalProcessed, results: [], errors: 0 });
     } finally {
       setReEnriching(false);
+      setReEnrichProgress(null);
     }
   }
 
@@ -170,7 +188,9 @@ export function QueueStatus() {
             disabled={reEnriching}
             className="rounded-md border border-orange-300 px-4 py-1.5 text-sm font-medium text-orange-700 hover:bg-orange-50 disabled:opacity-50 transition-colors"
           >
-            {reEnriching ? "Resetting..." : `Re-enrich All (${stats.profiles.done})`}
+            {reEnriching
+              ? (reEnrichProgress ?? "Resetting...")
+              : `Re-enrich All (${stats.profiles.done})`}
           </button>
         )}
       </div>

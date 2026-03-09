@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { extractSlug } from "@/lib/linkedin";
-import { fetchLinkedInProfile } from "@/lib/scrapingdog";
+import { fetchLinkedInProfile, fetchLinkedInPost } from "@/lib/scrapingdog";
 import {
   normalizeProfileData,
   normalizeExperiences,
   calculatePostingFrequency,
+  calculateEngagementMetrics,
+  getOriginalPostLinks,
+  computeEngagementFromPosts,
   buildCurrentJob,
 } from "@/lib/normalize";
 import { classifyTopics, generateEmbedding } from "@/lib/ai";
@@ -125,6 +128,27 @@ export async function POST(request: Request) {
         // Normalize profile data
         const profileData = normalizeProfileData(result.data);
         const frequency = calculatePostingFrequency(result.data);
+
+        // Try inline engagement first; if null, fetch individual posts
+        let engagement = calculateEngagementMetrics(result.data);
+        if (engagement.avgLikes == null && engagement.avgComments == null) {
+          const postLinks = getOriginalPostLinks(result.data, 3);
+          if (postLinks.length > 0) {
+            console.log(`[enrichment] Job ${job.id}: Fetching ${postLinks.length} individual posts for engagement…`);
+            const postDataList: Record<string, unknown>[] = [];
+            for (let i = 0; i < postLinks.length; i++) {
+              if (i > 0) await new Promise((r) => setTimeout(r, 1000));
+              const result = await fetchLinkedInPost(postLinks[i]);
+              if (result.status === 200 && result.data != null) {
+                postDataList.push(result.data as Record<string, unknown>);
+              }
+            }
+            if (postDataList.length > 0) {
+              engagement = computeEngagementFromPosts(postDataList);
+            }
+          }
+        }
+
         const currentJob = buildCurrentJob(profileData.role_current, profileData.company_current);
 
         // Classify topics
@@ -165,6 +189,8 @@ export async function POST(request: Request) {
               : undefined,
             posting_frequency: frequency.label,
             posting_frequency_score: frequency.score,
+            avg_likes_per_post: engagement.avgLikes,
+            avg_comments_per_post: engagement.avgComments,
             enrichment_status: "done",
             raw_data: result.data,
             last_enriched_at: new Date().toISOString(),

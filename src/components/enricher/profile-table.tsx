@@ -620,6 +620,9 @@ export function ProfileTable() {
               <th className="px-4 py-3 font-medium text-gray-500">Topics</th>
               <th className="px-4 py-3 font-medium text-gray-500">Tags</th>
               <SortableHeader column="posting_frequency_score" label="Posts /month" />
+              <SortableHeader column="avg_likes_per_post" label="Avg Likes" />
+              <SortableHeader column="avg_comments_per_post" label="Avg Comments" />
+              <th className="px-4 py-3 font-medium text-gray-500">Keywords</th>
               <SortableHeader column="last_enriched_at" label="Extracted" />
               <SortableHeader column="enrichment_status" label="Status" />
               <th className="px-4 py-3 font-medium text-gray-500"></th>
@@ -628,13 +631,13 @@ export function ProfileTable() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={14} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={17} className="px-4 py-8 text-center text-gray-400">
                   Loading...
                 </td>
               </tr>
             ) : profiles.length === 0 ? (
               <tr>
-                <td colSpan={14} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={17} className="px-4 py-8 text-center text-gray-400">
                   No profiles found
                 </td>
               </tr>
@@ -792,6 +795,15 @@ export function ProfileTable() {
                     onEditValueChange={setEditValue}
                     className={`px-4 py-3 ${(p.posting_frequency_score ?? 0) < 3 ? "text-red-600" : "text-gray-600"}`}
                   />
+                  <td className="px-4 py-3 text-gray-600">
+                    {p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {p.avg_comments_per_post != null ? String(Math.round(p.avg_comments_per_post)) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-gray-400">
+                    {p.casting_keywords ?? "—"}
+                  </td>
                   <td className="px-4 py-3 text-gray-600">
                     {p.last_enriched_at
                       ? new Date(p.last_enriched_at).toLocaleDateString()
