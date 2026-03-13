@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { searchGoogle, fetchLinkedInProfile, fetchLinkedInPost } from "@/lib/scrapingdog";
-import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculateEngagementMetrics, getOriginalPostLinks, computeEngagementFromPosts } from "@/lib/normalize";
+import { searchGoogle, fetchLinkedInProfile } from "@/lib/scrapingdog";
+import { fetchProfilePosts } from "@/lib/apify";
+import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculateEngagementMetrics, computeEngagementFromPosts } from "@/lib/normalize";
 import { generateSearchSynonyms, checkPublishLanguage } from "@/lib/ai";
 
 
@@ -132,23 +133,14 @@ export async function POST(request: Request) {
 
       const { score: postsPerMonth } = calculatePostingFrequency(data);
 
-      // Try inline engagement first; if null, fetch individual posts
+      // Try inline engagement first; if null, fetch posts via Apify
       let engagement = calculateEngagementMetrics(data);
       if (engagement.avgLikes == null && engagement.avgComments == null) {
-        const postLinks = getOriginalPostLinks(data, 3);
-        if (postLinks.length > 0) {
-          console.log(`[casting] Profile ${slug}: Fetching ${postLinks.length} posts for engagement…`);
-          const postDataList: Record<string, unknown>[] = [];
-          for (let i = 0; i < postLinks.length; i++) {
-            if (i > 0) await new Promise((r) => setTimeout(r, 1000));
-            const result = await fetchLinkedInPost(postLinks[i]);
-            if (result.status === 200 && result.data != null) {
-              postDataList.push(result.data as Record<string, unknown>);
-            }
-          }
-          if (postDataList.length > 0) {
-            engagement = computeEngagementFromPosts(postDataList);
-          }
+        const profileUrl = `https://www.linkedin.com/in/${slug}/`;
+        console.log(`[casting] Profile ${slug}: Fetching posts via Apify…`);
+        const posts = await fetchProfilePosts(profileUrl);
+        if (posts.length > 0) {
+          engagement = computeEngagementFromPosts(posts);
         }
       }
 

@@ -225,6 +225,7 @@ export function computeEngagementFromPosts(
       ["social_detail", "totalSocialActivityCounts", "numLikes"],
       ["socialDetail", "reactionCount"],
       ["social_counts", "likes"],
+      ["engagement", "likes"],
     ]);
 
     if (likes != null) {
@@ -239,6 +240,7 @@ export function computeEngagementFromPosts(
       ["social_detail", "totalSocialActivityCounts", "numComments"],
       ["socialDetail", "commentCount"],
       ["social_counts", "comments"],
+      ["engagement", "comments"],
     ]);
 
     if (comments != null) {
