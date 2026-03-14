@@ -25,14 +25,19 @@ const LANGUAGES = [
 export default function CastingPage() {
   const [themes, setThemes] = useState("");
   const [languageIdx, setLanguageIdx] = useState(0);
-  const [minFollowers, setMinFollowers] = useState(1000);
+  const [minFollowers, setMinFollowers] = useState(2500);
   const [maxFollowers, setMaxFollowers] = useState(100000);
   const [resultsCount, setResultsCount] = useState(20);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [synonyms, setSynonyms] = useState<Record<string, string[]> | null>(null);
+  const [generatingSynonyms, setGeneratingSynonyms] = useState(false);
+  const [coverAllKeywords, setCoverAllKeywords] = useState(true);
+  const [publico, setPublico] = useState("");
 
   const [profiles, setProfiles] = useState<CastingProfile[]>([]);
   const [totalCandidates, setTotalCandidates] = useState(0);
+  const [keywordStats, setKeywordStats] = useState<Record<string, { googleResults: number; candidates: number; matched: number }> | null>(null);
 
   const [pastLists, setPastLists] = useState<CastingList[]>([]);
   const [loadingLists, setLoadingLists] = useState(true);
@@ -59,7 +64,47 @@ export default function CastingPage() {
     fetchPastLists();
   }, [fetchPastLists]);
 
-  async function handleSearch() {
+  async function handleGenerateSynonyms() {
+    const themeLines = themes
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (themeLines.length === 0) {
+      setError("Enter at least one content theme.");
+      return;
+    }
+
+    setError(null);
+    setGeneratingSynonyms(true);
+
+    const lang = LANGUAGES[languageIdx];
+
+    try {
+      const res = await fetch("/api/casting/synonyms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          themes: themeLines,
+          language: lang.value,
+        }),
+      });
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error ?? `Failed to generate synonyms (${res.status})`);
+      }
+
+      const json = await res.json();
+      setSynonyms(json.synonyms ?? {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate synonyms");
+    } finally {
+      setGeneratingSynonyms(false);
+    }
+  }
+
+  async function handleSearch(withSynonyms: boolean = true) {
     const themeLines = themes
       .split("\n")
       .map((l) => l.trim())
@@ -74,10 +119,13 @@ export default function CastingPage() {
     setSearching(true);
     setProfiles([]);
     setTotalCandidates(0);
+    setKeywordStats(null);
 
     const lang = LANGUAGES[languageIdx];
 
     try {
+      const publicoTags = publico.split(",").map(t => t.trim().toLowerCase()).filter(Boolean);
+
       const res = await fetch("/api/casting/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -89,6 +137,9 @@ export default function CastingPage() {
           minFollowers,
           maxFollowers,
           resultsCount,
+          approvedSynonyms: withSynonyms && synonyms ? synonyms : undefined,
+          coverAllKeywords,
+          publico: publicoTags,
         }),
       });
 
@@ -100,6 +151,7 @@ export default function CastingPage() {
       const json = await res.json();
       setProfiles(json.profiles ?? []);
       setTotalCandidates(json.totalCandidates ?? 0);
+      setKeywordStats(json.keywordStats ?? null);
       setViewingListId(null);
       fetchPastLists();
     } catch (err) {
@@ -193,8 +245,14 @@ export default function CastingPage() {
               posts_per_month: notes?.posts_per_month ?? 0,
               avg_likes_per_post: notes?.avg_likes_per_post ?? null,
               avg_comments_per_post: notes?.avg_comments_per_post ?? null,
+              creator_score: notes?.creator_score ?? null,
+              topics: notes?.topics ?? [],
+              topic_match: notes?.topic_match ?? undefined,
+              matched_publico: notes?.matched_publico ?? undefined,
+              final_score: notes?.final_score ?? undefined,
               linkedin_url: notes?.linkedin_url ?? `https://linkedin.com/in/${p.profile_id}`,
               focus: notes?.focus ?? null,
+              source_keyword: notes?.source_keyword ?? undefined,
             };
           } catch (e) {
             console.warn(`[casting] Failed to parse notes for profile ${p.profile_id}`, e);
@@ -245,8 +303,24 @@ export default function CastingPage() {
           <textarea
             rows={4}
             value={themes}
-            onChange={(e) => setThemes(e.target.value)}
+            onChange={(e) => {
+              setThemes(e.target.value);
+              setSynonyms(null);
+            }}
             placeholder={"marketing digital\ninfluenciador linkedin\ncriação de conteúdo"}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Publico (target audience)
+          </label>
+          <input
+            type="text"
+            value={publico}
+            onChange={(e) => setPublico(e.target.value)}
+            placeholder="marketing, AI, leadership, tech"
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
           />
         </div>
@@ -310,16 +384,112 @@ export default function CastingPage() {
           </div>
         </div>
 
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={coverAllKeywords}
+            onChange={(e) => setCoverAllKeywords(e.target.checked)}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          Cover all keywords (may exceed desired results count)
+        </label>
+
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <button
-          onClick={handleSearch}
-          disabled={searching}
-          className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-        >
-          {searching ? "Searching..." : "Search"}
-        </button>
+        <div className="flex items-center gap-3">
+          {!synonyms ? (
+            <button
+              onClick={handleGenerateSynonyms}
+              disabled={generatingSynonyms || searching}
+              className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {generatingSynonyms ? "Generating Synonyms..." : "Generate Synonyms"}
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => handleSearch(true)}
+                disabled={searching}
+                className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {searching ? "Searching..." : "Search"}
+              </button>
+              <button
+                onClick={handleGenerateSynonyms}
+                disabled={generatingSynonyms || searching}
+                className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                {generatingSynonyms ? "Regenerating..." : "Regenerate"}
+              </button>
+              <button
+                onClick={() => handleSearch(false)}
+                disabled={searching}
+                className="text-sm text-gray-500 hover:text-gray-700 underline"
+              >
+                Skip Synonyms
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      {/* Synonym Review Panel */}
+      {synonyms && !searching && (
+        <div className="rounded-lg border border-gray-200 bg-white p-6 space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900">Review Synonyms</h2>
+          <p className="text-sm text-gray-500">
+            Edit or remove synonyms before searching. These will be used as additional search queries.
+          </p>
+          <div className="space-y-4">
+            {Object.entries(synonyms).map(([theme, syns]) => (
+              <div key={theme}>
+                <h3 className="text-sm font-medium text-gray-800 mb-2">{theme}</h3>
+                <div className="flex flex-wrap gap-2">
+                  {syns.map((syn, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-1 bg-gray-100 rounded-md px-2 py-1"
+                    >
+                      <input
+                        type="text"
+                        value={syn}
+                        onChange={(e) => {
+                          setSynonyms((prev) => {
+                            if (!prev) return prev;
+                            const updated = { ...prev };
+                            updated[theme] = [...updated[theme]];
+                            updated[theme][idx] = e.target.value;
+                            return updated;
+                          });
+                        }}
+                        className="bg-transparent text-sm text-gray-700 outline-none min-w-[100px]"
+                        style={{ width: `${Math.max(syn.length, 10)}ch` }}
+                      />
+                      <button
+                        onClick={() => {
+                          setSynonyms((prev) => {
+                            if (!prev) return prev;
+                            const updated = { ...prev };
+                            updated[theme] = updated[theme].filter((_, i) => i !== idx);
+                            return updated;
+                          });
+                        }}
+                        className="text-gray-400 hover:text-red-500 text-xs font-bold ml-1"
+                        title="Remove synonym"
+                      >
+                        x
+                      </button>
+                    </div>
+                  ))}
+                  {syns.length === 0 && (
+                    <span className="text-xs text-gray-400 italic">No synonyms</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Results */}
       {(profiles.length > 0 || searching || loadingList || viewingListId !== null) && (
@@ -332,6 +502,35 @@ export default function CastingPage() {
               </span>
             )}
           </div>
+          {keywordStats && Object.keys(keywordStats).length > 0 && (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-gray-600 hover:text-gray-800 font-medium">
+                Per-keyword breakdown
+              </summary>
+              <table className="w-full mt-2 text-xs">
+                <thead>
+                  <tr className="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-3 py-2">Keyword</th>
+                    <th className="px-3 py-2 text-right">Google Results</th>
+                    <th className="px-3 py-2 text-right">Candidates</th>
+                    <th className="px-3 py-2 text-right">Matched</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(keywordStats).map(([keyword, stats]) => (
+                    <tr key={keyword} className="border-b border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-700 max-w-[300px] truncate" title={keyword}>
+                        {keyword.length > 60 ? keyword.slice(0, 60) + "…" : keyword}
+                      </td>
+                      <td className="px-3 py-1.5 text-right text-gray-500">{stats.googleResults}</td>
+                      <td className="px-3 py-1.5 text-right text-gray-500">{stats.candidates}</td>
+                      <td className="px-3 py-1.5 text-right text-gray-700 font-medium">{stats.matched}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
           {searching ? (
             <p className="text-sm text-blue-600 animate-pulse py-4 text-center">
               Searching LinkedIn profiles... This may take a few minutes.

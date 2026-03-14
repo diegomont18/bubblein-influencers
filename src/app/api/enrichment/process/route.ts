@@ -10,6 +10,7 @@ import {
   calculateEngagementMetrics,
   computeEngagementFromPosts,
   buildCurrentJob,
+  calculateCreatorScore,
 } from "@/lib/normalize";
 import { classifyTopics, generateEmbedding } from "@/lib/ai";
 
@@ -142,6 +143,14 @@ export async function POST(request: Request) {
 
         const currentJob = buildCurrentJob(profileData.role_current, profileData.company_current);
 
+        const creatorScore = calculateCreatorScore({
+          followers_count: profileData.followers_count,
+          avg_likes_per_post: engagement.avgLikes,
+          avg_comments_per_post: engagement.avgComments,
+          posting_frequency_score: frequency.score,
+        });
+        console.log(`[enrichment] Job ${job.id}: creator_score=${creatorScore}`);
+
         // Classify topics
         const roles = normalizeExperiences(result.data, job.profile_id)
           .map((e) => e.role)
@@ -182,6 +191,7 @@ export async function POST(request: Request) {
             posting_frequency_score: frequency.score,
             avg_likes_per_post: engagement.avgLikes,
             avg_comments_per_post: engagement.avgComments,
+            creator_score: creatorScore,
             enrichment_status: "done",
             raw_data: result.data,
             last_enriched_at: new Date().toISOString(),

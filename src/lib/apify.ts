@@ -34,7 +34,7 @@ export async function fetchProfilePosts(
       const status = res.status;
       console.log(`[apify] Response status=${status} attempt=${attempt + 1}`);
 
-      if (status === 200) {
+      if (status === 200 || status === 201) {
         const data = await res.json();
         if (Array.isArray(data)) {
           console.log(`[apify] Got ${data.length} post(s)`);

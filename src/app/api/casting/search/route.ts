@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { searchGoogle, fetchLinkedInProfile } from "@/lib/scrapingdog";
 import { fetchProfilePosts } from "@/lib/apify";
-import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculateEngagementMetrics, computeEngagementFromPosts } from "@/lib/normalize";
-import { generateSearchSynonyms, checkPublishLanguage } from "@/lib/ai";
+import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculateEngagementMetrics, computeEngagementFromPosts, calculateCreatorScore } from "@/lib/normalize";
+import { generateSearchSynonyms, checkPublishLanguage, classifyTopics } from "@/lib/ai";
 
 
 interface SearchBody {
@@ -14,15 +14,28 @@ interface SearchBody {
   minFollowers: number;
   maxFollowers: number;
   resultsCount: number;
+  approvedSynonyms?: Record<string, string[]>;
+  coverAllKeywords?: boolean;
+  publico?: string[];
+}
+
+function computeTopicMatch(publicoTags: string[], creatorTopics: string[]): { score: number; matched: string[] } {
+  if (publicoTags.length === 0) return { score: 0, matched: [] };
+  const topicSet = new Set(creatorTopics.map(t => t.toLowerCase()));
+  const matched = publicoTags.filter(tag => topicSet.has(tag));
+  return { score: Math.round((matched.length / publicoTags.length) * 100), matched };
 }
 
 function extractLinkedInSlug(url: string): string | null {
   // Try post URL first: linkedin.com/posts/username_...
   const postMatch = url.match(/linkedin\.com\/posts\/([^_/?#]+)/);
-  if (postMatch) return postMatch[1];
+  if (postMatch) {
+    try { return decodeURIComponent(postMatch[1]); } catch { return postMatch[1]; }
+  }
   // Fallback to profile URL: linkedin.com/in/username
   const profileMatch = url.match(/linkedin\.com\/in\/([^/?#]+)/);
-  return profileMatch ? profileMatch[1] : null;
+  if (!profileMatch) return null;
+  try { return decodeURIComponent(profileMatch[1]); } catch { return profileMatch[1]; }
 }
 
 export async function POST(request: Request) {
@@ -43,6 +56,9 @@ export async function POST(request: Request) {
     minFollowers,
     maxFollowers,
     resultsCount,
+    approvedSynonyms,
+    coverAllKeywords = true,
+    publico = [],
   } = body;
 
   if (!themes || themes.length === 0) {
@@ -67,9 +83,15 @@ export async function POST(request: Request) {
     posts_per_month: number;
     avg_likes_per_post: number | null;
     avg_comments_per_post: number | null;
+    creator_score: number | null;
+    topics: string[];
+    topic_match: number;
+    matched_publico: string[];
+    final_score: number | null;
     relevance_score: number;
     linkedin_url: string;
     focus: number;
+    source_keyword: string;
   }> = [];
 
   // Track focus score per candidate slug (3=original, 2=synonym, 1=broad)
@@ -81,25 +103,43 @@ export async function POST(request: Request) {
     page: number;
     exhausted: boolean;
     focus: number;
+    sourceKeyword: string;
   }
+
+  // Per-keyword stats tracking
+  const keywordStats = new Map<string, { googleResults: number; candidates: number; matched: number }>();
+  for (const theme of themes) {
+    keywordStats.set(theme, { googleResults: 0, candidates: 0, matched: 0 });
+  }
+  const slugSourceKeyword = new Map<string, string>();
 
   // Focus 3: original themes (exact match)
   const themePages: ThemePage[] = themes.map(theme => ({
-    theme, page: 0, exhausted: false, focus: 3,
+    theme, page: 0, exhausted: false, focus: 3, sourceKeyword: theme,
   }));
 
   // Focus 2: synonym themes (exact match)
-  console.log("[casting] Generating synonym queries upfront…");
-  for (const theme of themes) {
-    const synonyms = await generateSearchSynonyms(theme, language);
-    for (const syn of synonyms) {
-      themePages.push({ theme: syn, page: 0, exhausted: false, focus: 2 });
+  if (approvedSynonyms) {
+    console.log("[casting] Using pre-approved synonyms…");
+    for (const theme of themes) {
+      const syns = approvedSynonyms[theme] ?? [];
+      for (const syn of syns) {
+        themePages.push({ theme: syn, page: 0, exhausted: false, focus: 2, sourceKeyword: theme });
+      }
+    }
+  } else {
+    console.log("[casting] Generating synonym queries upfront…");
+    for (const theme of themes) {
+      const synonyms = await generateSearchSynonyms(theme, language);
+      for (const syn of synonyms) {
+        themePages.push({ theme: syn, page: 0, exhausted: false, focus: 2, sourceKeyword: theme });
+      }
     }
   }
 
   // Focus 1: original themes (broad, no quotes)
   for (const theme of themes) {
-    themePages.push({ theme, page: 0, exhausted: false, focus: 1 });
+    themePages.push({ theme, page: 0, exhausted: false, focus: 1, sourceKeyword: theme });
   }
 
   console.log(`[casting] Total search tiers: ${themePages.length} queries (focus 3: ${themes.length}, focus 2: ${themePages.filter(t => t.focus === 2).length}, focus 1: ${themes.length})`);
@@ -113,6 +153,11 @@ export async function POST(request: Request) {
     while (candidateIndex < candidateSlugs.length && matchedProfiles.length < resultsCount) {
       const slug = candidateSlugs[candidateIndex++];
       totalCandidatesProcessed++;
+
+      // Throttle between profile fetches to avoid 429s
+      if (totalCandidatesProcessed > 1) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
 
       const result = await fetchLinkedInProfile(slug);
       if (result.status !== 200 || !result.data) continue;
@@ -135,12 +180,13 @@ export async function POST(request: Request) {
 
       // Try inline engagement first; if null, fetch posts via Apify
       let engagement = calculateEngagementMetrics(data);
+      let apifyPosts: Record<string, unknown>[] = [];
       if (engagement.avgLikes == null && engagement.avgComments == null) {
         const profileUrl = `https://www.linkedin.com/in/${slug}/`;
         console.log(`[casting] Profile ${slug}: Fetching posts via Apify…`);
-        const posts = await fetchProfilePosts(profileUrl);
-        if (posts.length > 0) {
-          engagement = computeEngagementFromPosts(posts);
+        apifyPosts = await fetchProfilePosts(profileUrl);
+        if (apifyPosts.length > 0) {
+          engagement = computeEngagementFromPosts(apifyPosts);
         }
       }
 
@@ -157,10 +203,50 @@ export async function POST(request: Request) {
         continue;
       }
 
+      const creatorScore = calculateCreatorScore({
+        followers_count: followers,
+        avg_likes_per_post: engagement.avgLikes,
+        avg_comments_per_post: engagement.avgComments,
+        posting_frequency_score: postsPerMonth,
+      });
+
+      // Extract topics from posts + profile data
+      let topics: string[] = [];
+      try {
+        if (apifyPosts.length > 0) {
+          const postContent = apifyPosts.map(p => String((p as Record<string, unknown>).content ?? "")).filter(Boolean).join("\n\n");
+          topics = await classifyTopics(
+            String(data.headline ?? normalized.headline ?? ""),
+            postContent,
+            []
+          );
+        }
+        if (topics.length === 0) {
+          topics = await classifyTopics(
+            String(data.headline ?? normalized.headline ?? ""),
+            String(data.about ?? data.summary ?? ""),
+            []
+          );
+        }
+      } catch (e) {
+        console.warn(`[casting] Topic extraction failed for ${slug}:`, e);
+      }
+
+      const { score: topicMatch, matched: matchedPublico } = computeTopicMatch(publico, topics);
+      const finalScore = creatorScore != null && publico.length > 0
+        ? Math.round((creatorScore * 0.7 + topicMatch * 0.3) * 10) / 10
+        : creatorScore;
+
+      const srcKw = slugSourceKeyword.get(slug);
+      if (srcKw) {
+        const kwStats = keywordStats.get(srcKw);
+        if (kwStats) kwStats.matched++;
+      }
+
       matchedProfiles.push({
         slug,
         name: String(data.fullName ?? data.full_name ?? data.name ?? "Unknown"),
-        headline: String(data.headline ?? ""),
+        headline: normalized.headline ?? "",
         job_title: normalized.role_current ?? "",
         company: normalized.company_current ?? "",
         location: String(data.location ?? ""),
@@ -168,46 +254,75 @@ export async function POST(request: Request) {
         posts_per_month: postsPerMonth,
         avg_likes_per_post: engagement.avgLikes,
         avg_comments_per_post: engagement.avgComments,
+        creator_score: creatorScore,
+        topics,
+        topic_match: topicMatch,
+        matched_publico: matchedPublico,
+        final_score: finalScore,
         relevance_score: 1.0,
         linkedin_url: `https://linkedin.com/in/${slug}`,
         focus: slugFocus.get(slug) ?? 1,
+        source_keyword: slugSourceKeyword.get(slug) ?? "",
       });
     }
 
     if (matchedProfiles.length >= resultsCount) break;
 
-    // Need more candidates — fetch next SERP page from any non-exhausted theme
+    // Need more candidates — fetch from highest active tier first (3 → 2 → 1)
+    // Fetch one page from ALL themes at the same page level to guarantee all keywords are searched
     let fetched = false;
-    for (const tp of themePages) {
-      if (tp.exhausted || tp.page >= maxPages) continue;
+    const tiers = [3, 2, 1];
+    for (const focusLevel of tiers) {
+      const tierThemes = themePages.filter(tp => tp.focus === focusLevel && !tp.exhausted && tp.page < maxPages);
+      if (tierThemes.length === 0) continue;
 
-      const query = tp.focus >= 2
-        ? `site:linkedin.com/posts "${tp.theme}"`
-        : `site:linkedin.com/posts ${tp.theme}`;
-      const { results } = await searchGoogle(query, {
-        language,
-        country,
-        domain,
-        lr: language,
-        page: tp.page,
-        results: 50,
-      });
-      tp.page++;
+      // Fetch one page from ALL themes at the lowest page level (ensures all keywords are searched)
+      const minPage = Math.min(...tierThemes.map(t => t.page));
+      const toFetch = tierThemes.filter(t => t.page === minPage);
 
-      if (results.length === 0) {
-        tp.exhausted = true;
-        continue;
-      }
+      for (const tp of toFetch) {
+        let query: string;
+        if (tp.focus === 2) {
+          // AI-generated synonyms — wrap in quotes
+          query = `site:linkedin.com/posts "${tp.theme}"`;
+        } else if (tp.focus === 3) {
+          // User's original themes — pass as-is (user controls their own quoting)
+          query = `site:linkedin.com/posts ${tp.theme}`;
+        } else {
+          // Broad search — strip any quotes
+          query = `site:linkedin.com/posts ${tp.theme.replace(/"/g, "")}`;
+        }
+        const { results } = await searchGoogle(query, {
+          language,
+          country,
+          domain,
+          lr: language,
+          page: tp.page,
+          results: 50,
+        });
+        tp.page++;
 
-      for (const r of results) {
-        const slug = extractLinkedInSlug(r.link);
-        if (slug && !seenSlugs.has(slug)) {
-          seenSlugs.add(slug);
-          candidateSlugs.push(slug);
-          slugFocus.set(slug, tp.focus);
+        const stats = keywordStats.get(tp.sourceKeyword);
+        if (stats) stats.googleResults += results.length;
+
+        if (results.length === 0) {
+          tp.exhausted = true;
+          continue;
+        }
+
+        for (const r of results) {
+          const slug = extractLinkedInSlug(r.link);
+          if (slug && !seenSlugs.has(slug)) {
+            seenSlugs.add(slug);
+            candidateSlugs.push(slug);
+            slugFocus.set(slug, tp.focus);
+            slugSourceKeyword.set(slug, tp.sourceKeyword);
+            if (stats) stats.candidates++;
+          }
         }
       }
-      fetched = true;
+      fetched = toFetch.some(tp => !tp.exhausted);
+      break; // Process candidates before fetching more SERPs
     }
 
     if (!fetched) {
@@ -216,7 +331,261 @@ export async function POST(request: Request) {
     }
   }
 
+  // Process remaining candidates from already-fetched SERPs to ensure all keywords are represented
+  while (candidateIndex < candidateSlugs.length) {
+    const slug = candidateSlugs[candidateIndex++];
+    totalCandidatesProcessed++;
+
+    if (totalCandidatesProcessed > 1) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    const result = await fetchLinkedInProfile(slug);
+    if (result.status !== 200 || !result.data) continue;
+
+    const data = result.data as Record<string, unknown>;
+    const followers = parseAbbreviatedNumber(data.followers)
+      ?? parseAbbreviatedNumber(data.follower_count)
+      ?? parseAbbreviatedNumber(data.followers_count)
+      ?? 0;
+
+    if (followers < minFollowers || followers > maxFollowers) continue;
+
+    const normalized = normalizeProfileData(data);
+    const { score: postsPerMonth } = calculatePostingFrequency(data);
+
+    let engagement = calculateEngagementMetrics(data);
+    let remainingPosts: Record<string, unknown>[] = [];
+    if (engagement.avgLikes == null && engagement.avgComments == null) {
+      const profileUrl = `https://www.linkedin.com/in/${slug}/`;
+      console.log(`[casting] Remaining candidate ${slug}: Fetching posts via Apify…`);
+      remainingPosts = await fetchProfilePosts(profileUrl);
+      if (remainingPosts.length > 0) {
+        engagement = computeEngagementFromPosts(remainingPosts);
+      }
+    }
+
+    if (postsPerMonth < 1) continue;
+
+    const publishesInLanguage = await checkPublishLanguage(data, language);
+    if (!publishesInLanguage) continue;
+
+    const creatorScore = calculateCreatorScore({
+      followers_count: followers,
+      avg_likes_per_post: engagement.avgLikes,
+      avg_comments_per_post: engagement.avgComments,
+      posting_frequency_score: postsPerMonth,
+    });
+
+    let topics: string[] = [];
+    try {
+      if (remainingPosts.length > 0) {
+        const postContent = remainingPosts.map(p => String((p as Record<string, unknown>).content ?? "")).filter(Boolean).join("\n\n");
+        topics = await classifyTopics(
+          String(data.headline ?? normalized.headline ?? ""),
+          postContent,
+          []
+        );
+      }
+      if (topics.length === 0) {
+        topics = await classifyTopics(
+          String(data.headline ?? normalized.headline ?? ""),
+          String(data.about ?? data.summary ?? ""),
+          []
+        );
+      }
+    } catch (e) {
+      console.warn(`[casting] Topic extraction failed for ${slug}:`, e);
+    }
+
+    const { score: topicMatch, matched: matchedPublico } = computeTopicMatch(publico, topics);
+    const finalScore = creatorScore != null && publico.length > 0
+      ? Math.round((creatorScore * 0.7 + topicMatch * 0.3) * 10) / 10
+      : creatorScore;
+
+    const srcKw2 = slugSourceKeyword.get(slug);
+    if (srcKw2) {
+      const kwStats = keywordStats.get(srcKw2);
+      if (kwStats) kwStats.matched++;
+    }
+
+    matchedProfiles.push({
+      slug,
+      name: String(data.fullName ?? data.full_name ?? data.name ?? "Unknown"),
+      headline: normalized.headline ?? "",
+      job_title: normalized.role_current ?? "",
+      company: normalized.company_current ?? "",
+      location: String(data.location ?? ""),
+      followers,
+      posts_per_month: postsPerMonth,
+      avg_likes_per_post: engagement.avgLikes,
+      avg_comments_per_post: engagement.avgComments,
+      creator_score: creatorScore,
+      topics,
+      topic_match: topicMatch,
+      matched_publico: matchedPublico,
+      final_score: finalScore,
+      relevance_score: 1.0,
+      linkedin_url: `https://linkedin.com/in/${slug}`,
+      focus: slugFocus.get(slug) ?? 1,
+      source_keyword: slugSourceKeyword.get(slug) ?? "",
+    });
+  }
+
+  // Cover all keywords: second pass for any focus-3 ThemePages never searched
+  if (coverAllKeywords) {
+    const unsearchedThemes = themePages.filter(tp => tp.focus === 3 && tp.page === 0);
+    if (unsearchedThemes.length > 0) {
+      console.log(`[casting] Cover-all-keywords: ${unsearchedThemes.length} keyword lines never searched, fetching one SERP page each…`);
+      for (const tp of unsearchedThemes) {
+        // User's original themes — pass as-is (user controls their own quoting)
+        const query = `site:linkedin.com/posts ${tp.theme}`;
+        const { results } = await searchGoogle(query, {
+          language,
+          country,
+          domain,
+          lr: language,
+          page: 0,
+          results: 50,
+        });
+        tp.page++;
+
+        const coverStats = keywordStats.get(tp.sourceKeyword);
+        if (coverStats) coverStats.googleResults += results.length;
+
+        if (results.length === 0) {
+          tp.exhausted = true;
+          continue;
+        }
+
+        for (const r of results) {
+          const slug = extractLinkedInSlug(r.link);
+          if (slug && !seenSlugs.has(slug)) {
+            seenSlugs.add(slug);
+            candidateSlugs.push(slug);
+            slugFocus.set(slug, tp.focus);
+            slugSourceKeyword.set(slug, tp.sourceKeyword);
+            if (coverStats) coverStats.candidates++;
+          }
+        }
+      }
+
+      // Process any new candidates from the cover-all pass (no resultsCount cap)
+      while (candidateIndex < candidateSlugs.length) {
+        const slug = candidateSlugs[candidateIndex++];
+        totalCandidatesProcessed++;
+
+        // Throttle between profile fetches to avoid 429s
+        if (totalCandidatesProcessed > 1) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
+
+        const result = await fetchLinkedInProfile(slug);
+        if (result.status !== 200 || !result.data) continue;
+
+        const data = result.data as Record<string, unknown>;
+        const followers = parseAbbreviatedNumber(data.followers)
+          ?? parseAbbreviatedNumber(data.follower_count)
+          ?? parseAbbreviatedNumber(data.followers_count)
+          ?? 0;
+
+        if (followers < minFollowers || followers > maxFollowers) continue;
+
+        const normalized = normalizeProfileData(data);
+        const { score: postsPerMonth } = calculatePostingFrequency(data);
+
+        let engagement = calculateEngagementMetrics(data);
+        let coverPosts: Record<string, unknown>[] = [];
+        if (engagement.avgLikes == null && engagement.avgComments == null) {
+          const profileUrl = `https://www.linkedin.com/in/${slug}/`;
+          console.log(`[casting] Cover-all profile ${slug}: Fetching posts via Apify…`);
+          coverPosts = await fetchProfilePosts(profileUrl);
+          if (coverPosts.length > 0) {
+            engagement = computeEngagementFromPosts(coverPosts);
+          }
+        }
+
+        if (postsPerMonth < 1) continue;
+
+        const publishesInLanguage = await checkPublishLanguage(data, language);
+        if (!publishesInLanguage) continue;
+
+        const creatorScore = calculateCreatorScore({
+          followers_count: followers,
+          avg_likes_per_post: engagement.avgLikes,
+          avg_comments_per_post: engagement.avgComments,
+          posting_frequency_score: postsPerMonth,
+        });
+
+        // Extract topics from posts + profile data
+        let topics: string[] = [];
+        try {
+          if (coverPosts.length > 0) {
+            const postContent = coverPosts.map(p => String((p as Record<string, unknown>).content ?? "")).filter(Boolean).join("\n\n");
+            topics = await classifyTopics(
+              String(data.headline ?? normalized.headline ?? ""),
+              postContent,
+              []
+            );
+          }
+          if (topics.length === 0) {
+            topics = await classifyTopics(
+              String(data.headline ?? normalized.headline ?? ""),
+              String(data.about ?? data.summary ?? ""),
+              []
+            );
+          }
+        } catch (e) {
+          console.warn(`[casting] Topic extraction failed for ${slug}:`, e);
+        }
+
+        const { score: topicMatch, matched: matchedPublico } = computeTopicMatch(publico, topics);
+        const finalScore = creatorScore != null && publico.length > 0
+          ? Math.round((creatorScore * 0.7 + topicMatch * 0.3) * 10) / 10
+          : creatorScore;
+
+        const srcKw3 = slugSourceKeyword.get(slug);
+        if (srcKw3) {
+          const kwStats = keywordStats.get(srcKw3);
+          if (kwStats) kwStats.matched++;
+        }
+
+        matchedProfiles.push({
+          slug,
+          name: String(data.fullName ?? data.full_name ?? data.name ?? "Unknown"),
+          headline: normalized.headline ?? "",
+          job_title: normalized.role_current ?? "",
+          company: normalized.company_current ?? "",
+          location: String(data.location ?? ""),
+          followers,
+          posts_per_month: postsPerMonth,
+          avg_likes_per_post: engagement.avgLikes,
+          avg_comments_per_post: engagement.avgComments,
+          creator_score: creatorScore,
+          topics,
+          topic_match: topicMatch,
+          matched_publico: matchedPublico,
+          final_score: finalScore,
+          relevance_score: 1.0,
+          linkedin_url: `https://linkedin.com/in/${slug}`,
+          focus: slugFocus.get(slug) ?? 1,
+          source_keyword: slugSourceKeyword.get(slug) ?? "",
+        });
+      }
+    }
+  }
+
+  // Log per-keyword breakdown
+  keywordStats.forEach((stats, keyword) => {
+    console.log(`[casting] Keyword "${keyword}": ${stats.googleResults} google results, ${stats.candidates} candidates, ${stats.matched} matched`);
+  });
+
   console.log(`[casting] Filter summary: ${totalCandidatesProcessed} candidates processed → ${matchedProfiles.length} matched`);
+
+  // Sort by final_score descending when publico is provided
+  if (publico.length > 0) {
+    matchedProfiles.sort((a, b) => (b.final_score ?? 0) - (a.final_score ?? 0));
+  }
 
   // Save to database
   const service = createServiceClient();
@@ -227,7 +596,7 @@ export async function POST(request: Request) {
     .insert({
       name: listName,
       query_theme: themes.join("\n"),
-      filters_applied: { minFollowers, maxFollowers, language, country, domain },
+      filters_applied: { minFollowers, maxFollowers, language, country, domain, publico },
       created_by: user.id,
     })
     .select()
@@ -261,8 +630,14 @@ export async function POST(request: Request) {
         posts_per_month: p.posts_per_month,
         avg_likes_per_post: p.avg_likes_per_post,
         avg_comments_per_post: p.avg_comments_per_post,
+        creator_score: p.creator_score,
+        topics: p.topics,
+        topic_match: p.topic_match,
+        matched_publico: p.matched_publico,
+        final_score: p.final_score,
         linkedin_url: p.linkedin_url,
         focus: p.focus,
+        source_keyword: p.source_keyword,
       }),
       status: "found",
     }));
@@ -280,5 +655,6 @@ export async function POST(request: Request) {
     listId: list.id,
     profiles: matchedProfiles,
     totalCandidates: totalCandidatesProcessed,
+    keywordStats: Object.fromEntries(keywordStats),
   });
 }

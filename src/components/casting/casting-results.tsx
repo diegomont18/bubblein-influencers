@@ -1,7 +1,45 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { CopyToEnricherModal } from "./copy-to-enricher-modal";
+
+const CLAMP_HEIGHT = 48; // ~2 lines at text-sm
+
+function CollapsibleCell({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [clamped, setClamped] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const check = useCallback(() => {
+    if (ref.current) {
+      setClamped(ref.current.scrollHeight > CLAMP_HEIGHT + 4);
+    }
+  }, []);
+
+  useEffect(() => {
+    check();
+  }, [children, check]);
+
+  return (
+    <div className={className}>
+      <div
+        ref={ref}
+        style={!expanded && clamped ? { maxHeight: CLAMP_HEIGHT, overflow: "hidden" } : undefined}
+        className="break-words whitespace-normal"
+      >
+        {children}
+      </div>
+      {clamped && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="text-blue-600 hover:underline text-xs mt-0.5 whitespace-nowrap"
+        >
+          {expanded ? "ver menos" : "ver tudo"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export interface CastingProfile {
   slug: string;
@@ -14,8 +52,14 @@ export interface CastingProfile {
   posts_per_month: number;
   avg_likes_per_post?: number | null;
   avg_comments_per_post?: number | null;
+  creator_score?: number | null;
+  topics?: string[];
+  topic_match?: number;
+  matched_publico?: string[];
+  final_score?: number | null;
   linkedin_url: string;
   focus?: number;
+  source_keyword?: string;
 }
 
 interface CastingResultsProps {
@@ -25,10 +69,110 @@ interface CastingResultsProps {
   queryTheme?: string;
 }
 
+type SortKey = "name" | "followers" | "posts_per_month" | "avg_likes_per_post" | "avg_comments_per_post" | "creator_score" | "topic_match" | "focus";
+type SortDir = "asc" | "desc";
+
+function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort }: {
+  label: string;
+  sortKey: SortKey;
+  activeSortKey: SortKey | null;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+}) {
+  const isActive = activeSortKey === key;
+  return (
+    <th
+      className="px-4 py-3 font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700"
+      onClick={() => onSort(key)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {isActive ? (
+          <span className="text-gray-700">{sortDir === "asc" ? "▲" : "▼"}</span>
+        ) : (
+          <span className="text-gray-300">▲</span>
+        )}
+      </span>
+    </th>
+  );
+}
+
 export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }: CastingResultsProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [copyTargets, setCopyTargets] = useState<CastingProfile[] | null>(null);
   const [feedback, setFeedback] = useState<{ queued: number; duplicates: number } | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  }
+
+  const sortedProfiles = useMemo(() => {
+    if (!sortKey) return profiles;
+    const sorted = [...profiles].sort((a, b) => {
+      if (sortKey === "name") {
+        const aVal = a.name || "";
+        const bVal = b.name || "";
+        return sortDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      // numeric sort
+      const getVal = (p: CastingProfile): number | null | undefined => {
+        if (sortKey === "creator_score") return p.final_score ?? p.creator_score;
+        return p[sortKey] as number | null | undefined;
+      };
+      const aVal = getVal(a);
+      const bVal = getVal(b);
+      // nulls last regardless of direction
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      return sortDir === "asc" ? aVal - bVal : bVal - aVal;
+    });
+    return sorted;
+  }, [profiles, sortKey, sortDir]);
+
+  function exportCsv() {
+    const headers = ["Name", "LinkedIn URL", "Headline", "Company", "Job Title", "Location", "Followers", "Posts/Month", "Avg Likes", "Avg Comments", "Creator Score", "Topic Match %", "Topics", "Focus", "Keywords"];
+    const escapeField = (val: string) => {
+      if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+        return '"' + val.replace(/"/g, '""') + '"';
+      }
+      return val;
+    };
+    const focusLabel = (f?: number) => f === 3 ? "High" : f === 2 ? "Medium" : f === 1 ? "Low" : "";
+    const rows = sortedProfiles.map((p) => [
+      p.name || "",
+      p.linkedin_url || "",
+      p.headline || "",
+      p.company || "",
+      p.job_title || "",
+      p.location || "",
+      p.followers != null ? String(p.followers) : "",
+      p.posts_per_month != null ? String(Math.round(p.posts_per_month)) : "",
+      p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "",
+      p.avg_comments_per_post != null ? String(Math.round(p.avg_comments_per_post)) : "",
+      (() => { const s = p.final_score ?? p.creator_score; return s != null ? String(Math.round(s)) : ""; })(),
+      p.topic_match != null ? String(p.topic_match) : "",
+      (p.topics || []).join("; "),
+      focusLabel(p.focus),
+      p.source_keyword || (queryTheme ? queryTheme.replace(/\n/g, ", ") : ""),
+    ].map(escapeField));
+    const csv = [headers.map(escapeField).join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const date = new Date().toISOString().slice(0, 10);
+    a.download = `casting-results-${date}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   // Clear selection when profiles change
   useEffect(() => {
@@ -53,10 +197,10 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
   }
 
   function toggleSelectAll() {
-    if (selected.size === profiles.length) {
+    if (selected.size === sortedProfiles.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(profiles.map((p) => p.slug)));
+      setSelected(new Set(sortedProfiles.map((p) => p.slug)));
     }
   }
 
@@ -86,26 +230,25 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
       <th className="px-4 py-3">
         <input
           type="checkbox"
-          checked={profiles.length > 0 && selected.size === profiles.length}
+          checked={sortedProfiles.length > 0 && selected.size === sortedProfiles.length}
           onChange={toggleSelectAll}
           className="rounded border-gray-300"
         />
       </th>
-      <th className="px-4 py-3 font-medium text-gray-500">Name</th>
+      <SortableHeader label="Name" sortKey="name" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <th className="px-4 py-3 font-medium text-gray-500">Profile</th>
       <th className="px-4 py-3 font-medium text-gray-500">Headline</th>
       <th className="px-4 py-3 font-medium text-gray-500">Company</th>
       <th className="px-4 py-3 font-medium text-gray-500">Current Job</th>
-      <th className="px-4 py-3 font-medium text-gray-500">Followers</th>
+      <SortableHeader label="Followers" sortKey="followers" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+      <SortableHeader label="Posts /month" sortKey="posts_per_month" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+      <SortableHeader label="Avg Likes" sortKey="avg_likes_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+      <SortableHeader label="Avg Comments" sortKey="avg_comments_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+      <SortableHeader label="Creator Score" sortKey="creator_score" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+      <SortableHeader label="Match" sortKey="topic_match" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <th className="px-4 py-3 font-medium text-gray-500">Topics</th>
-      <th className="px-4 py-3 font-medium text-gray-500">Tags</th>
-      <th className="px-4 py-3 font-medium text-gray-500">Posts /month</th>
-      <th className="px-4 py-3 font-medium text-gray-500">Avg Likes</th>
-      <th className="px-4 py-3 font-medium text-gray-500">Avg Comments</th>
-      <th className="px-4 py-3 font-medium text-gray-500">Focus</th>
+      <SortableHeader label="Focus" sortKey="focus" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <th className="px-4 py-3 font-medium text-gray-500">Keywords</th>
-      <th className="px-4 py-3 font-medium text-gray-500">Extracted</th>
-      <th className="px-4 py-3 font-medium text-gray-500">Status</th>
       <th className="px-4 py-3 font-medium text-gray-500">Actions</th>
     </tr>
   );
@@ -118,7 +261,7 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
             <thead>{headerRow}</thead>
             <tbody>
               <tr>
-                <td colSpan={17} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={16} className="px-4 py-8 text-center text-gray-400">
                   No profiles found matching your criteria.
                 </td>
               </tr>
@@ -153,36 +296,44 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
         </div>
       )}
 
-      {/* Bulk action bar */}
-      {selected.size > 0 && (
-        <div className="flex items-center gap-3 rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm">
-          <span className="text-blue-700 font-medium">
-            {selected.size} selected
-          </span>
-          <button
-            onClick={() => {
-              const targets = profiles.filter((p) => selected.has(p.slug));
-              setCopyTargets(targets);
-            }}
-            className="rounded-md bg-blue-600 px-3 py-1 text-white text-xs font-medium hover:bg-blue-700 transition-colors"
-          >
-            Copy to Enricher
-          </button>
-          <button
-            onClick={() => setSelected(new Set())}
-            className="text-blue-600 hover:underline text-xs"
-          >
-            Clear Selection
-          </button>
-        </div>
-      )}
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {selected.size > 0 && (
+          <div className="flex items-center gap-3 rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm">
+            <span className="text-blue-700 font-medium">
+              {selected.size} selected
+            </span>
+            <button
+              onClick={() => {
+                const targets = sortedProfiles.filter((p) => selected.has(p.slug));
+                setCopyTargets(targets);
+              }}
+              className="rounded-md bg-blue-600 px-3 py-1 text-white text-xs font-medium hover:bg-blue-700 transition-colors"
+            >
+              Copy to Enricher
+            </button>
+            <button
+              onClick={() => setSelected(new Set())}
+              className="text-blue-600 hover:underline text-xs"
+            >
+              Clear Selection
+            </button>
+          </div>
+        )}
+        <button
+          onClick={exportCsv}
+          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors ml-auto"
+        >
+          Export CSV
+        </button>
+      </div>
 
       <div className="rounded-lg border border-gray-200 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>{headerRow}</thead>
             <tbody>
-              {profiles.map((p) => {
+              {sortedProfiles.map((p) => {
                 const slug = p.linkedin_url.match(/linkedin\.com\/in\/([^/?#]+)/)?.[1] ?? p.slug;
                 return (
                   <tr
@@ -198,7 +349,7 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
                       />
                     </td>
                     <td className="px-4 py-3 text-blue-600">
-                      {p.name || "—"}
+                      <CollapsibleCell>{p.name || "—"}</CollapsibleCell>
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {p.linkedin_url ? (
@@ -214,20 +365,18 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
                         "—"
                       )}
                     </td>
-                    <td className="px-4 py-3 max-w-xs truncate text-gray-600">
-                      {p.headline || "—"}
+                    <td className="px-4 py-3 text-gray-600 max-w-xs">
+                      <CollapsibleCell>{p.headline || "—"}</CollapsibleCell>
                     </td>
                     <td className="px-4 py-3 text-gray-600">
-                      {p.company || "—"}
+                      <CollapsibleCell>{p.company || "—"}</CollapsibleCell>
                     </td>
                     <td className="px-4 py-3 text-gray-600">
-                      {p.job_title || "—"}
+                      <CollapsibleCell>{p.job_title || "—"}</CollapsibleCell>
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {p.followers != null ? p.followers.toLocaleString() : "—"}
                     </td>
-                    <td className="px-4 py-3 text-gray-400">—</td>
-                    <td className="px-4 py-3 text-gray-400">—</td>
                     <td className={`px-4 py-3 ${(p.posts_per_month ?? 0) < 3 ? "text-red-600" : "text-gray-600"}`}>
                       {p.posts_per_month != null ? String(Math.round(p.posts_per_month)) : "—"}
                     </td>
@@ -236,6 +385,59 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {p.avg_comments_per_post != null ? String(Math.round(p.avg_comments_per_post)) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {(() => {
+                        const score = p.final_score ?? p.creator_score;
+                        return score != null ? String(Math.round(score)) : "—";
+                      })()}
+                    </td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const tm = p.topic_match;
+                        if (tm == null || (tm === 0 && (!p.matched_publico || p.matched_publico.length === 0) && p.final_score == null)) {
+                          return <span className="text-gray-400">—</span>;
+                        }
+                        const color = tm >= 80
+                          ? "bg-green-100 text-green-800"
+                          : tm >= 50
+                          ? "bg-yellow-100 text-yellow-800"
+                          : tm > 0
+                          ? "bg-orange-100 text-orange-800"
+                          : "bg-red-100 text-red-800";
+                        return (
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${color}`}>
+                            {tm}%
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-4 py-3">
+                      {p.topics && p.topics.length > 0 ? (
+                        <CollapsibleCell>
+                          <div className="flex flex-wrap gap-1">
+                            {p.topics.map((topic, i) => {
+                              const isMatched = p.matched_publico?.some(
+                                (mp) => mp.toLowerCase() === topic.toLowerCase()
+                              );
+                              return (
+                                <span
+                                  key={i}
+                                  className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                                    isMatched
+                                      ? "bg-green-100 text-green-800"
+                                      : "bg-blue-50 text-blue-700"
+                                  }`}
+                                >
+                                  {topic}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </CollapsibleCell>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {p.focus === 3 ? (
@@ -248,14 +450,8 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
                         <span className="text-gray-400">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-500 max-w-xs truncate">
-                      {queryTheme ? queryTheme.replace(/\n/g, ", ") : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400">—</td>
-                    <td className="px-4 py-3">
-                      <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-                        found
-                      </span>
+                    <td className="px-4 py-3 text-gray-500 max-w-xs">
+                      <CollapsibleCell>{p.source_keyword || (queryTheme ? queryTheme.replace(/\n/g, ", ") : "—")}</CollapsibleCell>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">

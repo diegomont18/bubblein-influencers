@@ -337,6 +337,64 @@ function extractCurrentRole(raw: Record<string, unknown>): string | null {
   return str(target.title) || str(target.role) || str(target.position);
 }
 
+export function calculateCreatorScore({
+  followers_count,
+  avg_likes_per_post,
+  avg_comments_per_post,
+  posting_frequency_score,
+}: {
+  followers_count: number | null | undefined;
+  avg_likes_per_post: number | null | undefined;
+  avg_comments_per_post: number | null | undefined;
+  posting_frequency_score: number | null | undefined;
+}): number | null {
+  const hasEngagement = avg_likes_per_post != null || avg_comments_per_post != null;
+  const hasFollowers = followers_count != null && followers_count > 0;
+  const hasFrequency = posting_frequency_score != null;
+
+  if (!hasEngagement && !hasFollowers && !hasFrequency) return null;
+
+  // Engagement Rate Score (0–100)
+  let engagementScore = 0;
+  if (hasEngagement && hasFollowers) {
+    const avgLikes = avg_likes_per_post ?? 0;
+    const avgComments = avg_comments_per_post ?? 0;
+    const engagementRate = (avgLikes + avgComments) / followers_count!;
+    engagementScore = Math.min(engagementRate / 0.05, 1) * 100;
+  }
+
+  // Posting Frequency Score (0–100)
+  let frequencyScore = 0;
+  if (hasFrequency) {
+    frequencyScore = Math.min(posting_frequency_score! / 4, 1) * 100;
+  }
+
+  // Audience Size Score (0–100)
+  let audienceScore = 0;
+  if (hasFollowers) {
+    audienceScore = Math.min(Math.log10(Math.max(followers_count!, 1)) / 6, 1) * 100;
+  }
+
+  // Weighted sum with re-weighting for missing data
+  let score: number;
+  if (!hasEngagement && !hasFollowers) {
+    // Only frequency available — can't compute meaningful score
+    return null;
+  } else if (!hasEngagement) {
+    // Only frequency + audience → re-weight 80/20
+    score = frequencyScore * 0.8 + audienceScore * 0.2;
+  } else if (!hasFollowers) {
+    // Only engagement + frequency → re-weight 55/45
+    // (engagement rate is 0 without followers, so this path means engagement data exists but no followers)
+    score = engagementScore * 0.55 + frequencyScore * 0.45;
+  } else {
+    // All data available → standard weights
+    score = engagementScore * 0.5 + frequencyScore * 0.4 + audienceScore * 0.1;
+  }
+
+  return Math.round(score * 10) / 10;
+}
+
 export function buildCurrentJob(
   role: string | null | undefined,
   company: string | null | undefined

@@ -620,6 +620,13 @@ export function ProfileTable() {
               <th className="px-4 py-3 font-medium text-gray-500">Topics</th>
               <th className="px-4 py-3 font-medium text-gray-500">Tags</th>
               <SortableHeader column="posting_frequency_score" label="Posts /month" />
+              <th
+                className="px-4 py-3 font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700"
+                onClick={() => handleSort("creator_score")}
+                title="Creator Score (0–100): Engagement Rate 50% · Posting Frequency 40% · Audience Size 10%"
+              >
+                Creator Score {sortBy === "creator_score" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+              </th>
               <SortableHeader column="avg_likes_per_post" label="Avg Likes" />
               <SortableHeader column="avg_comments_per_post" label="Avg Comments" />
               <th className="px-4 py-3 font-medium text-gray-500">Keywords</th>
@@ -631,13 +638,13 @@ export function ProfileTable() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={17} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={18} className="px-4 py-8 text-center text-gray-400">
                   Loading...
                 </td>
               </tr>
             ) : profiles.length === 0 ? (
               <tr>
-                <td colSpan={17} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={18} className="px-4 py-8 text-center text-gray-400">
                   No profiles found
                 </td>
               </tr>
@@ -795,6 +802,15 @@ export function ProfileTable() {
                     onEditValueChange={setEditValue}
                     className={`px-4 py-3 ${(p.posting_frequency_score ?? 0) < 3 ? "text-red-600" : "text-gray-600"}`}
                   />
+                  <td className={`px-4 py-3 font-medium ${
+                    p.creator_score != null
+                      ? p.creator_score >= 70 ? "text-green-600"
+                        : p.creator_score >= 40 ? "text-yellow-600"
+                        : "text-red-600"
+                      : "text-gray-400"
+                  }`}>
+                    {p.creator_score != null ? String(Math.round(p.creator_score)) : "—"}
+                  </td>
                   <td className="px-4 py-3 text-gray-600">
                     {p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "—"}
                   </td>
