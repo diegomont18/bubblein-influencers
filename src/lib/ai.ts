@@ -181,6 +181,58 @@ export async function generateSearchSynonyms(theme: string, language?: string): 
   }
 }
 
+export async function generateTitleSynonyms(title: string, language?: string): Promise<string[]> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping title synonym generation");
+    return [];
+  }
+
+  const languageName = language ? LANGUAGE_NAMES[language] : null;
+  const languageInstruction = languageName
+    ? `Include variations in ${languageName} as well as English. All synonyms should be relevant for ${languageName}-speaking markets.`
+    : "";
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-3-8b-instruct",
+        messages: [
+          {
+            role: "user",
+            content: `Generate 5 alternative job titles and variations for: ${title}.\nInclude common abbreviations, full forms, and related titles.\nExample: for "CEO" → ["Chief Executive Officer", "Co-Founder & CEO", "Founder & CEO", "Diretor Executivo", "Managing Director"]\n${languageInstruction}\nReturn ONLY a JSON array of strings. No explanation.`,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 200,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[ai] generateTitleSynonyms failed: status=${res.status} body=${errText.slice(0, 300)}`);
+      return [];
+    }
+
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content ?? "";
+    const match = content.match(/\[[\s\S]*?\]/);
+    if (!match) return [];
+    const parsed = JSON.parse(match[0]);
+    const result = Array.isArray(parsed) ? parsed.slice(0, 5).map(String) : [];
+    console.log(`[ai] generateTitleSynonyms for "${title}": ${JSON.stringify(result)}`);
+    return result;
+  } catch (err) {
+    console.error(`[ai] generateTitleSynonyms exception: ${err instanceof Error ? err.message : err}`);
+    return [];
+  }
+}
+
 export async function checkPublishLanguage(
   profileData: Record<string, unknown>,
   targetLanguage: string

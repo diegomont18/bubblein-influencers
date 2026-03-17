@@ -23,6 +23,7 @@ const LANGUAGES = [
 ];
 
 export default function CastingPage() {
+  const [searchMode, setSearchMode] = useState<"content" | "title">("content");
   const [themes, setThemes] = useState("");
   const [languageIdx, setLanguageIdx] = useState(0);
   const [minFollowers, setMinFollowers] = useState(2500);
@@ -71,7 +72,7 @@ export default function CastingPage() {
       .filter(Boolean);
 
     if (themeLines.length === 0) {
-      setError("Enter at least one content theme.");
+      setError(searchMode === "title" ? "Enter at least one job title." : "Enter at least one content theme.");
       return;
     }
 
@@ -87,6 +88,7 @@ export default function CastingPage() {
         body: JSON.stringify({
           themes: themeLines,
           language: lang.value,
+          searchMode,
         }),
       });
 
@@ -111,7 +113,7 @@ export default function CastingPage() {
       .filter(Boolean);
 
     if (themeLines.length === 0) {
-      setError("Enter at least one content theme.");
+      setError(searchMode === "title" ? "Enter at least one job title." : "Enter at least one content theme.");
       return;
     }
 
@@ -140,6 +142,7 @@ export default function CastingPage() {
           approvedSynonyms: withSynonyms && synonyms ? synonyms : undefined,
           coverAllKeywords,
           publico: publicoTags,
+          searchMode,
         }),
       });
 
@@ -288,7 +291,7 @@ export default function CastingPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Casting</h1>
         <p className="text-gray-500 mt-1">
-          Discover LinkedIn influencers by content themes and follower range.
+          Discover LinkedIn influencers by content themes, job titles, and follower range.
         </p>
       </div>
 
@@ -296,9 +299,34 @@ export default function CastingPage() {
       <div className="rounded-lg border border-gray-200 bg-white p-6 space-y-4">
         <h2 className="text-lg font-semibold text-gray-900">Search Influencers</h2>
 
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => { setSearchMode("content"); setSynonyms(null); }}
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              searchMode === "content"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Content Search
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSearchMode("title"); setSynonyms(null); }}
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              searchMode === "title"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Title Search
+          </button>
+        </div>
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Content themes (one per line)
+            {searchMode === "title" ? "Job titles (one per line)" : "Content themes (one per line)"}
           </label>
           <textarea
             rows={4}
@@ -307,23 +335,28 @@ export default function CastingPage() {
               setThemes(e.target.value);
               setSynonyms(null);
             }}
-            placeholder={"marketing digital\ninfluenciador linkedin\ncriação de conteúdo"}
+            placeholder={searchMode === "title"
+              ? "CEO\nFounder\nDiretor Executivo"
+              : "marketing digital\ninfluenciador linkedin\ncriação de conteúdo"
+            }
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Publico (target audience)
-          </label>
-          <input
-            type="text"
-            value={publico}
-            onChange={(e) => setPublico(e.target.value)}
-            placeholder="marketing, AI, leadership, tech"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-          />
-        </div>
+        {searchMode === "content" && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Publico (target audience)
+            </label>
+            <input
+              type="text"
+              value={publico}
+              onChange={(e) => setPublico(e.target.value)}
+              placeholder="marketing, AI, leadership, tech"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+            />
+          </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>

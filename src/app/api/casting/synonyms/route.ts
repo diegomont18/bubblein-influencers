@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
-import { generateSearchSynonyms } from "@/lib/ai";
+import { generateSearchSynonyms, generateTitleSynonyms } from "@/lib/ai";
 
 interface SynonymsBody {
   themes: string[];
   language: string;
+  searchMode?: string;
 }
 
 export async function POST(request: Request) {
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
   }
 
   const body: SynonymsBody = await request.json();
-  const { themes, language } = body;
+  const { themes, language, searchMode } = body;
 
   if (!themes || themes.length === 0) {
     return NextResponse.json(
@@ -26,11 +27,14 @@ export async function POST(request: Request) {
     );
   }
 
-  console.log(`[casting/synonyms] Generating synonyms for ${themes.length} themes…`);
+  const isTitleMode = searchMode === "title";
+  console.log(`[casting/synonyms] Generating ${isTitleMode ? "title" : "content"} synonyms for ${themes.length} themes…`);
 
   const results = await Promise.all(
     themes.map(async (theme) => {
-      const synonyms = await generateSearchSynonyms(theme, language);
+      const synonyms = isTitleMode
+        ? await generateTitleSynonyms(theme, language)
+        : await generateSearchSynonyms(theme, language);
       return [theme, synonyms] as const;
     })
   );

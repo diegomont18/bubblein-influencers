@@ -3,7 +3,7 @@ import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { searchGoogle, fetchLinkedInProfile } from "@/lib/scrapingdog";
 import { fetchProfilePosts } from "@/lib/apify";
 import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculateEngagementMetrics, computeEngagementFromPosts, calculateCreatorScore } from "@/lib/normalize";
-import { generateSearchSynonyms, checkPublishLanguage, classifyTopics } from "@/lib/ai";
+import { generateSearchSynonyms, generateTitleSynonyms, checkPublishLanguage, classifyTopics } from "@/lib/ai";
 
 
 interface SearchBody {
@@ -17,6 +17,7 @@ interface SearchBody {
   approvedSynonyms?: Record<string, string[]>;
   coverAllKeywords?: boolean;
   publico?: string[];
+  searchMode?: "content" | "title";
 }
 
 function computeTopicMatch(publicoTags: string[], creatorTopics: string[]): { score: number; matched: string[] } {
@@ -24,6 +25,26 @@ function computeTopicMatch(publicoTags: string[], creatorTopics: string[]): { sc
   const topicSet = new Set(creatorTopics.map(t => t.toLowerCase()));
   const matched = publicoTags.filter(tag => topicSet.has(tag));
   return { score: Math.round((matched.length / publicoTags.length) * 100), matched };
+}
+
+const COUNTRY_NAMES: Record<string, string> = {
+  br: "Brazil", us: "United States", es: "Spain", fr: "France",
+};
+
+function computeTitleMatch(
+  searchTitles: string[],
+  profileData: Record<string, unknown>,
+  normalized: { headline?: string | null; role_current?: string | null }
+): { score: number; matched: string[] } {
+  const headline = String(profileData.headline ?? normalized.headline ?? "").toLowerCase();
+  const currentRole = String(normalized.role_current ?? "").toLowerCase();
+  const matched: string[] = [];
+  for (const title of searchTitles) {
+    const t = title.toLowerCase();
+    if (headline.includes(t) || currentRole.includes(t)) matched.push(title);
+  }
+  if (matched.length === 0) return { score: 0, matched: [] };
+  return { score: Math.round((matched.length / searchTitles.length) * 100), matched };
 }
 
 const JOB_POST_REGEX = /\b(vagas?|contratando|hiring|we.re hiring|estamos contratando|oportunidade de emprego|job opening|open position|open role|vem ser|venha fazer parte)\b/i;
@@ -71,7 +92,11 @@ export async function POST(request: Request) {
     approvedSynonyms,
     coverAllKeywords = true,
     publico = [],
+    searchMode = "content",
   } = body;
+
+  const isTitleMode = searchMode === "title";
+  const countryName = COUNTRY_NAMES[country] ?? country;
 
   if (!themes || themes.length === 0) {
     return NextResponse.json(
@@ -140,9 +165,11 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    console.log("[casting] Generating synonym queries upfront…");
+    console.log(`[casting] Generating ${isTitleMode ? "title" : "content"} synonym queries upfront…`);
     for (const theme of themes) {
-      const synonyms = await generateSearchSynonyms(theme, language);
+      const synonyms = isTitleMode
+        ? await generateTitleSynonyms(theme, language)
+        : await generateSearchSynonyms(theme, language);
       for (const syn of synonyms) {
         themePages.push({ theme: syn, page: 0, exhausted: false, focus: 2, sourceKeyword: theme });
       }
@@ -222,32 +249,50 @@ export async function POST(request: Request) {
         posting_frequency_score: postsPerMonth,
       });
 
-      // Extract topics from posts + profile data
       let topics: string[] = [];
-      try {
-        if (apifyPosts.length > 0) {
-          const postContent = apifyPosts.map(p => String((p as Record<string, unknown>).content ?? "")).filter(Boolean).join("\n\n");
-          topics = await classifyTopics(
-            String(data.headline ?? normalized.headline ?? ""),
-            postContent,
-            []
-          );
-        }
-        if (topics.length === 0) {
-          topics = await classifyTopics(
-            String(data.headline ?? normalized.headline ?? ""),
-            String(data.about ?? data.summary ?? ""),
-            []
-          );
-        }
-      } catch (e) {
-        console.warn(`[casting] Topic extraction failed for ${slug}:`, e);
-      }
+      let topicMatch = 0;
+      let matchedPublico: string[] = [];
+      let finalScore: number | null = creatorScore;
 
-      const { score: topicMatch, matched: matchedPublico } = computeTopicMatch(publico, topics);
-      const finalScore = creatorScore != null && publico.length > 0
-        ? Math.round((creatorScore * 0.7 + topicMatch * 0.3) * 10) / 10
-        : creatorScore;
+      if (isTitleMode) {
+        const titleResult = computeTitleMatch(themes, data, normalized);
+        if (titleResult.score === 0) {
+          console.log(`[casting] Skipping ${slug}: no title match`);
+          continue;
+        }
+        topicMatch = titleResult.score;
+        matchedPublico = titleResult.matched;
+        finalScore = creatorScore != null
+          ? Math.round((creatorScore * 0.6 + topicMatch * 0.4) * 10) / 10
+          : null;
+      } else {
+        try {
+          if (apifyPosts.length > 0) {
+            const postContent = apifyPosts.map(p => String((p as Record<string, unknown>).content ?? "")).filter(Boolean).join("\n\n");
+            topics = await classifyTopics(
+              String(data.headline ?? normalized.headline ?? ""),
+              postContent,
+              []
+            );
+          }
+          if (topics.length === 0) {
+            topics = await classifyTopics(
+              String(data.headline ?? normalized.headline ?? ""),
+              String(data.about ?? data.summary ?? ""),
+              []
+            );
+          }
+        } catch (e) {
+          console.warn(`[casting] Topic extraction failed for ${slug}:`, e);
+        }
+
+        const topicResult = computeTopicMatch(publico, topics);
+        topicMatch = topicResult.score;
+        matchedPublico = topicResult.matched;
+        finalScore = creatorScore != null && publico.length > 0
+          ? Math.round((creatorScore * 0.7 + topicMatch * 0.3) * 10) / 10
+          : creatorScore;
+      }
 
       const srcKw = slugSourceKeyword.get(slug);
       if (srcKw) {
@@ -294,15 +339,22 @@ export async function POST(request: Request) {
 
       for (const tp of toFetch) {
         let query: string;
-        if (tp.focus === 2) {
-          // AI-generated synonyms — wrap in quotes
-          query = `site:linkedin.com/posts "${tp.theme}"`;
-        } else if (tp.focus === 3) {
-          // User's original themes — pass as-is (user controls their own quoting)
-          query = `site:linkedin.com/posts ${tp.theme}`;
+        if (isTitleMode) {
+          if (tp.focus === 3) {
+            query = `site:linkedin.com/in ${tp.theme}`;
+          } else if (tp.focus === 2) {
+            query = `site:linkedin.com/in "${tp.theme}" "${countryName}"`;
+          } else {
+            query = `site:linkedin.com/in ${tp.theme.replace(/"/g, "")} ${countryName}`;
+          }
         } else {
-          // Broad search — strip any quotes
-          query = `site:linkedin.com/posts ${tp.theme.replace(/"/g, "")}`;
+          if (tp.focus === 2) {
+            query = `site:linkedin.com/posts "${tp.theme}"`;
+          } else if (tp.focus === 3) {
+            query = `site:linkedin.com/posts ${tp.theme}`;
+          } else {
+            query = `site:linkedin.com/posts ${tp.theme.replace(/"/g, "")}`;
+          }
         }
         const { results } = await searchGoogle(query, {
           language,
@@ -326,15 +378,17 @@ export async function POST(request: Request) {
           const title = r.title ?? "";
           const snippet = r.snippet ?? "";
 
-          if (isJobPostResult(title, snippet)) {
-            console.log(`[casting] Filtered job post: ${r.link} — "${title.slice(0, 80)}"`);
-            if (stats) stats.filteredJob++;
-            continue;
-          }
-          if (isRepostResult(title, snippet)) {
-            console.log(`[casting] Filtered repost: ${r.link} — "${title.slice(0, 80)}"`);
-            if (stats) stats.filteredRepost++;
-            continue;
+          if (!isTitleMode) {
+            if (isJobPostResult(title, snippet)) {
+              console.log(`[casting] Filtered job post: ${r.link} — "${title.slice(0, 80)}"`);
+              if (stats) stats.filteredJob++;
+              continue;
+            }
+            if (isRepostResult(title, snippet)) {
+              console.log(`[casting] Filtered repost: ${r.link} — "${title.slice(0, 80)}"`);
+              if (stats) stats.filteredRepost++;
+              continue;
+            }
           }
 
           const slug = extractLinkedInSlug(r.link);
@@ -404,30 +458,46 @@ export async function POST(request: Request) {
     });
 
     let topics: string[] = [];
-    try {
-      if (remainingPosts.length > 0) {
-        const postContent = remainingPosts.map(p => String((p as Record<string, unknown>).content ?? "")).filter(Boolean).join("\n\n");
-        topics = await classifyTopics(
-          String(data.headline ?? normalized.headline ?? ""),
-          postContent,
-          []
-        );
-      }
-      if (topics.length === 0) {
-        topics = await classifyTopics(
-          String(data.headline ?? normalized.headline ?? ""),
-          String(data.about ?? data.summary ?? ""),
-          []
-        );
-      }
-    } catch (e) {
-      console.warn(`[casting] Topic extraction failed for ${slug}:`, e);
-    }
+    let topicMatch = 0;
+    let matchedPublico: string[] = [];
+    let finalScore: number | null = creatorScore;
 
-    const { score: topicMatch, matched: matchedPublico } = computeTopicMatch(publico, topics);
-    const finalScore = creatorScore != null && publico.length > 0
-      ? Math.round((creatorScore * 0.7 + topicMatch * 0.3) * 10) / 10
-      : creatorScore;
+    if (isTitleMode) {
+      const titleResult = computeTitleMatch(themes, data, normalized);
+      if (titleResult.score === 0) continue;
+      topicMatch = titleResult.score;
+      matchedPublico = titleResult.matched;
+      finalScore = creatorScore != null
+        ? Math.round((creatorScore * 0.6 + topicMatch * 0.4) * 10) / 10
+        : null;
+    } else {
+      try {
+        if (remainingPosts.length > 0) {
+          const postContent = remainingPosts.map(p => String((p as Record<string, unknown>).content ?? "")).filter(Boolean).join("\n\n");
+          topics = await classifyTopics(
+            String(data.headline ?? normalized.headline ?? ""),
+            postContent,
+            []
+          );
+        }
+        if (topics.length === 0) {
+          topics = await classifyTopics(
+            String(data.headline ?? normalized.headline ?? ""),
+            String(data.about ?? data.summary ?? ""),
+            []
+          );
+        }
+      } catch (e) {
+        console.warn(`[casting] Topic extraction failed for ${slug}:`, e);
+      }
+
+      const topicResult = computeTopicMatch(publico, topics);
+      topicMatch = topicResult.score;
+      matchedPublico = topicResult.matched;
+      finalScore = creatorScore != null && publico.length > 0
+        ? Math.round((creatorScore * 0.7 + topicMatch * 0.3) * 10) / 10
+        : creatorScore;
+    }
 
     const srcKw2 = slugSourceKeyword.get(slug);
     if (srcKw2) {
@@ -464,8 +534,9 @@ export async function POST(request: Request) {
     if (unsearchedThemes.length > 0) {
       console.log(`[casting] Cover-all-keywords: ${unsearchedThemes.length} keyword lines never searched, fetching one SERP page each…`);
       for (const tp of unsearchedThemes) {
-        // User's original themes — pass as-is (user controls their own quoting)
-        const query = `site:linkedin.com/posts ${tp.theme}`;
+        const query = isTitleMode
+          ? `site:linkedin.com/in ${tp.theme}`
+          : `site:linkedin.com/posts ${tp.theme}`;
         const { results } = await searchGoogle(query, {
           language,
           country,
@@ -488,15 +559,17 @@ export async function POST(request: Request) {
           const title = r.title ?? "";
           const snippet = r.snippet ?? "";
 
-          if (isJobPostResult(title, snippet)) {
-            console.log(`[casting] Filtered job post: ${r.link} — "${title.slice(0, 80)}"`);
-            if (coverStats) coverStats.filteredJob++;
-            continue;
-          }
-          if (isRepostResult(title, snippet)) {
-            console.log(`[casting] Filtered repost: ${r.link} — "${title.slice(0, 80)}"`);
-            if (coverStats) coverStats.filteredRepost++;
-            continue;
+          if (!isTitleMode) {
+            if (isJobPostResult(title, snippet)) {
+              console.log(`[casting] Filtered job post: ${r.link} — "${title.slice(0, 80)}"`);
+              if (coverStats) coverStats.filteredJob++;
+              continue;
+            }
+            if (isRepostResult(title, snippet)) {
+              console.log(`[casting] Filtered repost: ${r.link} — "${title.slice(0, 80)}"`);
+              if (coverStats) coverStats.filteredRepost++;
+              continue;
+            }
           }
 
           const slug = extractLinkedInSlug(r.link);
@@ -557,32 +630,47 @@ export async function POST(request: Request) {
           posting_frequency_score: postsPerMonth,
         });
 
-        // Extract topics from posts + profile data
         let topics: string[] = [];
-        try {
-          if (coverPosts.length > 0) {
-            const postContent = coverPosts.map(p => String((p as Record<string, unknown>).content ?? "")).filter(Boolean).join("\n\n");
-            topics = await classifyTopics(
-              String(data.headline ?? normalized.headline ?? ""),
-              postContent,
-              []
-            );
-          }
-          if (topics.length === 0) {
-            topics = await classifyTopics(
-              String(data.headline ?? normalized.headline ?? ""),
-              String(data.about ?? data.summary ?? ""),
-              []
-            );
-          }
-        } catch (e) {
-          console.warn(`[casting] Topic extraction failed for ${slug}:`, e);
-        }
+        let topicMatch = 0;
+        let matchedPublico: string[] = [];
+        let finalScore: number | null = creatorScore;
 
-        const { score: topicMatch, matched: matchedPublico } = computeTopicMatch(publico, topics);
-        const finalScore = creatorScore != null && publico.length > 0
-          ? Math.round((creatorScore * 0.7 + topicMatch * 0.3) * 10) / 10
-          : creatorScore;
+        if (isTitleMode) {
+          const titleResult = computeTitleMatch(themes, data, normalized);
+          if (titleResult.score === 0) continue;
+          topicMatch = titleResult.score;
+          matchedPublico = titleResult.matched;
+          finalScore = creatorScore != null
+            ? Math.round((creatorScore * 0.6 + topicMatch * 0.4) * 10) / 10
+            : null;
+        } else {
+          try {
+            if (coverPosts.length > 0) {
+              const postContent = coverPosts.map(p => String((p as Record<string, unknown>).content ?? "")).filter(Boolean).join("\n\n");
+              topics = await classifyTopics(
+                String(data.headline ?? normalized.headline ?? ""),
+                postContent,
+                []
+              );
+            }
+            if (topics.length === 0) {
+              topics = await classifyTopics(
+                String(data.headline ?? normalized.headline ?? ""),
+                String(data.about ?? data.summary ?? ""),
+                []
+              );
+            }
+          } catch (e) {
+            console.warn(`[casting] Topic extraction failed for ${slug}:`, e);
+          }
+
+          const topicResult = computeTopicMatch(publico, topics);
+          topicMatch = topicResult.score;
+          matchedPublico = topicResult.matched;
+          finalScore = creatorScore != null && publico.length > 0
+            ? Math.round((creatorScore * 0.7 + topicMatch * 0.3) * 10) / 10
+            : creatorScore;
+        }
 
         const srcKw3 = slugSourceKeyword.get(slug);
         if (srcKw3) {
@@ -622,21 +710,23 @@ export async function POST(request: Request) {
 
   console.log(`[casting] Filter summary: ${totalCandidatesProcessed} candidates processed → ${matchedProfiles.length} matched`);
 
-  // Sort by final_score descending when publico is provided
-  if (publico.length > 0) {
+  // Sort by final_score descending when publico is provided or in title mode
+  if (publico.length > 0 || isTitleMode) {
     matchedProfiles.sort((a, b) => (b.final_score ?? 0) - (a.final_score ?? 0));
   }
 
   // Save to database
   const service = createServiceClient();
-  const listName = `Casting: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`;
+  const listName = isTitleMode
+    ? `Title: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`
+    : `Casting: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`;
 
   const { data: list, error: listError } = await service
     .from("casting_lists")
     .insert({
       name: listName,
       query_theme: themes.join("\n"),
-      filters_applied: { minFollowers, maxFollowers, language, country, domain, publico },
+      filters_applied: { minFollowers, maxFollowers, language, country, domain, publico, searchMode },
       created_by: user.id,
     })
     .select()
