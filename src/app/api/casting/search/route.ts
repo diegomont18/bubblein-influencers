@@ -26,6 +26,18 @@ function computeTopicMatch(publicoTags: string[], creatorTopics: string[]): { sc
   return { score: Math.round((matched.length / publicoTags.length) * 100), matched };
 }
 
+const JOB_POST_REGEX = /\b(vagas?|contratando|hiring|we.re hiring|estamos contratando|oportunidade de emprego|job opening|open position|open role|vem ser|venha fazer parte)\b/i;
+
+const REPOST_REGEX = /\b(reposted this|repostou|compartilhou isso|compartilhou isto|shared this)\b/i;
+
+function isJobPostResult(title: string, snippet: string): boolean {
+  return JOB_POST_REGEX.test(title) || JOB_POST_REGEX.test(snippet);
+}
+
+function isRepostResult(title: string, snippet: string): boolean {
+  return REPOST_REGEX.test(title) || REPOST_REGEX.test(snippet);
+}
+
 function extractLinkedInSlug(url: string): string | null {
   // Try post URL first: linkedin.com/posts/username_...
   const postMatch = url.match(/linkedin\.com\/posts\/([^_/?#]+)/);
@@ -107,9 +119,9 @@ export async function POST(request: Request) {
   }
 
   // Per-keyword stats tracking
-  const keywordStats = new Map<string, { googleResults: number; candidates: number; matched: number }>();
+  const keywordStats = new Map<string, { googleResults: number; candidates: number; matched: number; filteredJob: number; filteredRepost: number }>();
   for (const theme of themes) {
-    keywordStats.set(theme, { googleResults: 0, candidates: 0, matched: 0 });
+    keywordStats.set(theme, { googleResults: 0, candidates: 0, matched: 0, filteredJob: 0, filteredRepost: 0 });
   }
   const slugSourceKeyword = new Map<string, string>();
 
@@ -311,6 +323,20 @@ export async function POST(request: Request) {
         }
 
         for (const r of results) {
+          const title = r.title ?? "";
+          const snippet = r.snippet ?? "";
+
+          if (isJobPostResult(title, snippet)) {
+            console.log(`[casting] Filtered job post: ${r.link} — "${title.slice(0, 80)}"`);
+            if (stats) stats.filteredJob++;
+            continue;
+          }
+          if (isRepostResult(title, snippet)) {
+            console.log(`[casting] Filtered repost: ${r.link} — "${title.slice(0, 80)}"`);
+            if (stats) stats.filteredRepost++;
+            continue;
+          }
+
           const slug = extractLinkedInSlug(r.link);
           if (slug && !seenSlugs.has(slug)) {
             seenSlugs.add(slug);
@@ -459,6 +485,20 @@ export async function POST(request: Request) {
         }
 
         for (const r of results) {
+          const title = r.title ?? "";
+          const snippet = r.snippet ?? "";
+
+          if (isJobPostResult(title, snippet)) {
+            console.log(`[casting] Filtered job post: ${r.link} — "${title.slice(0, 80)}"`);
+            if (coverStats) coverStats.filteredJob++;
+            continue;
+          }
+          if (isRepostResult(title, snippet)) {
+            console.log(`[casting] Filtered repost: ${r.link} — "${title.slice(0, 80)}"`);
+            if (coverStats) coverStats.filteredRepost++;
+            continue;
+          }
+
           const slug = extractLinkedInSlug(r.link);
           if (slug && !seenSlugs.has(slug)) {
             seenSlugs.add(slug);
@@ -577,7 +617,7 @@ export async function POST(request: Request) {
 
   // Log per-keyword breakdown
   keywordStats.forEach((stats, keyword) => {
-    console.log(`[casting] Keyword "${keyword}": ${stats.googleResults} google results, ${stats.candidates} candidates, ${stats.matched} matched`);
+    console.log(`[casting] Keyword "${keyword}": ${stats.googleResults} google results, ${stats.candidates} candidates, ${stats.matched} matched, ${stats.filteredJob} job posts filtered, ${stats.filteredRepost} reposts filtered`);
   });
 
   console.log(`[casting] Filter summary: ${totalCandidatesProcessed} candidates processed → ${matchedProfiles.length} matched`);

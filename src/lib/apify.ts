@@ -10,7 +10,7 @@ export async function fetchProfilePosts(
   const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const body = {
     includeQuotePosts: true,
-    includeReposts: true,
+    includeReposts: false,
     maxComments: 0,
     maxPosts: 3,
     maxReactions: 0,

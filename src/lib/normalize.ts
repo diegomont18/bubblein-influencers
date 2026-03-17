@@ -48,8 +48,12 @@ function isOriginalPost(item: Record<string, unknown>): boolean {
     if (/liked|reacted|commented|celebrated|voted|suggested|supported|funny|insightful|love|curious/i.test(status)) {
       return false;
     }
+    // Exclude reshares/reposts
+    if (/shared|reposted/i.test(status)) {
+      return false;
+    }
     // Include items explicitly marked as original posts
-    if (/posted|shared|published/i.test(status)) {
+    if (/posted|published/i.test(status)) {
       return true;
     }
   }
