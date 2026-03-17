@@ -5,6 +5,11 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --landing-bg: #0B0B1A;
+  --landing-surface: #12122A;
+  --landing-border: #1E1E3A;
+  --accent-pink: #E91E8C;
+  --accent-purple: #C724D1;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -12,6 +17,10 @@
     --background: #0a0a0a;
     --foreground: #ededed;
   }
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
@@ -23,5 +32,85 @@ body {
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-gradient-accent {
+    background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+  }
+
+  .glow-pink {
+    box-shadow: 0 0 80px 40px rgba(233, 30, 140, 0.15);
+  }
+
+  .glow-purple {
+    box-shadow: 0 0 80px 40px rgba(199, 36, 209, 0.15);
+  }
+
+  /* Decorative bubble styles */
+  .bubble {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    background: radial-gradient(
+      circle at 30% 25%,
+      rgba(255, 255, 255, 0.25) 0%,
+      rgba(233, 30, 140, 0.15) 30%,
+      rgba(199, 36, 209, 0.1) 60%,
+      rgba(199, 36, 209, 0.03) 100%
+    );
+    box-shadow:
+      inset 0 -4px 12px rgba(233, 30, 140, 0.1),
+      inset 0 4px 12px rgba(255, 255, 255, 0.15),
+      0 0 20px rgba(233, 30, 140, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    animation: float 8s ease-in-out infinite;
+  }
+
+  .bubble-sm {
+    width: 48px;
+    height: 48px;
+  }
+
+  .bubble-md {
+    width: 100px;
+    height: 100px;
+  }
+
+  .bubble-lg {
+    width: 170px;
+    height: 170px;
+  }
+
+  .bubble-xl {
+    width: 220px;
+    height: 220px;
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0) rotate(0deg);
+    }
+    33% {
+      transform: translateY(-15px) rotate(2deg);
+    }
+    66% {
+      transform: translateY(10px) rotate(-1deg);
+    }
+  }
+
+  @keyframes float-slow {
+    0%, 100% {
+      transform: translateY(0) rotate(0deg);
+    }
+    50% {
+      transform: translateY(-20px) rotate(3deg);
+    }
   }
 }

@@ -14,9 +14,9 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "BubbleIn — Influencer Intelligence Platform",
+  title: "BubbleIn — Agência de Creators B2B no LinkedIn",
   description:
-    "LinkedIn influencer discovery, casting, and monitoring platform",
+    "Conectamos sua marca a creators B2B relevantes no LinkedIn. Ganhe visibilidade, gere demanda e construa confiança.",
   icons: {
     icon: "/favicon.png",
   },
@@ -28,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="pt-BR" className="scroll-smooth">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
