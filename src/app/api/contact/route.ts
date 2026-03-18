@@ -20,14 +20,23 @@ export async function POST(request: Request) {
       ? `[Creator] ${name} quer fazer parte do hub`
       : `[Contato] Nova mensagem de ${name}`;
 
-    await resend.emails.send({
-      from: "BubbleIn <onboarding@resend.dev>",
+    const { data, error: sendError } = await resend.emails.send({
+      from: "BubbleIn <noreply@bubblein.com.br>",
       to: ["eva.campos@vecsy.co", "diego.monteiro@gmail.com"],
       subject,
       replyTo: email,
       text: `Nome: ${name}\nEmail: ${email}\nTipo: ${isCreator ? "Creator" : "Empresa"}\n\nMensagem:\n${message}`,
     });
 
+    if (sendError) {
+      console.error("[contact] Resend error:", sendError);
+      return NextResponse.json(
+        { error: "Erro ao enviar mensagem. Tente novamente." },
+        { status: 500 }
+      );
+    }
+
+    console.log("[contact] Email sent successfully, id:", data?.id);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to send email:", error);
