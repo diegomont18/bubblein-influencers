@@ -629,6 +629,8 @@ export function ProfileTable() {
               </th>
               <SortableHeader column="avg_likes_per_post" label="Avg Likes" />
               <SortableHeader column="avg_comments_per_post" label="Avg Comments" />
+              <SortableHeader column="median_likes_per_post" label="Med Likes" />
+              <SortableHeader column="median_comments_per_post" label="Med Comments" />
               <th className="px-4 py-3 font-medium text-gray-500">Keywords</th>
               <SortableHeader column="last_enriched_at" label="Extracted" />
               <SortableHeader column="enrichment_status" label="Status" />
@@ -638,13 +640,13 @@ export function ProfileTable() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={18} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={20} className="px-4 py-8 text-center text-gray-400">
                   Loading...
                 </td>
               </tr>
             ) : profiles.length === 0 ? (
               <tr>
-                <td colSpan={18} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={20} className="px-4 py-8 text-center text-gray-400">
                   No profiles found
                 </td>
               </tr>
@@ -816,6 +818,12 @@ export function ProfileTable() {
                   </td>
                   <td className="px-4 py-3 text-gray-600">
                     {p.avg_comments_per_post != null ? String(Math.round(p.avg_comments_per_post)) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {p.median_likes_per_post != null ? String(Math.round(p.median_likes_per_post)) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {p.median_comments_per_post != null ? String(Math.round(p.median_comments_per_post)) : "—"}
                   </td>
                   <td className="px-4 py-3 text-gray-400">
                     {p.casting_keywords ?? "—"}

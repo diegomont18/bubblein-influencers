@@ -111,12 +111,56 @@ export function calculatePostingFrequency(
   };
 }
 
+export function calculatePostingFrequencyFromApifyPosts(
+  posts: Array<Record<string, unknown>>
+): { label: string; score: number } {
+  if (posts.length === 0) return { label: "0/mo", score: 0 };
+
+  // Find the oldest post date
+  let oldestDate: Date | null = null;
+  for (const post of posts) {
+    const dateStr = post.postedAt ?? post.posted_at ?? post.postedDate ?? post.date;
+    if (typeof dateStr === "string") {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        if (!oldestDate || d < oldestDate) oldestDate = d;
+      }
+    }
+  }
+
+  if (!oldestDate) {
+    // No date info — at least we know they posted, so floor at 1
+    return { label: "1/mo", score: 1 };
+  }
+
+  const now = new Date();
+  const spanDays = Math.max((now.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24), 1);
+  const postsPerMonth = Math.max(Math.round((posts.length / spanDays) * 30 * 10) / 10, 1);
+
+  console.log(`[posting-frequency] From ${posts.length} Apify posts spanning ${Math.round(spanDays)}d → ${postsPerMonth}/mo`);
+
+  return {
+    label: `${postsPerMonth}/mo`,
+    score: postsPerMonth,
+  };
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
+  }
+  return sorted[mid];
+}
+
 export function calculateEngagementMetrics(
   raw: Record<string, unknown>
-): { avgLikes: number | null; avgComments: number | null } {
+): { avgLikes: number | null; avgComments: number | null; medianLikes: number | null; medianComments: number | null } {
   const activities = raw.activities as Array<Record<string, unknown>> | undefined;
   if (!Array.isArray(activities) || activities.length === 0) {
-    return { avgLikes: null, avgComments: null };
+    return { avgLikes: null, avgComments: null, medianLikes: null, medianComments: null };
   }
 
   // Log engagement-related keys from first activity for debugging
@@ -131,13 +175,15 @@ export function calculateEngagementMetrics(
 
   const originalPosts = activities.filter(isOriginalPost);
   if (originalPosts.length === 0) {
-    return { avgLikes: null, avgComments: null };
+    return { avgLikes: null, avgComments: null, medianLikes: null, medianComments: null };
   }
 
   let likesSum = 0;
   let likesCount = 0;
   let commentsSum = 0;
   let commentsCount = 0;
+  const likesValues: number[] = [];
+  const commentsValues: number[] = [];
 
   for (const post of originalPosts) {
     // Try multiple field name patterns for likes/reactions
@@ -152,6 +198,7 @@ export function calculateEngagementMetrics(
     if (likes != null) {
       likesSum += likes;
       likesCount++;
+      likesValues.push(likes);
     }
 
     // Try multiple field name patterns for comments
@@ -166,15 +213,18 @@ export function calculateEngagementMetrics(
     if (comments != null) {
       commentsSum += comments;
       commentsCount++;
+      commentsValues.push(comments);
     }
   }
 
   const avgLikes = likesCount > 0 ? Math.round((likesSum / likesCount) * 10) / 10 : null;
   const avgComments = commentsCount > 0 ? Math.round((commentsSum / commentsCount) * 10) / 10 : null;
+  const medianLikes = median(likesValues);
+  const medianComments = median(commentsValues);
 
-  console.log(`[engagement] originalPosts=${originalPosts.length} avgLikes=${avgLikes} (from ${likesCount} posts) avgComments=${avgComments} (from ${commentsCount} posts)`);
+  console.log(`[engagement] originalPosts=${originalPosts.length} avgLikes=${avgLikes} medianLikes=${medianLikes} (from ${likesCount} posts) avgComments=${avgComments} medianComments=${medianComments} (from ${commentsCount} posts)`);
 
-  return { avgLikes, avgComments };
+  return { avgLikes, avgComments, medianLikes, medianComments };
 }
 
 /**
@@ -205,11 +255,13 @@ export function getOriginalPostLinks(
  */
 export function computeEngagementFromPosts(
   postDataList: Array<Record<string, unknown>>
-): { avgLikes: number | null; avgComments: number | null } {
+): { avgLikes: number | null; avgComments: number | null; medianLikes: number | null; medianComments: number | null } {
   let likesSum = 0;
   let likesCount = 0;
   let commentsSum = 0;
   let commentsCount = 0;
+  const likesValues: number[] = [];
+  const commentsValues: number[] = [];
 
   if (postDataList.length > 0) {
     const first = postDataList[0];
@@ -235,6 +287,7 @@ export function computeEngagementFromPosts(
     if (likes != null) {
       likesSum += likes;
       likesCount++;
+      likesValues.push(likes);
     }
 
     const comments = extractNumeric(post, [
@@ -250,14 +303,17 @@ export function computeEngagementFromPosts(
     if (comments != null) {
       commentsSum += comments;
       commentsCount++;
+      commentsValues.push(comments);
     }
   }
 
   const avgLikes = likesCount > 0 ? Math.round((likesSum / likesCount) * 10) / 10 : null;
   const avgComments = commentsCount > 0 ? Math.round((commentsSum / commentsCount) * 10) / 10 : null;
+  const medianLikes = median(likesValues);
+  const medianComments = median(commentsValues);
 
-  console.log(`[engagement] From ${postDataList.length} fetched posts: avgLikes=${avgLikes} (${likesCount} had data) avgComments=${avgComments} (${commentsCount} had data)`);
-  return { avgLikes, avgComments };
+  console.log(`[engagement] From ${postDataList.length} fetched posts: avgLikes=${avgLikes} medianLikes=${medianLikes} (${likesCount} had data) avgComments=${avgComments} medianComments=${medianComments} (${commentsCount} had data)`);
+  return { avgLikes, avgComments, medianLikes, medianComments };
 }
 
 function extractNumeric(obj: Record<string, unknown>, keys: string[]): number | null {

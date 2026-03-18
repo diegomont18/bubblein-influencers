@@ -35,6 +35,8 @@ export interface Database {
           last_enriched_at: string | null;
           avg_likes_per_post: number | null;
           avg_comments_per_post: number | null;
+          median_likes_per_post: number | null;
+          median_comments_per_post: number | null;
           creator_score: number | null;
           casting_keywords: string | null;
           created_at: string;
@@ -65,6 +67,8 @@ export interface Database {
           last_enriched_at?: string | null;
           avg_likes_per_post?: number | null;
           avg_comments_per_post?: number | null;
+          median_likes_per_post?: number | null;
+          median_comments_per_post?: number | null;
           creator_score?: number | null;
           casting_keywords?: string | null;
           created_at?: string;
@@ -95,6 +99,8 @@ export interface Database {
           last_enriched_at?: string | null;
           avg_likes_per_post?: number | null;
           avg_comments_per_post?: number | null;
+          median_likes_per_post?: number | null;
+          median_comments_per_post?: number | null;
           creator_score?: number | null;
           casting_keywords?: string | null;
           created_at?: string;

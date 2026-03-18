@@ -35,6 +35,9 @@ export default function CastingPage() {
   const [generatingSynonyms, setGeneratingSynonyms] = useState(false);
   const [coverAllKeywords, setCoverAllKeywords] = useState(true);
   const [publico, setPublico] = useState("");
+  const [useSynonyms, setUseSynonyms] = useState(false);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [profiles, setProfiles] = useState<CastingProfile[]>([]);
   const [totalCandidates, setTotalCandidates] = useState(0);
@@ -122,8 +125,11 @@ export default function CastingPage() {
     setProfiles([]);
     setTotalCandidates(0);
     setKeywordStats(null);
+    setViewingListId(null);
 
     const lang = LANGUAGES[languageIdx];
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       const publicoTags = publico.split(",").map(t => t.trim().toLowerCase()).filter(Boolean);
@@ -144,6 +150,7 @@ export default function CastingPage() {
           publico: publicoTags,
           searchMode,
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -151,17 +158,66 @@ export default function CastingPage() {
         throw new Error(json.error ?? `Search failed (${res.status})`);
       }
 
-      const json = await res.json();
-      setProfiles(json.profiles ?? []);
-      setTotalCandidates(json.totalCandidates ?? 0);
-      setKeywordStats(json.keywordStats ?? null);
-      setViewingListId(null);
+      // Read NDJSON stream
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+            if (event.type === "profile") {
+              setProfiles((prev) => [...prev, event.data]);
+            } else if (event.type === "done") {
+              setTotalCandidates(event.data.totalCandidates ?? 0);
+              setKeywordStats(event.data.keywordStats ?? null);
+            } else if (event.type === "error") {
+              setError(event.data.message ?? "Search failed");
+            }
+          } catch {
+            // Skip malformed lines
+          }
+        }
+      }
+
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        try {
+          const event = JSON.parse(buffer);
+          if (event.type === "done") {
+            setTotalCandidates(event.data.totalCandidates ?? 0);
+            setKeywordStats(event.data.keywordStats ?? null);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       fetchPastLists();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // User stopped the search — partial results are already displayed and saved in DB
+        fetchPastLists();
+      } else {
+        setError(err instanceof Error ? err.message : "Search failed");
+      }
     } finally {
       setSearching(false);
+      abortControllerRef.current = null;
     }
+  }
+
+  function handleStopSearch() {
+    abortControllerRef.current?.abort();
   }
 
   async function handleDeleteList(listId: string) {
@@ -429,8 +485,29 @@ export default function CastingPage() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={useSynonyms}
+            onChange={(e) => {
+              setUseSynonyms(e.target.checked);
+              if (!e.target.checked) setSynonyms(null);
+            }}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          Use synonyms (expand search with related terms)
+        </label>
+
         <div className="flex items-center gap-3">
-          {!synonyms ? (
+          {!useSynonyms ? (
+            <button
+              onClick={() => handleSearch(false)}
+              disabled={searching || generatingSynonyms}
+              className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {searching ? "Searching..." : "Search"}
+            </button>
+          ) : !synonyms ? (
             <button
               onClick={handleGenerateSynonyms}
               disabled={generatingSynonyms || searching}
@@ -453,13 +530,6 @@ export default function CastingPage() {
                 className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
               >
                 {generatingSynonyms ? "Regenerating..." : "Regenerate"}
-              </button>
-              <button
-                onClick={() => handleSearch(false)}
-                disabled={searching}
-                className="text-sm text-gray-500 hover:text-gray-700 underline"
-              >
-                Skip Synonyms
               </button>
             </>
           )}
@@ -564,15 +634,26 @@ export default function CastingPage() {
               </table>
             </details>
           )}
-          {searching ? (
-            <p className="text-sm text-blue-600 animate-pulse py-4 text-center">
-              Searching LinkedIn profiles... This may take a few minutes.
-            </p>
-          ) : loadingList ? (
+          {searching && (
+            <div className="py-4 text-center space-y-2">
+              <p className="text-sm text-blue-600 animate-pulse">
+                Searching LinkedIn profiles... This may take a few minutes.
+                {profiles.length > 0 && ` (${profiles.length} found so far)`}
+              </p>
+              <button
+                onClick={handleStopSearch}
+                className="px-3 py-1.5 rounded-md bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors"
+              >
+                Stop Search
+              </button>
+            </div>
+          )}
+          {loadingList && (
             <p className="text-sm text-blue-600 animate-pulse py-4 text-center">
               Loading casting list...
             </p>
-          ) : (
+          )}
+          {!loadingList && (
             <CastingResults
               profiles={profiles}
               listId={viewingListId}

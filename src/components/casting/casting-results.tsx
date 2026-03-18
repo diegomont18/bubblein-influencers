@@ -52,6 +52,8 @@ export interface CastingProfile {
   posts_per_month: number;
   avg_likes_per_post?: number | null;
   avg_comments_per_post?: number | null;
+  median_likes_per_post?: number | null;
+  median_comments_per_post?: number | null;
   creator_score?: number | null;
   topics?: string[];
   topic_match?: number;
@@ -69,7 +71,7 @@ interface CastingResultsProps {
   queryTheme?: string;
 }
 
-type SortKey = "name" | "followers" | "posts_per_month" | "avg_likes_per_post" | "avg_comments_per_post" | "creator_score" | "topic_match" | "focus";
+type SortKey = "name" | "followers" | "posts_per_month" | "avg_likes_per_post" | "avg_comments_per_post" | "median_likes_per_post" | "median_comments_per_post" | "creator_score" | "topic_match" | "focus";
 type SortDir = "asc" | "desc";
 
 function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort }: {
@@ -138,7 +140,7 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
   }, [profiles, sortKey, sortDir]);
 
   function exportCsv() {
-    const headers = ["Name", "LinkedIn URL", "Headline", "Company", "Job Title", "Location", "Followers", "Posts/Month", "Avg Likes", "Avg Comments", "Creator Score", "Topic Match %", "Topics", "Focus", "Keywords"];
+    const headers = ["Name", "LinkedIn URL", "Headline", "Company", "Job Title", "Location", "Followers", "Posts/Month", "Avg Likes", "Avg Comments", "Med Likes", "Med Comments", "Creator Score", "Topic Match %", "Topics", "Focus", "Keywords"];
     const escapeField = (val: string) => {
       if (val.includes(",") || val.includes('"') || val.includes("\n")) {
         return '"' + val.replace(/"/g, '""') + '"';
@@ -157,6 +159,8 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
       p.posts_per_month != null ? String(Math.round(p.posts_per_month)) : "",
       p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "",
       p.avg_comments_per_post != null ? String(Math.round(p.avg_comments_per_post)) : "",
+      p.median_likes_per_post != null ? String(Math.round(p.median_likes_per_post)) : "",
+      p.median_comments_per_post != null ? String(Math.round(p.median_comments_per_post)) : "",
       (() => { const s = p.final_score ?? p.creator_score; return s != null ? String(Math.round(s)) : ""; })(),
       p.topic_match != null ? String(p.topic_match) : "",
       (p.topics || []).join("; "),
@@ -244,6 +248,8 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
       <SortableHeader label="Posts /month" sortKey="posts_per_month" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <SortableHeader label="Avg Likes" sortKey="avg_likes_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <SortableHeader label="Avg Comments" sortKey="avg_comments_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+      <SortableHeader label="Med Likes" sortKey="median_likes_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+      <SortableHeader label="Med Comments" sortKey="median_comments_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <SortableHeader label="Creator Score" sortKey="creator_score" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <SortableHeader label="Match" sortKey="topic_match" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <th className="px-4 py-3 font-medium text-gray-500">Topics</th>
@@ -261,7 +267,7 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
             <thead>{headerRow}</thead>
             <tbody>
               <tr>
-                <td colSpan={16} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={18} className="px-4 py-8 text-center text-gray-400">
                   No profiles found matching your criteria.
                 </td>
               </tr>
@@ -385,6 +391,12 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {p.avg_comments_per_post != null ? String(Math.round(p.avg_comments_per_post)) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {p.median_likes_per_post != null ? String(Math.round(p.median_likes_per_post)) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {p.median_comments_per_post != null ? String(Math.round(p.median_comments_per_post)) : "—"}
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {(() => {

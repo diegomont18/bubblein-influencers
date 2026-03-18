@@ -191,6 +191,8 @@ export async function POST(request: Request) {
             posting_frequency_score: frequency.score,
             avg_likes_per_post: engagement.avgLikes,
             avg_comments_per_post: engagement.avgComments,
+            median_likes_per_post: engagement.medianLikes,
+            median_comments_per_post: engagement.medianComments,
             creator_score: creatorScore,
             enrichment_status: "done",
             raw_data: result.data,
