@@ -35,6 +35,29 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Admin role check for dashboard routes (uses service role to bypass RLS)
+  if (user && request.nextUrl.pathname.startsWith("/dashboard")) {
+    const supabaseAdmin = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { cookies: { getAll() { return []; }, setAll() {} } }
+    );
+
+    const { data } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .single();
+
+    if (data?.role !== "admin") {
+      console.log(`[middleware] Access denied: user ${user.id} (${user.email}) is not admin`);
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("error", "unauthorized");
+      return NextResponse.redirect(url);
+    }
+  }
+
   return response;
 }
 

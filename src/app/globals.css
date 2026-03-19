@@ -105,6 +105,25 @@ body {
     }
   }
 
+  /* Blog prose styling */
+  .prose-pink {
+    --tw-prose-body: #d1d5db;
+    --tw-prose-headings: #ffffff;
+    --tw-prose-lead: #9ca3af;
+    --tw-prose-links: #E91E8C;
+    --tw-prose-bold: #ffffff;
+    --tw-prose-counters: #9ca3af;
+    --tw-prose-bullets: #E91E8C;
+    --tw-prose-hr: #1E1E3A;
+    --tw-prose-quotes: #d1d5db;
+    --tw-prose-quote-borders: #E91E8C;
+    --tw-prose-code: #E91E8C;
+    --tw-prose-pre-code: #d1d5db;
+    --tw-prose-pre-bg: #12122A;
+    --tw-prose-th-borders: #1E1E3A;
+    --tw-prose-td-borders: #1E1E3A;
+  }
+
   @keyframes float-slow {
     0%, 100% {
       transform: translateY(0) rotate(0deg);

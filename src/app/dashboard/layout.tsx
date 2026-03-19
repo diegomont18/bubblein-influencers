@@ -7,6 +7,8 @@ const navItems = [
   { label: "Profile Enricher", href: "/dashboard/enricher", soon: false },
   { label: "Casting", href: "/dashboard/casting", soon: false },
   { label: "Monitoring", href: "/dashboard/monitoring", soon: true },
+  { label: "Blog Posts", href: "/dashboard/blog-posts", soon: false },
+  { label: "Users", href: "/dashboard/users", soon: false },
 ];
 
 export default function DashboardLayout({

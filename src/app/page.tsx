@@ -78,6 +78,7 @@ const NAV_LINKS = [
   { label: "Como Funciona", href: "#processo" },
   { label: "Modelos", href: "#modelos" },
   { label: "FAQ", href: "#faq" },
+  { label: "Blog", href: "/blog" },
 ];
 
 const BENEFITS = [
@@ -310,15 +311,25 @@ export default function Home() {
 
           {/* Desktop nav */}
           <div className="hidden md:flex items-center gap-8">
-            {NAV_LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className="text-sm text-gray-400 hover:text-white transition-colors"
-              >
-                {link.label}
-              </a>
-            ))}
+            {NAV_LINKS.map((link) =>
+              link.href.startsWith("/") ? (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                  {link.label}
+                </Link>
+              ) : (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  className="text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                  {link.label}
+                </a>
+              )
+            )}
             <Link
               href={APP_URL}
               className="bg-gradient-accent text-white text-sm font-medium px-5 py-2 rounded-full hover:opacity-90 transition-opacity"
@@ -353,16 +364,27 @@ export default function Home() {
         {/* Mobile menu */}
         {menuOpen && (
           <div className="md:hidden bg-[#0B0B1A]/95 backdrop-blur-lg border-b border-[#1E1E3A] px-6 pb-4">
-            {NAV_LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                onClick={() => setMenuOpen(false)}
-                className="block py-3 text-gray-400 hover:text-white transition-colors"
-              >
-                {link.label}
-              </a>
-            ))}
+            {NAV_LINKS.map((link) =>
+              link.href.startsWith("/") ? (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="block py-3 text-gray-400 hover:text-white transition-colors"
+                >
+                  {link.label}
+                </Link>
+              ) : (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="block py-3 text-gray-400 hover:text-white transition-colors"
+                >
+                  {link.label}
+                </a>
+              )
+            )}
             <Link
               href={APP_URL}
               className="inline-block mt-2 bg-gradient-accent text-white text-sm font-medium px-5 py-2 rounded-full"
@@ -651,15 +673,25 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
           <Image src="/logo.png" alt="BubbleIn" width={100} height={36} />
           <div className="flex items-center gap-6 text-sm text-gray-500">
-            {NAV_LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className="hover:text-gray-300 transition-colors"
-              >
-                {link.label}
-              </a>
-            ))}
+            {NAV_LINKS.map((link) =>
+              link.href.startsWith("/") ? (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="hover:text-gray-300 transition-colors"
+                >
+                  {link.label}
+                </Link>
+              ) : (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  className="hover:text-gray-300 transition-colors"
+                >
+                  {link.label}
+                </a>
+              )
+            )}
           </div>
           <p className="text-sm text-gray-600">
             © {new Date().getFullYear()} BubbleIn. Todos os direitos reservados.
