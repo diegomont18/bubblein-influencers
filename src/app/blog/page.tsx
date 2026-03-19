@@ -1,45 +1,32 @@
-import { createReader } from "@keystatic/core/reader";
-import config from "../../../keystatic.config";
+import { getBlogPosts, getImageUrl } from "@/lib/contentful";
+import Navbar from "@/components/navbar";
 import Link from "next/link";
 import Image from "next/image";
 
-const reader = createReader(process.cwd(), config);
+export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Blog - BubbleIn",
-  description: "Conteúdos sobre marketing de influência B2B no LinkedIn.",
+  title: "Blog",
+  description:
+    "Conteúdos sobre marketing de influência B2B no LinkedIn. Dicas, estratégias e cases para sua marca crescer.",
+  alternates: {
+    canonical: "/blog",
+  },
 };
 
-export default async function BlogPage() {
-  const postSlugs = await reader.collections.posts.list();
-  const posts = await Promise.all(
-    postSlugs.map(async (slug) => {
-      const post = await reader.collections.posts.read(slug);
-      return { slug, ...post! };
-    })
-  );
-
-  posts.sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+export default async function BlogPage({
+  searchParams,
+}: {
+  searchParams: { page?: string };
+}) {
+  const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
+  const { posts, totalPages } = await getBlogPosts(page);
 
   return (
     <div className="min-h-screen bg-[#0B0B1A] text-white font-[family-name:var(--font-geist-sans)]">
-      <nav className="bg-[#0B0B1A]/80 backdrop-blur-lg border-b border-[#1E1E3A] sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/">
-            <Image src="/logo.png" alt="BubbleIn" width={120} height={43} priority />
-          </Link>
-          <Link
-            href="/"
-            className="text-sm text-gray-400 hover:text-white transition-colors"
-          >
-            Voltar ao site
-          </Link>
-        </div>
-      </nav>
+      <Navbar />
 
-      <main className="max-w-4xl mx-auto px-6 py-20">
+      <main className="max-w-4xl mx-auto px-6 pt-28 pb-20">
         <h1 className="text-4xl md:text-5xl font-bold mb-4">
           <span className="text-gradient">Blog</span>
         </h1>
@@ -51,25 +38,78 @@ export default async function BlogPage() {
           <p className="text-gray-500">Nenhum post publicado ainda.</p>
         ) : (
           <div className="space-y-6">
-            {posts.map((post) => (
+            {posts.map((post) => {
+              const imageUrl = getImageUrl(post.fields.image);
+              return (
+                <Link
+                  key={post.sys.id}
+                  href={`/blog/${post.fields.slug}`}
+                  className="block bg-[#12122A] border border-[#1E1E3A] rounded-2xl overflow-hidden hover:border-[#E91E8C]/30 transition-colors"
+                >
+                  {imageUrl && (
+                    <div className="relative w-full h-48 md:h-64">
+                      <Image
+                        src={imageUrl}
+                        alt={post.fields.title}
+                        fill
+                        className="object-cover"
+                        sizes="(max-width: 768px) 100vw, 896px"
+                      />
+                    </div>
+                  )}
+                  <div className="p-6 md:p-8">
+                    <div className="flex items-center gap-3 mb-3">
+                      <time className="text-sm text-[#E91E8C] font-medium">
+                        {new Date(post.fields.date).toLocaleDateString("pt-BR", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                        })}
+                      </time>
+                      {post.fields.author && (
+                        <>
+                          <span className="text-gray-600">·</span>
+                          <span className="text-sm text-gray-400">{post.fields.author}</span>
+                        </>
+                      )}
+                    </div>
+                    <h2 className="text-xl md:text-2xl font-bold mb-3">
+                      {post.fields.title}
+                    </h2>
+                    <p className="text-gray-400 leading-relaxed line-clamp-3">
+                      {post.fields.summary}
+                    </p>
+                    <span className="inline-block mt-4 text-sm text-[#E91E8C] font-medium">
+                      Ler mais →
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-4 mt-12">
+            {page > 1 && (
               <Link
-                key={post.slug}
-                href={`/blog/${post.slug}`}
-                className="block bg-[#12122A] border border-[#1E1E3A] rounded-2xl p-6 md:p-8 hover:border-[#E91E8C]/30 transition-colors"
+                href={`/blog?page=${page - 1}`}
+                className="px-4 py-2 rounded-lg border border-[#1E1E3A] text-sm text-gray-400 hover:text-white hover:border-[#E91E8C]/30 transition-colors"
               >
-                <time className="text-sm text-[#E91E8C] font-medium">
-                  {new Date(post.date).toLocaleDateString("pt-BR", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </time>
-                <h2 className="text-xl md:text-2xl font-bold mt-2 mb-3">
-                  {post.title}
-                </h2>
-                <p className="text-gray-400 leading-relaxed">{post.summary}</p>
+                ← Anterior
               </Link>
-            ))}
+            )}
+            <span className="text-sm text-gray-500">
+              Página {page} de {totalPages}
+            </span>
+            {page < totalPages && (
+              <Link
+                href={`/blog?page=${page + 1}`}
+                className="px-4 py-2 rounded-lg border border-[#1E1E3A] text-sm text-gray-400 hover:text-white hover:border-[#E91E8C]/30 transition-colors"
+              >
+                Próxima →
+              </Link>
+            )}
           </div>
         )}
       </main>

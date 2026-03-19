@@ -1,5 +1,10 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 const navItems = [
   { label: "Overview", href: "/dashboard", soon: false },

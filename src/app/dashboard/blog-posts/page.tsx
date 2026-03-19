@@ -1,23 +1,10 @@
-import { createReader } from "@keystatic/core/reader";
-import keystaticConfig from "../../../../keystatic.config";
-import Link from "next/link";
+import { getBlogPosts } from "@/lib/contentful";
+
+export const dynamic = "force-dynamic";
 
 export default async function BlogPostsPage() {
-  const reader = createReader(process.cwd(), keystaticConfig);
-  const slugs = await reader.collections.posts.list();
-  const posts = await Promise.all(
-    slugs.map(async (slug) => {
-      const post = await reader.collections.posts.read(slug);
-      return post ? { slug, ...post } : null;
-    })
-  );
-
-  const validPosts = posts
-    .filter((p): p is NonNullable<typeof p> => p !== null)
-    .sort((a, b) => {
-      if (!a.date || !b.date) return 0;
-      return b.date.localeCompare(a.date);
-    });
+  const SPACE_ID = process.env.CONTENTFUL_SPACE_ID;
+  const { posts } = await getBlogPosts();
 
   return (
     <div className="space-y-6">
@@ -25,15 +12,17 @@ export default async function BlogPostsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Blog Posts</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Manage blog posts. Editing opens the Keystatic editor.
+            Manage blog posts. Editing opens Contentful.
           </p>
         </div>
-        <Link
-          href="/keystatic/collection/posts/create"
+        <a
+          href={`https://app.contentful.com/spaces/${SPACE_ID}/entries`}
+          target="_blank"
+          rel="noopener noreferrer"
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
         >
           Create New Post
-        </Link>
+        </a>
       </div>
 
       <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
@@ -55,31 +44,33 @@ export default async function BlogPostsPage() {
             </tr>
           </thead>
           <tbody>
-            {validPosts.map((post) => (
+            {posts.map((post) => (
               <tr
-                key={post.slug}
+                key={post.sys.id}
                 className="border-b border-gray-100 last:border-0"
               >
                 <td className="px-4 py-3 font-medium text-gray-900">
-                  {post.title}
+                  {post.fields.title}
                 </td>
                 <td className="px-4 py-3 text-gray-500">
-                  {post.date ?? "—"}
+                  {post.fields.date ?? "—"}
                 </td>
                 <td className="px-4 py-3 text-gray-500 max-w-md truncate">
-                  {post.summary}
+                  {post.fields.summary}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <Link
-                    href={`/keystatic/collection/posts/item/${post.slug}`}
+                  <a
+                    href={`https://app.contentful.com/spaces/${SPACE_ID}/entries/${post.sys.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                   >
                     Edit
-                  </Link>
+                  </a>
                 </td>
               </tr>
             ))}
-            {validPosts.length === 0 && (
+            {posts.length === 0 && (
               <tr>
                 <td
                   colSpan={4}
