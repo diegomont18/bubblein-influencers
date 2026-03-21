@@ -162,7 +162,7 @@ export async function fetchProfilePostsBatch(
     includeQuotePosts: true,
     includeReposts: false,
     maxComments: 0,
-    maxPosts: 3,
+    maxPosts: 15,
     maxReactions: 0,
     scrapeComments: false,
     scrapeReactions: false,
@@ -241,4 +241,88 @@ export async function fetchProfilePostsBatch(
     }
   }
   return result;
+}
+
+/**
+ * Search LinkedIn posts by keyword using Apify's harvestapi actor.
+ * Returns posts with engagement data, author info, and content.
+ */
+export async function searchLinkedInPosts(params: {
+  searchQueries: string[];
+  maxResults?: number;
+  datePosted?: string; // "past-24h", "past-week", "past-month", "past-year"
+  contentLanguage?: string; // "pt", "en", "es", "fr"
+}): Promise<Array<Record<string, unknown>>> {
+  const token = process.env.APIFY_API_TOKEN;
+  if (!token) {
+    console.error("[apify] APIFY_API_TOKEN is not set");
+    return [];
+  }
+
+  const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-post-search/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
+  const body: Record<string, unknown> = {
+    searchQueries: params.searchQueries,
+    rows: params.maxResults ?? 100,
+  };
+  if (params.datePosted) {
+    body.datePosted = params.datePosted;
+  }
+  if (params.contentLanguage) {
+    body.contentLanguage = params.contentLanguage;
+  }
+
+  console.log(`[apify] Searching posts: queries=${JSON.stringify(params.searchQueries)} max=${params.maxResults ?? 100} datePosted=${params.datePosted ?? "any"} lang=${params.contentLanguage ?? "any"}`);
+
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(180_000),
+      });
+
+      const status = res.status;
+      console.log(`[apify] Post search response status=${status} attempt=${attempt + 1}`);
+
+      if (status === 200 || status === 201) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          console.log(`[apify] Post search returned ${data.length} result(s)`);
+          // Log first post's keys for field discovery
+          if (data.length > 0) {
+            console.log(`[apify] Post search sample keys: ${JSON.stringify(Object.keys(data[0]))}`);
+            console.log(`[apify] Post search sample data: ${JSON.stringify(data[0]).slice(0, 1500)}`);
+          }
+          return data as Array<Record<string, unknown>>;
+        }
+        console.warn(`[apify] Unexpected response shape: ${typeof data}`);
+        return [];
+      }
+
+      const text = await res.text();
+      console.error(`[apify] Post search error status=${status} body=${text.slice(0, 500)}`);
+
+      if ((status === 429 || status >= 500) && attempt < MAX_RETRIES) {
+        const delay = (attempt + 1) * 3000;
+        console.log(`[apify] Retrying in ${delay}ms…`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+
+      return [];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      console.error(`[apify] Post search exception: ${message}`);
+      if (attempt < MAX_RETRIES) {
+        const delay = (attempt + 1) * 3000;
+        console.log(`[apify] Retrying after exception in ${delay}ms…`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      return [];
+    }
+  }
+  return [];
 }

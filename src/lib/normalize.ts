@@ -316,7 +316,7 @@ export function computeEngagementFromPosts(
   return { avgLikes, avgComments, medianLikes, medianComments };
 }
 
-function extractNumeric(obj: Record<string, unknown>, keys: string[]): number | null {
+export function extractNumeric(obj: Record<string, unknown>, keys: string[]): number | null {
   for (const key of keys) {
     const val = obj[key];
     if (typeof val === "number") return val;
@@ -328,7 +328,7 @@ function extractNumeric(obj: Record<string, unknown>, keys: string[]): number | 
   return null;
 }
 
-function extractNested(obj: Record<string, unknown>, paths: string[][]): number | null {
+export function extractNested(obj: Record<string, unknown>, paths: string[][]): number | null {
   for (const path of paths) {
     let current: unknown = obj;
     for (const key of path) {

@@ -5,6 +5,10 @@ import {
   CastingResults,
   CastingProfile,
 } from "@/components/casting/casting-results";
+import {
+  CastingPostResults,
+  MatchedPost,
+} from "@/components/casting/casting-post-results";
 
 interface CastingList {
   id: string;
@@ -23,7 +27,7 @@ const LANGUAGES = [
 ];
 
 export default function CastingPage() {
-  const [searchMode, setSearchMode] = useState<"content" | "title">("content");
+  const [searchMode, setSearchMode] = useState<"content" | "title" | "posts">("content");
   const [themes, setThemes] = useState("");
   const [languageIdx, setLanguageIdx] = useState(0);
   const [minFollowers, setMinFollowers] = useState(2500);
@@ -37,11 +41,20 @@ export default function CastingPage() {
   const [publico, setPublico] = useState("");
   const [useSynonyms, setUseSynonyms] = useState(false);
 
+  const [minReactions, setMinReactions] = useState(10);
+  const [datePosted, setDatePosted] = useState<"past-24h" | "past-week" | "past-month" | "past-year">("past-month");
+
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const [profiles, setProfiles] = useState<CastingProfile[]>([]);
+  const [postResults, setPostResults] = useState<MatchedPost[]>([]);
+  const [viewingSearchMode, setViewingSearchMode] = useState<string | null>(null);
   const [totalCandidates, setTotalCandidates] = useState(0);
   const [keywordStats, setKeywordStats] = useState<Record<string, { googleResults: number; candidates: number; matched: number }> | null>(null);
+
+  // "Load more" state for posts search
+  const [postsHasMore, setPostsHasMore] = useState(false);
+  const [postsListId, setPostsListId] = useState<string | null>(null);
 
   const [pastLists, setPastLists] = useState<CastingList[]>([]);
   const [loadingLists, setLoadingLists] = useState(true);
@@ -75,7 +88,7 @@ export default function CastingPage() {
       .filter(Boolean);
 
     if (themeLines.length === 0) {
-      setError(searchMode === "title" ? "Enter at least one job title." : "Enter at least one content theme.");
+      setError(searchMode === "title" ? "Enter at least one job title." : "Enter at least one keyword.");
       return;
     }
 
@@ -109,23 +122,29 @@ export default function CastingPage() {
     }
   }
 
-  async function handleSearch(withSynonyms: boolean = true) {
+  async function handleSearch(withSynonyms: boolean = true, continuation?: { existingListId: string }) {
     const themeLines = themes
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
 
     if (themeLines.length === 0) {
-      setError(searchMode === "title" ? "Enter at least one job title." : "Enter at least one content theme.");
+      setError(searchMode === "title" ? "Enter at least one job title." : "Enter at least one keyword.");
       return;
     }
 
     setError(null);
     setSearching(true);
-    setProfiles([]);
-    setTotalCandidates(0);
-    setKeywordStats(null);
+    if (!continuation) {
+      setProfiles([]);
+      setPostResults([]);
+      setTotalCandidates(0);
+      setKeywordStats(null);
+      setPostsHasMore(false);
+      setPostsListId(null);
+    }
     setViewingListId(null);
+    setViewingSearchMode(searchMode);
 
     const lang = LANGUAGES[languageIdx];
     const controller = new AbortController();
@@ -149,6 +168,8 @@ export default function CastingPage() {
           coverAllKeywords,
           publico: publicoTags,
           searchMode,
+          ...(searchMode === "posts" ? { minReactions, datePosted } : {}),
+          ...(continuation ? { existingListId: continuation.existingListId } : {}),
         }),
         signal: controller.signal,
       });
@@ -177,9 +198,15 @@ export default function CastingPage() {
             const event = JSON.parse(line);
             if (event.type === "profile") {
               setProfiles((prev) => [...prev, event.data]);
+            } else if (event.type === "post") {
+              setPostResults((prev) => [...prev, event.data]);
             } else if (event.type === "done") {
-              setTotalCandidates(event.data.totalCandidates ?? 0);
+              setTotalCandidates((prev) => (continuation ? prev : 0) + (event.data.totalCandidates ?? 0));
               setKeywordStats(event.data.keywordStats ?? null);
+              if (event.data.hasMore !== undefined) {
+                setPostsHasMore(event.data.hasMore);
+                setPostsListId(event.data.listId ?? null);
+              }
             } else if (event.type === "error") {
               setError(event.data.message ?? "Search failed");
             }
@@ -194,8 +221,12 @@ export default function CastingPage() {
         try {
           const event = JSON.parse(buffer);
           if (event.type === "done") {
-            setTotalCandidates(event.data.totalCandidates ?? 0);
+            setTotalCandidates((prev) => (continuation ? prev : 0) + (event.data.totalCandidates ?? 0));
             setKeywordStats(event.data.keywordStats ?? null);
+            if (event.data.hasMore !== undefined) {
+              setPostsHasMore(event.data.hasMore);
+              setPostsListId(event.data.listId ?? null);
+            }
           }
         } catch {
           // ignore
@@ -281,59 +312,109 @@ export default function CastingPage() {
     setError(null);
     setLoadingList(true);
     setProfiles([]);
+    setPostResults([]);
 
     try {
       const res = await fetch(`/api/casting/lists?id=${listId}`);
       if (!res.ok) throw new Error("Failed to load list");
       const json = await res.json();
 
-      console.log(`[casting] Loaded ${(json.profiles ?? []).length} profiles`, json.profiles?.[0]?.notes);
+      // Detect search mode from filters_applied
+      const listFilters = json.list?.filters_applied ?? json.filters_applied ?? {};
+      const listSearchMode = listFilters.searchMode ?? "content";
+      setViewingSearchMode(listSearchMode);
 
-      const parsed: CastingProfile[] = (json.profiles ?? []).map(
-        (p: { notes: string; profile_id: string }) => {
-          try {
-            const notes = typeof p.notes === "string" ? JSON.parse(p.notes) : p.notes;
-            return {
-              slug: p.profile_id,
-              name: notes?.name ?? "Unknown",
-              headline: notes?.headline ?? "",
-              job_title: notes?.job_title ?? "",
-              company: notes?.company ?? "",
-              location: notes?.location ?? "",
-              followers: notes?.followers ?? 0,
-              posts_per_month: notes?.posts_per_month ?? 0,
-              avg_likes_per_post: notes?.avg_likes_per_post ?? null,
-              avg_comments_per_post: notes?.avg_comments_per_post ?? null,
-              creator_score: notes?.creator_score ?? null,
-              topics: notes?.topics ?? [],
-              topic_match: notes?.topic_match ?? undefined,
-              matched_publico: notes?.matched_publico ?? undefined,
-              final_score: notes?.final_score ?? undefined,
-              linkedin_url: notes?.linkedin_url ?? `https://linkedin.com/in/${p.profile_id}`,
-              focus: notes?.focus ?? null,
-              source_keyword: notes?.source_keyword ?? undefined,
-            };
-          } catch (e) {
-            console.warn(`[casting] Failed to parse notes for profile ${p.profile_id}`, e);
-            return {
-              slug: p.profile_id,
-              name: "Unknown",
-              headline: "",
-              job_title: "",
-              company: "",
-              location: "",
-              followers: 0,
-              posts_per_month: 0,
-              linkedin_url: `https://linkedin.com/in/${p.profile_id}`,
-            };
+      console.log(`[casting] Loaded ${(json.profiles ?? []).length} items, searchMode=${listSearchMode}`, json.profiles?.[0]?.notes);
+
+      if (listSearchMode === "posts") {
+        const parsedPosts: MatchedPost[] = (json.profiles ?? []).map(
+          (p: { notes: string; profile_id: string }) => {
+            try {
+              const notes = typeof p.notes === "string" ? JSON.parse(p.notes) : p.notes;
+              return {
+                post_url: notes?.post_url ?? "",
+                activity_id: notes?.activity_id ?? p.profile_id,
+                content_preview: notes?.content_preview ?? "",
+                author_slug: notes?.author_slug ?? "",
+                author_name: notes?.author_name ?? "Unknown",
+                author_headline: notes?.author_headline ?? "",
+                author_linkedin_url: notes?.author_linkedin_url ?? "",
+                reactions: notes?.reactions ?? 0,
+                comments: notes?.comments ?? 0,
+                total_engagement: notes?.total_engagement ?? 0,
+                engagement_rate: notes?.engagement_rate ?? 0,
+                posted_at: notes?.posted_at ?? null,
+                source_keyword: notes?.source_keyword ?? "",
+              } as MatchedPost;
+            } catch {
+              return {
+                post_url: "",
+                activity_id: p.profile_id,
+                content_preview: "",
+                author_slug: "",
+                author_name: "Unknown",
+                author_headline: "",
+                author_linkedin_url: "",
+                reactions: 0,
+                comments: 0,
+                total_engagement: 0,
+                engagement_rate: 0,
+                posted_at: null,
+                source_keyword: "",
+              } as MatchedPost;
+            }
           }
-        }
-      );
+        );
+        setPostResults(parsedPosts);
+        setTotalCandidates(parsedPosts.length);
+      } else {
+        const parsed: CastingProfile[] = (json.profiles ?? []).map(
+          (p: { notes: string; profile_id: string }) => {
+            try {
+              const notes = typeof p.notes === "string" ? JSON.parse(p.notes) : p.notes;
+              return {
+                slug: p.profile_id,
+                name: notes?.name ?? "Unknown",
+                headline: notes?.headline ?? "",
+                job_title: notes?.job_title ?? "",
+                company: notes?.company ?? "",
+                location: notes?.location ?? "",
+                followers: notes?.followers ?? 0,
+                posts_per_month: notes?.posts_per_month ?? 0,
+                avg_likes_per_post: notes?.avg_likes_per_post ?? null,
+                avg_comments_per_post: notes?.avg_comments_per_post ?? null,
+                creator_score: notes?.creator_score ?? null,
+                topics: notes?.topics ?? [],
+                topic_match: notes?.topic_match ?? undefined,
+                matched_publico: notes?.matched_publico ?? undefined,
+                final_score: notes?.final_score ?? undefined,
+                linkedin_url: notes?.linkedin_url ?? `https://linkedin.com/in/${p.profile_id}`,
+                focus: notes?.focus ?? null,
+                source_keyword: notes?.source_keyword ?? undefined,
+              };
+            } catch (e) {
+              console.warn(`[casting] Failed to parse notes for profile ${p.profile_id}`, e);
+              return {
+                slug: p.profile_id,
+                name: "Unknown",
+                headline: "",
+                job_title: "",
+                company: "",
+                location: "",
+                followers: 0,
+                posts_per_month: 0,
+                linkedin_url: `https://linkedin.com/in/${p.profile_id}`,
+              };
+            }
+          }
+        );
 
-      console.log(`[casting] Parsed ${parsed.length} profiles`);
+        console.log(`[casting] Parsed ${parsed.length} profiles`);
 
-      setProfiles(parsed);
-      setTotalCandidates(parsed.length);
+        setProfiles(parsed);
+        setTotalCandidates(parsed.length);
+      }
+
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch {
       setError("Failed to load list details");
@@ -365,7 +446,7 @@ export default function CastingPage() {
                 : "bg-gray-100 text-gray-700 hover:bg-gray-200"
             }`}
           >
-            Content Search
+            Topics Search
           </button>
           <button
             type="button"
@@ -378,11 +459,22 @@ export default function CastingPage() {
           >
             Title Search
           </button>
+          <button
+            type="button"
+            onClick={() => { setSearchMode("posts"); setSynonyms(null); }}
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              searchMode === "posts"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Posts Search
+          </button>
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            {searchMode === "title" ? "Job titles (one per line)" : "Content themes (one per line)"}
+            {searchMode === "title" ? "Job titles (one per line)" : "Keywords (one per line)"}
           </label>
           <textarea
             rows={4}
@@ -393,6 +485,8 @@ export default function CastingPage() {
             }}
             placeholder={searchMode === "title"
               ? "CEO\nFounder\nDiretor Executivo"
+              : searchMode === "posts"
+              ? "marketing digital\nliderança\ninteligência artificial"
               : "marketing digital\ninfluenciador linkedin\ncriação de conteúdo"
             }
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
@@ -414,6 +508,39 @@ export default function CastingPage() {
           </div>
         )}
 
+        {searchMode === "posts" && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Min. reactions
+              </label>
+              <input
+                type="number"
+                value={minReactions}
+                onChange={(e) => setMinReactions(Number(e.target.value))}
+                min={0}
+                step={1}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Date range
+              </label>
+              <select
+                value={datePosted}
+                onChange={(e) => setDatePosted(e.target.value as typeof datePosted)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+              >
+                <option value="past-24h">Last 24 hours</option>
+                <option value="past-week">Last week</option>
+                <option value="past-month">Last month</option>
+                <option value="past-year">Last year</option>
+              </select>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -432,31 +559,35 @@ export default function CastingPage() {
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Min followers
-            </label>
-            <input
-              type="number"
-              value={minFollowers}
-              onChange={(e) => setMinFollowers(Number(e.target.value))}
-              min={0}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-            />
-          </div>
+          {searchMode !== "posts" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Min followers
+                </label>
+                <input
+                  type="number"
+                  value={minFollowers}
+                  onChange={(e) => setMinFollowers(Number(e.target.value))}
+                  min={0}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                />
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Max followers
-            </label>
-            <input
-              type="number"
-              value={maxFollowers}
-              onChange={(e) => setMaxFollowers(Number(e.target.value))}
-              min={0}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-            />
-          </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Max followers
+                </label>
+                <input
+                  type="number"
+                  value={maxFollowers}
+                  onChange={(e) => setMaxFollowers(Number(e.target.value))}
+                  min={0}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -473,33 +604,37 @@ export default function CastingPage() {
           </div>
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={coverAllKeywords}
-            onChange={(e) => setCoverAllKeywords(e.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          Cover all keywords (may exceed desired results count)
-        </label>
+        {searchMode !== "posts" && (
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={coverAllKeywords}
+              onChange={(e) => setCoverAllKeywords(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Cover all keywords (may exceed desired results count)
+          </label>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={useSynonyms}
-            onChange={(e) => {
-              setUseSynonyms(e.target.checked);
-              if (!e.target.checked) setSynonyms(null);
-            }}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          Use synonyms (expand search with related terms)
-        </label>
+        {searchMode !== "posts" && (
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={useSynonyms}
+              onChange={(e) => {
+                setUseSynonyms(e.target.checked);
+                if (!e.target.checked) setSynonyms(null);
+              }}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Use synonyms (expand search with related terms)
+          </label>
+        )}
 
         <div className="flex items-center gap-3">
-          {!useSynonyms ? (
+          {searchMode === "posts" || !useSynonyms ? (
             <button
               onClick={() => handleSearch(false)}
               disabled={searching || generatingSynonyms}
@@ -595,13 +730,16 @@ export default function CastingPage() {
       )}
 
       {/* Results */}
-      {(profiles.length > 0 || searching || loadingList || viewingListId !== null) && (
+      {(profiles.length > 0 || postResults.length > 0 || searching || loadingList || viewingListId !== null) && (
         <div ref={resultsRef} className="rounded-lg border border-gray-200 bg-white p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Results</h2>
             {totalCandidates > 0 && (
               <span className="text-sm text-gray-500">
-                {profiles.length} matched / {totalCandidates} candidates scraped
+                {viewingSearchMode === "posts"
+                  ? `${postResults.length} posts found / ${totalCandidates} fetched`
+                  : `${profiles.length} matched / ${totalCandidates} candidates scraped`
+                }
               </span>
             )}
           </div>
@@ -635,10 +773,12 @@ export default function CastingPage() {
             </details>
           )}
           {searching && (
-            <div className="py-4 text-center space-y-2">
+            <div className="py-4 text-center space-y-3">
               <p className="text-sm text-blue-600 animate-pulse">
-                Searching LinkedIn profiles... This may take a few minutes.
-                {profiles.length > 0 && ` (${profiles.length} found so far)`}
+                {viewingSearchMode === "posts"
+                  ? `Searching LinkedIn posts...${postResults.length > 0 ? ` (${postResults.length} found so far)` : ""}`
+                  : `Searching LinkedIn profiles... This may take a few minutes.${profiles.length > 0 ? ` (${profiles.length} found so far)` : ""}`
+                }
               </p>
               <button
                 onClick={handleStopSearch}
@@ -653,7 +793,32 @@ export default function CastingPage() {
               Loading casting list...
             </p>
           )}
-          {!loadingList && (
+          {/* Load More for posts search */}
+          {!searching && !loadingList && viewingSearchMode === "posts" && postsHasMore && postsListId && postResults.length < resultsCount && (
+            <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm space-y-2">
+              <p className="text-amber-800">
+                Found {postResults.length} post{postResults.length !== 1 ? "s" : ""} with reactions {"\u2265"} {minReactions}.
+                {postResults.length < resultsCount && ` Need ${resultsCount - postResults.length} more to reach your target of ${resultsCount}.`}
+              </p>
+              <button
+                onClick={() => handleSearch(false, { existingListId: postsListId! })}
+                className="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-colors"
+              >
+                Search for more posts
+              </button>
+            </div>
+          )}
+          {!loadingList && viewingSearchMode === "posts" ? (
+            <CastingPostResults
+              posts={postResults}
+              listId={viewingListId}
+              queryTheme={
+                viewingListId
+                  ? pastLists.find((l) => l.id === viewingListId)?.query_theme
+                  : themes
+              }
+            />
+          ) : !loadingList ? (
             <CastingResults
               profiles={profiles}
               listId={viewingListId}
@@ -664,7 +829,7 @@ export default function CastingPage() {
                   : themes
               }
             />
-          )}
+          ) : null}
         </div>
       )}
 

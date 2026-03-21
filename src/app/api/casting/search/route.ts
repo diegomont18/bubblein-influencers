@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { searchGoogle, fetchLinkedInProfile } from "@/lib/scrapingdog";
-import { fetchProfilePosts, fetchProfilePostsBatch, searchLinkedInProfiles } from "@/lib/apify";
+import { searchGoogle, fetchLinkedInProfile, extractActivityId } from "@/lib/scrapingdog";
+import { fetchProfilePosts, fetchProfilePostsBatch, searchLinkedInProfiles, searchLinkedInPosts } from "@/lib/apify";
 import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculatePostingFrequencyFromApifyPosts, calculateEngagementMetrics, computeEngagementFromPosts, calculateCreatorScore } from "@/lib/normalize";
 import { checkPublishLanguage, classifyTopics } from "@/lib/ai";
 
@@ -17,7 +17,34 @@ interface SearchBody {
   approvedSynonyms?: Record<string, string[]>;
   coverAllKeywords?: boolean;
   publico?: string[];
-  searchMode?: "content" | "title";
+  searchMode?: "content" | "title" | "posts";
+  // Posts mode fields
+  minReactions?: number;
+  datePosted?: "past-24h" | "past-week" | "past-month" | "past-year";
+  existingListId?: string;
+  // Legacy fields (kept for backward compat with other modes)
+  dateFrom?: string;
+  serpLimit?: number;
+  minLikes?: number;
+  minComments?: number;
+  serpOffset?: number;
+  autoPauseAfter?: number;
+}
+
+interface MatchedPost {
+  post_url: string;
+  activity_id: string;
+  content_preview: string;
+  author_slug: string;
+  author_name: string;
+  author_headline: string;
+  author_linkedin_url: string;
+  reactions: number;
+  comments: number;
+  total_engagement: number;
+  engagement_rate: number;
+  posted_at: string | null;
+  source_keyword: string;
 }
 
 function computeTopicMatch(publicoTags: string[], creatorTopics: string[]): { score: number; matched: string[] } {
@@ -148,9 +175,15 @@ export async function POST(request: Request) {
     coverAllKeywords = true,
     publico = [],
     searchMode = "content",
+    minReactions = 10,
+    datePosted,
+    existingListId,
+    // Legacy fields (unused in posts mode, kept in interface for backward compat)
+    // dateFrom, serpLimit, minLikes, minComments, serpOffset, autoPauseAfter
   } = body;
 
   const isTitleMode = searchMode === "title";
+  const isPostsMode = searchMode === "posts";
   const countryName = COUNTRY_NAMES[country] ?? country;
 
   if (!themes || themes.length === 0) {
@@ -207,28 +240,49 @@ export async function POST(request: Request) {
   console.log(`[casting] Total search tiers: ${themePages.length} queries (focus 3: ${themes.length}, focus 2: ${themePages.filter(t => t.focus === 2).length}, focus 1: ${themes.length})`);
 
   // Create casting list in DB at the start so partial results are persisted
+  // If continuing a previous search (existingListId), reuse that list
   const service = createServiceClient();
-  const listName = isTitleMode
-    ? `Title: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`
-    : `Casting: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`;
+  let list: { id: string } | null = null;
 
-  const { data: list, error: listError } = await service
-    .from("casting_lists")
-    .insert({
-      name: listName,
-      query_theme: themes.join("\n"),
-      filters_applied: { minFollowers, maxFollowers, language, country, domain, publico, searchMode },
-      created_by: user.id,
-    })
-    .select()
-    .single();
+  if (isPostsMode && existingListId) {
+    // Reuse existing list for "Load more"
+    const { data: existingList } = await service
+      .from("casting_lists")
+      .select("id")
+      .eq("id", existingListId)
+      .single();
+    if (existingList) {
+      list = existingList;
+      console.log(`[casting] Reusing existing list ${existingListId} for continuation`);
+    }
+  }
 
-  if (listError || !list) {
-    console.error("[casting] Failed to create list:", listError);
-    return NextResponse.json(
-      { error: "Failed to save casting list" },
-      { status: 500 }
-    );
+  if (!list) {
+    const listName = isPostsMode
+      ? `Posts: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`
+      : isTitleMode
+        ? `Title: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`
+        : `Casting: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`;
+
+    const { data: newList, error: listError } = await service
+      .from("casting_lists")
+      .insert({
+        name: listName,
+        query_theme: themes.join("\n"),
+        filters_applied: { minFollowers, maxFollowers, language, country, domain, publico, searchMode, ...(isPostsMode ? { minReactions, datePosted } : {}) },
+        created_by: user.id,
+      })
+      .select()
+      .single();
+
+    if (listError || !newList) {
+      console.error("[casting] Failed to create list:", listError);
+      return NextResponse.json(
+        { error: "Failed to save casting list" },
+        { status: 500 }
+      );
+    }
+    list = newList;
   }
 
   // Set up NDJSON streaming response
@@ -544,6 +598,233 @@ export async function POST(request: Request) {
 
       // Apify search metadata for title mode cheap-first pipeline
       const apifyMeta = new Map<string, { followers: number; headline: string; fullName: string; location: string }>();
+
+      // --- Posts mode: find high-engagement LinkedIn posts via Apify post search ---
+      if (isPostsMode) {
+        const seenActivityIds = new Set<string>();
+
+        // On "Load More", load existing activity IDs from DB to dedup
+        if (existingListId) {
+          const { data: existing } = await service
+            .from("casting_list_profiles")
+            .select("profile_id")
+            .eq("list_id", existingListId);
+          if (existing) existing.forEach(r => seenActivityIds.add(r.profile_id));
+        }
+
+        // Phase 1: Apify batch search — fetch posts directly from LinkedIn
+        const fetchMultiplier = 10;
+        const maxToFetch = resultsCount * fetchMultiplier;
+
+        const COUNTRY_TO_LANG: Record<string, string> = { br: "pt", us: "en", es: "es", fr: "fr" };
+        const contentLanguage = COUNTRY_TO_LANG[country] ?? "pt";
+        const LANG_HINT_VARIATIONS: Record<string, string[]> = {
+          pt: ["de para com uma", "que não sobre como", "mais também pode seu", "esta muito nosso ainda"],
+          es: ["de para con una", "que los más por", "del esta como sobre", "puede tiene nuestro también"],
+          fr: ["de pour avec une", "les des que dans", "est nous cette sont", "leur mais aussi cette"],
+          en: ["", "the and with for", "this that from your", "been more about would"],
+        };
+        const hintVariations = LANG_HINT_VARIATIONS[contentLanguage] ?? [""];
+
+        const buildQueries = (variationIdx: number): string[] => {
+          const hint = hintVariations[variationIdx % hintVariations.length] ?? "";
+          return hint ? themes.map(t => `${t} ${hint}`) : themes;
+        };
+
+        const searchQueries = buildQueries(0);
+
+        console.log(`[casting] Posts mode: searching via Apify. queries=${JSON.stringify(searchQueries)}, maxResults=${maxToFetch}, datePosted=${datePosted ?? "any"}, lang=${contentLanguage}, minReactions=${minReactions}`);
+
+        const rawPosts = await searchLinkedInPosts({
+          searchQueries,
+          maxResults: maxToFetch,
+          datePosted: datePosted,
+          contentLanguage,
+        });
+
+        console.log(`[casting] Apify returned ${rawPosts.length} posts`);
+
+        // Debug: log nested field structures for first post
+        if (rawPosts.length > 0) {
+          const sample = rawPosts[0];
+          console.log(`[casting] engagement field:`, JSON.stringify(sample.engagement).slice(0, 500));
+          console.log(`[casting] reactions field:`, JSON.stringify(sample.reactions).slice(0, 500));
+          console.log(`[casting] socialContent field:`, JSON.stringify(sample.socialContent).slice(0, 500));
+          console.log(`[casting] comments field type:`, typeof sample.comments, Array.isArray(sample.comments) ? `(array len=${(sample.comments as unknown[]).length})` : "");
+          console.log(`[casting] author field:`, JSON.stringify(sample.author).slice(0, 500));
+        }
+
+        // Helper: parse one Apify post into MatchedPost (or null if filtered out)
+        const parseApifyPost = (raw: Record<string, unknown>, minReact: number): MatchedPost | null => {
+          // Post URL — field is "linkedinUrl"
+          const postUrl = String(raw.linkedinUrl ?? raw.postUrl ?? raw.url ?? "");
+
+          // Activity ID — "id" field, fallback to URL extraction
+          const actId = String(raw.id ?? "") || extractActivityId(postUrl) || "";
+          if (!actId) return null;
+
+          // Author — nested object
+          const author = (raw.author && typeof raw.author === "object" ? raw.author : {}) as Record<string, unknown>;
+          const authorName = String(author.name ?? "Unknown");
+          const authorSlug = String(author.publicIdentifier ?? author.universalName ?? "");
+          const authorLinkedinUrl = String(author.linkedinUrl ?? "");
+
+          // Engagement — nested object
+          const eng = (raw.engagement && typeof raw.engagement === "object" ? raw.engagement : {}) as Record<string, unknown>;
+          const reactions = Number(eng.numLikes ?? eng.reactionCount ?? eng.likes ?? eng.reactions ?? 0) || 0;
+          const commentsCount = Number(eng.numComments ?? eng.commentCount ?? eng.comments ?? 0) || 0;
+          const totalEngagement = reactions + commentsCount;
+
+          // Compute engagement rate from followers if available
+          let engagementRate = Number(eng.engagementRate ?? eng.engagement_rate ?? 0);
+          if (!engagementRate && totalEngagement > 0) {
+            const followersStr = String(author.info ?? "");
+            const followersMatch = followersStr.match(/([\d,.]+)\s*followers/i);
+            const followers = followersMatch ? parseFloat(followersMatch[1].replace(/,/g, "")) : 0;
+            if (followers > 0) {
+              engagementRate = (totalEngagement / followers) * 100;
+            }
+          }
+
+          // Filter by min reactions
+          if (reactions < minReact) return null;
+
+          // Content
+          const content = String(raw.content ?? "");
+
+          // Filter out job posts
+          if (JOB_POST_REGEX.test(content)) return null;
+
+          // Posted at — nested object
+          const postedAtObj = (raw.postedAt && typeof raw.postedAt === "object" ? raw.postedAt : {}) as Record<string, unknown>;
+          const postedAt = String(postedAtObj.date ?? postedAtObj.timestamp ?? "") || null;
+
+          // Source keyword
+          const sourceKeyword = String(raw.query ?? themes[0] ?? "");
+
+          return {
+            post_url: postUrl,
+            activity_id: actId,
+            content_preview: content.slice(0, 300),
+            author_slug: authorSlug,
+            author_name: authorName,
+            author_headline: "", // Not available in post search results
+            author_linkedin_url: authorLinkedinUrl,
+            reactions,
+            comments: commentsCount,
+            total_engagement: totalEngagement,
+            engagement_rate: Math.round(engagementRate * 100) / 100,
+            posted_at: postedAt,
+            source_keyword: sourceKeyword,
+          };
+        };
+
+        // Phase 2: Filter, deduplicate, and sort
+        const matchedPosts: MatchedPost[] = [];
+
+        for (const raw of rawPosts) {
+          if (request.signal.aborted) break;
+
+          const post = parseApifyPost(raw, minReactions);
+          if (!post) continue;
+          if (seenActivityIds.has(post.activity_id)) continue;
+          seenActivityIds.add(post.activity_id);
+
+          matchedPosts.push(post);
+
+          const kwStats = keywordStats.get(post.source_keyword);
+          if (kwStats) kwStats.matched++;
+        }
+
+        // Sort by total engagement descending (best posts first)
+        matchedPosts.sort((a, b) => b.total_engagement - a.total_engagement || b.engagement_rate - a.engagement_rate);
+
+        // Take only the desired number of results
+        const finalPosts = matchedPosts.slice(0, resultsCount);
+        const hasMore = matchedPosts.length > resultsCount;
+
+        console.log(`[casting] Posts mode: ${rawPosts.length} fetched → ${matchedPosts.length} passed filters → ${finalPosts.length} returned (target ${resultsCount})`);
+
+        // Resilience: vary search queries on each retry to get different results from LinkedIn
+        // Apify caps at ~100 results per call, so we must use different queries to get more
+        const MAX_RETRY_ROUNDS = hintVariations.length - 1; // skip variation[0] already used
+        let retryRound = 0;
+        while (finalPosts.length < resultsCount && retryRound < MAX_RETRY_ROUNDS && !request.signal.aborted) {
+          retryRound++;
+          const retryQueries = buildQueries(retryRound);
+          const retryMinReactions = retryRound >= MAX_RETRY_ROUNDS ? Math.max(1, Math.floor(minReactions / 2)) : minReactions;
+
+          console.log(`[casting] Posts mode retry round ${retryRound}/${MAX_RETRY_ROUNDS}: queries=${JSON.stringify(retryQueries)}, minReactions=${retryMinReactions}`);
+
+          const extraPosts = await searchLinkedInPosts({
+            searchQueries: retryQueries,
+            maxResults: maxToFetch,
+            datePosted: datePosted,
+            contentLanguage,
+          });
+
+          let newFound = 0;
+          for (const raw of extraPosts) {
+            if (request.signal.aborted || finalPosts.length >= resultsCount) break;
+
+            const post = parseApifyPost(raw, retryMinReactions);
+            if (!post) continue;
+            if (seenActivityIds.has(post.activity_id)) continue;
+            seenActivityIds.add(post.activity_id);
+            finalPosts.push(post);
+            newFound++;
+          }
+          console.log(`[casting] Posts mode retry round ${retryRound}: +${newFound} new posts → ${finalPosts.length} total`);
+
+          if (newFound === 0) break;
+        }
+
+        // Phase 3: Stream results and persist to DB
+        let matchedCount = 0;
+        for (const post of finalPosts) {
+          if (request.signal.aborted) break;
+          matchedCount++;
+
+          // Persist to DB
+          const row = {
+            list_id: list!.id,
+            profile_id: post.activity_id,
+            relevance_score: post.total_engagement,
+            frequency_score: null,
+            composite_score: null,
+            rank_position: matchedCount,
+            focus: null,
+            notes: JSON.stringify(post),
+            status: "found",
+          };
+          const { error: insertError } = await service.from("casting_list_profiles").insert(row);
+          if (insertError) {
+            console.error(`[casting] Failed to insert post ${post.activity_id}:`, insertError);
+          }
+
+          // Stream to client
+          try {
+            await writer.write(encoder.encode(JSON.stringify({ type: "post", data: post }) + "\n"));
+          } catch { break; /* Client disconnected */ }
+        }
+
+        // Done event
+        try {
+          await writer.write(encoder.encode(JSON.stringify({
+            type: "done",
+            data: {
+              listId: list!.id,
+              totalCandidates: rawPosts.length,
+              foundPosts: matchedCount,
+              hasMore: hasMore,
+              keywordStats: Object.fromEntries(keywordStats),
+            },
+          }) + "\n"));
+        } catch { /* Client disconnected */ }
+
+        try { await writer.close(); } catch { /* already closed */ }
+        return;
+      }
 
       // --- Title mode: use Apify profile search with SERP fallback ---
       if (isTitleMode) {

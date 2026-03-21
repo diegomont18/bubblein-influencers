@@ -17,6 +17,26 @@ export interface GoogleSearchOptions {
   lr?: string;
   page?: number;
   results?: number;
+  tbs?: string;
+}
+
+/**
+ * Build Google's `tbs` date range parameter from YYYY-MM-DD strings.
+ * Output: `cdr:1,cd_min:MM/DD/YYYY,cd_max:MM/DD/YYYY`
+ */
+export function buildDateRangeTbs(startDate: string, endDate: string): string {
+  const [sy, sm, sd] = startDate.split("-");
+  const [ey, em, ed] = endDate.split("-");
+  return `cdr:1,cd_min:${sm}/${sd}/${sy},cd_max:${em}/${ed}/${ey}`;
+}
+
+/**
+ * Extract LinkedIn activity ID from a post URL.
+ * Returns null if no activity ID found.
+ */
+export function extractActivityId(url: string): string | null {
+  const match = url.match(/activity[_-](\d+)/);
+  return match ? match[1] : null;
 }
 
 export async function searchGoogle(
@@ -39,6 +59,7 @@ export async function searchGoogle(
   if (options?.domain) params.set("domain", options.domain);
   if (options?.lr) params.set("lr", options.lr);
   if (options?.page !== undefined) params.set("page", String(options.page));
+  if (options?.tbs) params.set("tbs", options.tbs);
 
   const url = `https://api.scrapingdog.com/google/?${params.toString()}`;
   console.log(`[scrapingdog] Google SERP query="${query}" page=${options?.page ?? 0}`);
