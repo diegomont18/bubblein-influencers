@@ -286,11 +286,19 @@ export default function Home() {
 
       {/* Hero */}
       <section className="relative pt-32 pb-20 md:pt-44 md:pb-32 overflow-hidden">
-        {/* Decorative bubbles */}
-        <div className="bubble bubble-lg top-16 left-[10%] opacity-20" style={{ animationDelay: "0s" }} />
-        <div className="bubble bubble-md top-32 right-[15%] opacity-30" style={{ animationDelay: "2s", animationDuration: "10s" }} />
-        <div className="bubble bubble-sm top-48 left-[60%] opacity-15" style={{ animationDelay: "4s", animationDuration: "12s" }} />
-        <div className="bubble bubble-xl -top-10 right-[5%] opacity-10" style={{ animationDelay: "1s", animationDuration: "14s" }} />
+        {/* Creator photo bubbles */}
+        <div className="creator-bubble creator-bubble-xl top-16 right-[8%] float-delay-1 hidden lg:block" style={{ animationDuration: "7s" }}>
+          <img src="/creators/1.png" alt="" />
+        </div>
+        <div className="creator-bubble creator-bubble-lg top-40 left-[8%] float-delay-2 hidden lg:block" style={{ animationDuration: "8s" }}>
+          <img src="/creators/2.png" alt="" />
+        </div>
+        <div className="creator-bubble creator-bubble-md top-10 left-[45%] float-delay-3 hidden lg:block" style={{ animationDuration: "9s" }}>
+          <img src="/creators/3.png" alt="" />
+        </div>
+        <div className="creator-bubble creator-bubble-sm top-64 right-[20%] float-delay-4 hidden md:block" style={{ animationDuration: "6s" }}>
+          <img src="/creators/4.png" alt="" />
+        </div>
 
         <div className="relative max-w-4xl mx-auto px-6 text-center">
           <h1 className="text-4xl md:text-6xl font-bold leading-tight mb-6">
@@ -363,8 +371,12 @@ export default function Home() {
 
       {/* Benefits */}
       <section id="beneficios" className="py-20 md:py-28 relative overflow-hidden">
-        <div className="bubble bubble-sm top-20 right-[8%] opacity-20" style={{ animationDelay: "2s", animationDuration: "10s" }} />
-        <div className="bubble bubble-md bottom-10 left-[5%] opacity-15" style={{ animationDelay: "5s", animationDuration: "14s" }} />
+        <div className="creator-bubble creator-bubble-md top-20 right-[8%] float-delay-5 hidden lg:block" style={{ animationDuration: "8s" }}>
+          <img src="/creators/5.png" alt="" />
+        </div>
+        <div className="creator-bubble creator-bubble-sm bottom-10 left-[5%] float-delay-6 hidden md:block" style={{ animationDuration: "10s" }}>
+          <img src="/creators/6.png" alt="" />
+        </div>
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
@@ -398,13 +410,17 @@ export default function Home() {
       <section className="py-20 md:py-28">
         <div className="max-w-4xl mx-auto px-6">
           <div className="relative bg-gradient-to-br from-[#E91E8C]/10 to-[#C724D1]/10 border border-[#E91E8C]/20 rounded-3xl p-10 md:p-16 text-center overflow-hidden">
-            <div className="bubble bubble-md top-4 right-8 opacity-20" style={{ animationDelay: "1s", animationDuration: "12s" }} />
-            <div className="bubble bubble-sm -bottom-4 left-12 opacity-15" style={{ animationDelay: "3s" }} />
-            <h2 className="text-2xl md:text-3xl font-bold mb-6 relative">
+            <div className="creator-bubble creator-bubble-md top-4 right-8 float-delay-7 hidden lg:block" style={{ animationDuration: "9s" }}>
+              <img src="/creators/7.png" alt="" />
+            </div>
+            <div className="creator-bubble creator-bubble-sm -bottom-4 left-12 float-delay-8 hidden md:block" style={{ animationDuration: "7s" }}>
+              <img src="/creators/8.png" alt="" />
+            </div>
+            <h2 className="text-2xl md:text-3xl font-bold mb-6 relative z-10">
               Somos uma agência de{" "}
               <span className="text-gradient">creators B2B do LinkedIn</span>
             </h2>
-            <p className="text-gray-400 leading-relaxed max-w-2xl mx-auto relative">
+            <p className="text-gray-400 leading-relaxed max-w-2xl mx-auto relative z-10">
               Conectamos sua marca a profissionais com relevância e audiência qualificada.
               Nosso hub reúne creators verificados, estratégia de conteúdo e mensuração
               de resultados — tudo em um só lugar. Da identificação ao relatório final,
@@ -509,8 +525,12 @@ export default function Home() {
 
       {/* CTA */}
       <section id="contato" className="py-20 md:py-28 relative overflow-hidden">
-        <div className="bubble bubble-md top-10 left-[8%] opacity-15" style={{ animationDelay: "1s", animationDuration: "11s" }} />
-        <div className="bubble bubble-sm bottom-20 right-[10%] opacity-20" style={{ animationDelay: "3s", animationDuration: "9s" }} />
+        <div className="creator-bubble creator-bubble-lg top-10 left-[8%] float-delay-3 hidden lg:block" style={{ animationDuration: "8s" }}>
+          <img src="/creators/3.png" alt="" />
+        </div>
+        <div className="creator-bubble creator-bubble-sm bottom-20 right-[10%] float-delay-5 hidden md:block" style={{ animationDuration: "7s" }}>
+          <img src="/creators/5.png" alt="" />
+        </div>
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-6">
             Vamos gerar negócios para sua empresa pelo{" "}

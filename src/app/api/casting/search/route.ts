@@ -22,6 +22,7 @@ interface SearchBody {
   minReactions?: number;
   datePosted?: "past-24h" | "past-week" | "past-month" | "past-year";
   existingListId?: string;
+  campaignId?: string;
   // Legacy fields (kept for backward compat with other modes)
   dateFrom?: string;
   serpLimit?: number;
@@ -151,6 +152,8 @@ interface MatchedProfile {
   linkedin_url: string;
   focus: number;
   source_keyword: string;
+  profile_photo: string;
+  found_at: string;
 }
 
 export async function POST(request: Request) {
@@ -178,6 +181,7 @@ export async function POST(request: Request) {
     minReactions = 10,
     datePosted,
     existingListId,
+    campaignId,
     // Legacy fields (unused in posts mode, kept in interface for backward compat)
     // dateFrom, serpLimit, minLikes, minComments, serpOffset, autoPauseAfter
   } = body;
@@ -242,6 +246,26 @@ export async function POST(request: Request) {
   // Create casting list in DB at the start so partial results are persisted
   // If continuing a previous search (existingListId), reuse that list
   const service = createServiceClient();
+
+  // Campaign dedup: load all existing slugs from this campaign's lists
+  if (campaignId) {
+    const { data: campaignLists } = await service
+      .from("casting_lists")
+      .select("id")
+      .eq("campaign_id", campaignId);
+    if (campaignLists && campaignLists.length > 0) {
+      const listIds = campaignLists.map((l: { id: string }) => l.id);
+      const { data: existingProfiles } = await service
+        .from("casting_list_profiles")
+        .select("profile_id")
+        .in("list_id", listIds);
+      if (existingProfiles) {
+        existingProfiles.forEach((p: { profile_id: string }) => seenSlugs.add(p.profile_id));
+      }
+      console.log(`[casting] Campaign dedup: ${seenSlugs.size} existing creators in campaign ${campaignId}`);
+    }
+  }
+
   let list: { id: string } | null = null;
 
   if (isPostsMode && existingListId) {
@@ -262,7 +286,7 @@ export async function POST(request: Request) {
       ? `Posts: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`
       : isTitleMode
         ? `Title: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`
-        : `Casting: ${themes.slice(0, 3).join(", ")}${themes.length > 3 ? "..." : ""}`;
+        : `Busca ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
 
     const { data: newList, error: listError } = await service
       .from("casting_lists")
@@ -271,6 +295,7 @@ export async function POST(request: Request) {
         query_theme: themes.join("\n"),
         filters_applied: { minFollowers, maxFollowers, language, country, domain, publico, searchMode, ...(isPostsMode ? { minReactions, datePosted } : {}) },
         created_by: user.id,
+        campaign_id: campaignId ?? null,
       })
       .select()
       .single();
@@ -292,6 +317,7 @@ export async function POST(request: Request) {
   let profileCount = 0;
 
   async function emitProfile(profile: MatchedProfile) {
+    if (profileCount >= resultsCount) return; // Stop after target reached
     matchedProfiles.push(profile);
     profileCount++;
 
@@ -462,6 +488,36 @@ export async function POST(request: Request) {
       if (kwStats) kwStats.matched++;
     }
 
+    // Extract and store profile photo
+    const rawPhotoUrl = String(
+      data.profile_photo ?? data.profilePicture ?? data.profile_pic_url
+      ?? data.profile_picture ?? data.photo ?? data.avatar
+      ?? data.profile_image_url ?? data.profilePictureUrl ?? ""
+    );
+    let profilePhoto = "";
+    if (rawPhotoUrl && rawPhotoUrl.startsWith("http")) {
+      try {
+        const photoRes = await fetch(rawPhotoUrl, { signal: AbortSignal.timeout(10_000) });
+        if (photoRes.ok) {
+          const photoBuffer = await photoRes.arrayBuffer();
+          const ext = rawPhotoUrl.includes(".png") ? "png" : "jpg";
+          const filePath = `${slug}.${ext}`;
+          const { error: uploadError } = await service.storage
+            .from("profile-photos")
+            .upload(filePath, photoBuffer, {
+              contentType: ext === "png" ? "image/png" : "image/jpeg",
+              upsert: true,
+            });
+          if (!uploadError) {
+            const { data: urlData } = service.storage.from("profile-photos").getPublicUrl(filePath);
+            profilePhoto = urlData.publicUrl;
+          }
+        }
+      } catch {
+        // Photo download/upload failed, continue without photo
+      }
+    }
+
     return {
       slug,
       name: String(data.fullName ?? data.full_name ?? data.name ?? "Unknown"),
@@ -484,6 +540,8 @@ export async function POST(request: Request) {
       linkedin_url: `https://linkedin.com/in/${slug}`,
       focus: slugFocus.get(slug) ?? 1,
       source_keyword: slugSourceKeyword.get(slug) ?? "",
+      profile_photo: profilePhoto,
+      found_at: new Date().toISOString(),
     };
   }
 
@@ -587,6 +645,8 @@ export async function POST(request: Request) {
       linkedin_url: `https://linkedin.com/in/${slug}`,
       focus: slugFocus.get(slug) ?? 1,
       source_keyword: slugSourceKeyword.get(slug) ?? "",
+      profile_photo: "",
+      found_at: new Date().toISOString(),
     };
   }
 
@@ -1079,7 +1139,7 @@ export async function POST(request: Request) {
         }
 
         // Cover all keywords: second pass for any focus-3 ThemePages never searched
-        if (coverAllKeywords && !request.signal.aborted) {
+        if (coverAllKeywords && !request.signal.aborted && matchedProfiles.length < resultsCount) {
           const unsearchedThemes = themePages.filter(tp => tp.focus === 3 && tp.page === 0);
           if (unsearchedThemes.length > 0) {
             console.log(`[casting] Cover-all-keywords: ${unsearchedThemes.length} keyword lines never searched, fetching one SERP page each…`);
@@ -1134,7 +1194,7 @@ export async function POST(request: Request) {
             }
 
             // Process any new candidates from the cover-all pass
-            while (candidateIndex < candidateSlugs.length) {
+            while (candidateIndex < candidateSlugs.length && matchedProfiles.length < resultsCount) {
               if (request.signal.aborted) break;
               const slug = candidateSlugs[candidateIndex++];
               const profile = await processCandidate(slug);
@@ -1150,6 +1210,25 @@ export async function POST(request: Request) {
       });
 
       console.log(`[casting] Filter summary: ${totalCandidatesProcessed} candidates processed → ${matchedProfiles.length} matched`);
+
+      // Deduct credits (1 per matched profile)
+      const creditsUsed = matchedProfiles.length;
+      if (creditsUsed > 0) {
+        const { data: userRole } = await service
+          .from("user_roles")
+          .select("credits")
+          .eq("user_id", user.id)
+          .single();
+
+        if (userRole && userRole.credits !== -1) {
+          const newCredits = Math.max(0, userRole.credits - creditsUsed);
+          await service
+            .from("user_roles")
+            .update({ credits: newCredits })
+            .eq("user_id", user.id);
+          console.log(`[casting] Credits deducted: ${creditsUsed} used, ${userRole.credits} → ${newCredits}`);
+        }
+      }
 
       // Send done event with summary
       try {

@@ -20,14 +20,20 @@ export async function GET() {
 
   // Fetch roles for all users
   const { data: roles } = await service.from("user_roles").select("*");
-  const roleMap = new Map(roles?.map((r) => [r.user_id, r.role]) ?? []);
+  const roleMap = new Map(roles?.map((r) => [r.user_id, { role: r.role, credits: r.credits, credits_total: r.credits_total }]) ?? []);
 
-  const result = users.map((u) => ({
-    id: u.id,
-    email: u.email,
-    role: roleMap.get(u.id) ?? "user",
-    created_at: u.created_at,
-  }));
+  const result = users.map((u) => {
+    const info = roleMap.get(u.id);
+    return {
+      id: u.id,
+      email: u.email,
+      role: info?.role ?? "user",
+      credits: info?.credits ?? 3,
+      credits_total: info?.credits_total ?? 3,
+      created_at: u.created_at,
+      last_sign_in_at: u.last_sign_in_at ?? null,
+    };
+  });
 
   return NextResponse.json({ users: result });
 }
@@ -67,9 +73,11 @@ export async function POST(request: Request) {
   }
 
   if (user) {
+    const userRole = role ?? "user";
+    const userCredits = userRole === "admin" ? -1 : 3;
     await service
       .from("user_roles")
-      .insert({ user_id: user.id, role: role ?? "user" });
+      .insert({ user_id: user.id, role: userRole, credits: userCredits });
   }
 
   return NextResponse.json({ user: { id: user?.id, email, role: role ?? "user" } });

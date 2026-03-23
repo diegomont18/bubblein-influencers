@@ -62,6 +62,8 @@ export interface CastingProfile {
   linkedin_url: string;
   focus?: number;
   source_keyword?: string;
+  profile_photo?: string;
+  found_at?: string;
 }
 
 interface CastingResultsProps {
