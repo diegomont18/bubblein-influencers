@@ -4,8 +4,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "/login";
-
 const NAV_LINKS = [
   { label: "Benefícios", href: "/#beneficios" },
   { label: "Como Funciona", href: "/#processo" },
@@ -55,10 +53,10 @@ export default function Navbar() {
             </Link>
           ))}
           <Link
-            href={APP_URL}
+            href="/signup"
             className="bg-gradient-accent text-white text-sm font-medium px-5 py-2 rounded-full hover:opacity-90 transition-opacity"
           >
-            Entrar
+            Cadastrar
           </Link>
         </div>
 
@@ -99,10 +97,10 @@ export default function Navbar() {
             </Link>
           ))}
           <Link
-            href={APP_URL}
+            href="/signup"
             className="inline-block mt-2 bg-gradient-accent text-white text-sm font-medium px-5 py-2 rounded-full"
           >
-            Entrar
+            Cadastrar
           </Link>
         </div>
       )}

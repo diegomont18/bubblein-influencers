@@ -309,12 +309,22 @@ export default function Home() {
             Conectamos sua marca a profissionais influentes no LinkedIn que geram
             confiança, demanda e resultados reais para o seu negócio.
           </p>
-          <a
-            href="#contato"
-            className="inline-block bg-gradient-accent text-white font-semibold px-8 py-4 rounded-full text-lg hover:opacity-90 transition-opacity"
-          >
-            Fale com a gente
-          </a>
+          <div className="flex flex-wrap justify-center gap-4">
+            <Link
+              href="/signup"
+              className="inline-block bg-gradient-accent text-white font-semibold px-8 py-4 rounded-full text-lg hover:opacity-90 transition-opacity"
+            >
+              Procurar creators
+            </Link>
+            <a
+              href="https://wa.me/5511941238555?text=Quero%20divulgar%20minha%20empresa%20com%20creators%20do%20Linkedin!"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block border-2 border-[#E91E8C] text-[#E91E8C] font-semibold px-8 py-4 rounded-full text-lg hover:bg-[#E91E8C]/10 transition-colors"
+            >
+              Fale com a gente
+            </a>
+          </div>
         </div>
       </section>
 

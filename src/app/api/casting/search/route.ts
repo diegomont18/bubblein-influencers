@@ -653,7 +653,7 @@ export async function POST(request: Request) {
   // Process search in background, streaming results as they're found
   (async () => {
     try {
-      const maxPages = 20;
+      const maxPages = 100;
       let candidateIndex = 0;
 
       // Apify search metadata for title mode cheap-first pipeline
@@ -1228,6 +1228,20 @@ export async function POST(request: Request) {
             .eq("user_id", user.id);
           console.log(`[casting] Credits deducted: ${creditsUsed} used, ${userRole.credits} → ${newCredits}`);
         }
+      }
+
+      // Send partial event if fewer results than requested
+      if (matchedProfiles.length < resultsCount && !request.signal.aborted) {
+        try {
+          await writer.write(encoder.encode(JSON.stringify({
+            type: "partial",
+            data: {
+              found: matchedProfiles.length,
+              requested: resultsCount,
+              totalCandidates: totalCandidatesProcessed,
+            },
+          }) + "\n"));
+        } catch { /* client disconnected */ }
       }
 
       // Send done event with summary

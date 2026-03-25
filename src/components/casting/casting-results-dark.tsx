@@ -101,7 +101,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
   }
 
   function exportCsv() {
-    const headers = ["Nome", "LinkedIn URL", "Headline", "Seguidores", "Posts/Mês", "Média Likes", "Score", "Tópicos", "Encontrado", "Etapa"];
+    const headers = ["Nome", "LinkedIn URL", "Headline", "Seguidores", "Posts/Mês", "Média Likes", "Score", "Tópicos", "Keyword", "Etapa"];
     const escapeField = (val: string) => {
       if (val.includes(",") || val.includes('"') || val.includes("\n")) return '"' + val.replace(/"/g, '""') + '"';
       return val;
@@ -113,7 +113,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
       p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "",
       (() => { const s = p.final_score ?? p.creator_score; return s != null ? String(Math.round(s)) : ""; })(),
       (p.topics || []).join("; "),
-      p.found_at ? new Date(p.found_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "",
+      p.source_keyword || "",
       STAGES.find((s) => s.value === (stageMap[p.slug] ?? ""))?.label ?? "—",
     ].map(escapeField));
     const csv = [headers.map(escapeField).join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -180,7 +180,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
                 <SortableHeader label="Média Likes" sortKey="avg_likes_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Tópicos</th>
                 <SortableHeader label="Score" sortKey="creator_score" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Encontrado</th>
+                <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Keyword</th>
                 <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Etapa</th>
               </tr>
             </thead>
@@ -208,14 +208,26 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
                     <td className="px-4 py-3 text-[#adaaaa] text-xs">#{idx + 1}</td>
                     <td className="px-2 py-3">
                       {p.profile_photo ? (
-                        <img
-                          src={p.profile_photo}
-                          alt={p.name}
-                          className="w-8 h-8 rounded-full object-cover ring-2 ring-[#ca98ff]/20"
-                        />
+                        <div className="relative w-8 h-8">
+                          <img
+                            src={p.profile_photo}
+                            alt={p.name}
+                            className="w-8 h-8 rounded-full object-cover ring-2 ring-[#ca98ff]/20"
+                            onError={(e) => { e.currentTarget.style.display = "none"; (e.currentTarget.nextElementSibling as HTMLElement).style.display = "flex"; }}
+                          />
+                          <div style={{ display: "none" }} className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1e1e3a] to-[#262626] ring-2 ring-[#ca98ff]/10 items-center justify-center absolute inset-0">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#adaaaa" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40">
+                              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                              <circle cx="12" cy="7" r="4"/>
+                            </svg>
+                          </div>
+                        </div>
                       ) : (
-                        <div className="w-8 h-8 rounded-full bg-[#262626] flex items-center justify-center text-xs font-bold text-[#adaaaa]">
-                          {(p.name || "?").charAt(0).toUpperCase()}
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1e1e3a] to-[#262626] ring-2 ring-[#ca98ff]/10 flex items-center justify-center">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#adaaaa" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                            <circle cx="12" cy="7" r="4"/>
+                          </svg>
                         </div>
                       )}
                     </td>
@@ -260,7 +272,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
                       ) : <span className="text-[#484847]">—</span>}
                     </td>
                     <td className="px-4 py-3 text-xs text-[#adaaaa] whitespace-nowrap">
-                      {p.found_at ? new Date(p.found_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                      {p.source_keyword || "—"}
                     </td>
                     <td className="px-4 py-3">
                       <select

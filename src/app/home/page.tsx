@@ -4,6 +4,15 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { CastingResultsDark } from "@/components/casting/casting-results-dark";
 import { CastingProfile } from "@/components/casting/casting-results";
 
+const SEARCH_STEPS = [
+  "Análise estratégica de conteúdo…",
+  "Identificando creators por grau de influência…",
+  "Análise de alcance dos creators…",
+  "Analisando relevância dos perfis…",
+  "Calculando score dos creators…",
+  "Finalizando resultados…",
+];
+
 const LANGUAGES = [
   { label: "Portuguese (Brazil)", value: "lang_pt", country: "br", domain: "google.com.br" },
   { label: "English (US)", value: "lang_en", country: "us", domain: "google.com" },
@@ -33,8 +42,10 @@ export default function HomePage() {
   const [maxFollowers, setMaxFollowers] = useState(100000);
   const [resultsCount, setResultsCount] = useState(3);
   const [searching, setSearching] = useState(false);
+  const [searchStep, setSearchStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
   // Campaigns
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -43,11 +54,12 @@ export default function HomePage() {
 
   // Search tabs
   const [searchTabs, setSearchTabs] = useState<SearchTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [editingTabId, setEditingTabId] = useState<string | null>(null);
-  const [editingTabName, setEditingTabName] = useState("");
+
+  // Campaign editing
+  const [editingCampaignName, setEditingCampaignName] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   // Fetch user credits
@@ -175,13 +187,14 @@ export default function HomePage() {
     } catch { /* ignore */ }
   }
 
+  // Eagerly load profiles for all unloaded tabs
   useEffect(() => {
-    if (!activeTabId) return;
-    const tab = searchTabs.find((t) => t.id === activeTabId);
-    if (tab && !tab.loaded && !tab.id.startsWith("temp-")) {
-      loadTabProfiles(tab.id);
+    for (const tab of searchTabs) {
+      if (!tab.loaded && !tab.id.startsWith("temp-")) {
+        loadTabProfiles(tab.id);
+      }
     }
-  }, [activeTabId, searchTabs]);
+  }, [searchTabs]);
 
   // Filtered tabs by campaign
   const filteredTabs = useMemo(() => {
@@ -193,24 +206,22 @@ export default function HomePage() {
     return filteredTabs.filter((t) => t.loaded).flatMap((t) => t.profiles);
   }, [filteredTabs]);
 
-  const highlightSlugs = useMemo(() => {
-    if (activeTabId == null) return new Set<string>();
-    const tab = searchTabs.find((t) => t.id === activeTabId);
-    return new Set(tab?.profiles.map((p) => p.slug) ?? []);
-  }, [searchTabs, activeTabId]);
-
   async function handleSearch() {
     if (userCredits <= 0) { setError("Sem créditos. Compre mais para continuar buscando."); return; }
     if (!activeCampaignId) { setError("Selecione uma campanha."); return; }
     const themeLines = themes.split("\n").map((l) => l.trim()).filter(Boolean);
     if (themeLines.length === 0) { setError("Insira pelo menos uma palavra-chave."); return; }
     setError(null);
+    setWarningMessage(null);
     setSearching(true);
+    setSearchStep(0);
+    stepIntervalRef.current = setInterval(() => {
+      setSearchStep((prev) => Math.min(prev + 1, SEARCH_STEPS.length - 1));
+    }, 8000);
 
     const tempId = `temp-${Date.now()}`;
     const newTab: SearchTab = { id: tempId, name: "Buscando...", profiles: [], loaded: true, profileCount: 0, campaignId: activeCampaignId };
     setSearchTabs((prev) => [...prev, newTab]);
-    setActiveTabId(tempId);
     setFilterCampaignId(activeCampaignId);
 
     const lang = LANGUAGES[languageIdx];
@@ -218,6 +229,7 @@ export default function HomePage() {
     abortControllerRef.current = controller;
     const maxResults = resultsCount;
     let dbListId: string | null = null;
+    let partialData: { found: number; requested: number } | null = null;
 
     try {
       const res = await fetch("/api/casting/search", {
@@ -241,24 +253,24 @@ export default function HomePage() {
 
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
-      let buffer = "";
+      let streamBuffer = "";
       let count = 0;
+      const bufferedProfiles: CastingProfile[] = [];
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
+        streamBuffer += decoder.decode(value, { stream: true });
+        const lines = streamBuffer.split("\n");
+        streamBuffer = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
             const event = JSON.parse(line);
             if (event.type === "profile" && count < maxResults) {
               count++;
-              const profile = event.data as CastingProfile;
-              setSearchTabs((prev) =>
-                prev.map((t) => t.id === tempId ? { ...t, profiles: [...t.profiles, profile], profileCount: t.profileCount + 1 } : t)
-              );
+              bufferedProfiles.push(event.data as CastingProfile);
+            } else if (event.type === "partial") {
+              partialData = event.data;
             } else if (event.type === "done") {
               dbListId = event.data.listId ?? null;
             } else if (event.type === "error") {
@@ -267,22 +279,31 @@ export default function HomePage() {
           } catch { /* skip */ }
         }
       }
-      if (buffer.trim()) {
-        try { const event = JSON.parse(buffer); if (event.type === "done") dbListId = event.data.listId ?? null; } catch { /* ignore */ }
+      if (streamBuffer.trim()) {
+        try { const event = JSON.parse(streamBuffer); if (event.type === "done") dbListId = event.data.listId ?? null; } catch { /* ignore */ }
       }
+      // Batch all profiles at once
+      setSearchTabs((prev) =>
+        prev.map((t) => t.id === tempId ? { ...t, profiles: bufferedProfiles, profileCount: bufferedProfiles.length } : t)
+      );
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) {
         setError(err instanceof Error ? err.message : "Busca falhou");
       }
     } finally {
+      if (stepIntervalRef.current) { clearInterval(stepIntervalRef.current); stepIntervalRef.current = null; }
+      setSearchStep(0);
       setSearching(false);
       abortControllerRef.current = null;
       if (dbListId) {
         setSearchTabs((prev) =>
           prev.map((t) => t.id === tempId ? { ...t, id: dbListId! } : t)
         );
-        setActiveTabId(dbListId);
         loadPastSearches();
+      }
+      // Show partial results warning
+      if (partialData) {
+        setWarningMessage(`Encontramos ${partialData.found} de ${partialData.requested} creators solicitados. Para melhores resultados, tente adicionar mais palavras-chave e/ou ampliar a faixa de seguidores.`);
       }
       // Refresh credits after search (they were deducted server-side)
       const creditsBefore = userCredits;
@@ -311,18 +332,22 @@ export default function HomePage() {
 
   function handleStopSearch() { abortControllerRef.current?.abort(); }
 
-  async function handleTabRename(tabId: string, newName: string) {
-    setSearchTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, name: newName } : t));
-    setEditingTabId(null);
-    if (!tabId.startsWith("temp-")) {
-      try {
-        await fetch("/api/casting/lists", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: tabId, name: newName }),
-        });
-      } catch { /* ignore */ }
+  async function handleRenameCampaign(newName: string) {
+    if (!activeCampaignId || !newName.trim()) {
+      setEditingCampaignName(null);
+      return;
     }
+    try {
+      const res = await fetch("/api/campaigns", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: activeCampaignId, name: newName.trim() }),
+      });
+      if (res.ok) {
+        setCampaigns((prev) => prev.map((c) => c.id === activeCampaignId ? { ...c, name: newName.trim() } : c));
+      }
+    } catch { /* ignore */ }
+    setEditingCampaignName(null);
   }
 
   async function handleCreateCampaign() {
@@ -345,6 +370,17 @@ export default function HomePage() {
   const labelClass = "block text-xs font-semibold uppercase tracking-wider text-[#adaaaa] mb-2 font-[family-name:var(--font-lexend)]";
   const noCredits = userCredits <= 0;
 
+  function Tooltip({ text }: { text: string }) {
+    return (
+      <span className="relative group ml-1.5 inline-flex align-middle">
+        <span className="cursor-help text-[#adaaaa]/60 hover:text-[#ca98ff] transition-colors text-[10px] border border-[#adaaaa]/30 rounded-full w-4 h-4 inline-flex items-center justify-center">?</span>
+        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-lg bg-[#262626] px-3 py-2 text-xs text-[#e0e0e0] opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-50 text-left normal-case tracking-normal font-normal">
+          {text}
+        </span>
+      </span>
+    );
+  }
+
   return (
     <div className="space-y-8">
       {/* Hero */}
@@ -363,17 +399,38 @@ export default function HomePage() {
         {/* Campaign Selector */}
         <div className="flex items-center gap-3">
           <div className="flex-1">
-            <label className={labelClass}>Campanha</label>
-            <select
-              value={activeCampaignId ?? ""}
-              onChange={(e) => setActiveCampaignId(e.target.value || null)}
-              className={inputClass}
-            >
-              {campaigns.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <label className={labelClass}>Campanha<Tooltip text="Agrupe suas buscas em campanhas para organizar os creators encontrados por projeto ou cliente." /></label>
+            {editingCampaignName !== null ? (
+              <input
+                autoFocus
+                value={editingCampaignName}
+                onChange={(e) => setEditingCampaignName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleRenameCampaign(editingCampaignName); if (e.key === "Escape") setEditingCampaignName(null); }}
+                onBlur={() => handleRenameCampaign(editingCampaignName)}
+                className={inputClass}
+              />
+            ) : (
+              <select
+                value={activeCampaignId ?? ""}
+                onChange={(e) => setActiveCampaignId(e.target.value || null)}
+                className={inputClass}
+              >
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
           </div>
+          <button
+            onClick={() => {
+              const current = campaigns.find((c) => c.id === activeCampaignId);
+              if (current) setEditingCampaignName(current.name);
+            }}
+            className="mt-6 rounded-full bg-[#20201f] px-3 py-3 text-xs text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors"
+            title="Renomear campanha"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+          </button>
           <button
             onClick={handleCreateCampaign}
             className="mt-6 rounded-full bg-[#20201f] px-4 py-3 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)] whitespace-nowrap"
@@ -385,7 +442,7 @@ export default function HomePage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left: Keywords */}
           <div className="lg:col-span-8">
-            <label className={labelClass}>Palavras-chave</label>
+            <label className={labelClass}>Palavras-chave<Tooltip text="Digite os temas ou nichos que você busca. Separe por vírgula ou linha. Ex: marketing digital, liderança." /></label>
             <textarea
               rows={4}
               value={themes}
@@ -400,14 +457,14 @@ export default function HomePage() {
             <h3 className="text-sm font-semibold text-white font-[family-name:var(--font-lexend)]">Filtros</h3>
 
             <div>
-              <label className={labelClass}>Idioma</label>
+              <label className={labelClass}>Idioma<Tooltip text="Selecione o idioma principal do conteúdo dos creators que você deseja encontrar." /></label>
               <select value={languageIdx} onChange={(e) => setLanguageIdx(Number(e.target.value))} className={inputClass}>
                 {LANGUAGES.map((l, i) => <option key={l.value} value={i}>{l.label}</option>)}
               </select>
             </div>
 
             <div>
-              <label className={labelClass}>Faixa de Seguidores</label>
+              <label className={labelClass}>Faixa de Seguidores<Tooltip text="Defina o mínimo e máximo de seguidores dos creators. Deixe em branco para não filtrar." /></label>
               <div className="grid grid-cols-2 gap-2">
                 <input type="number" value={minFollowers} onChange={(e) => setMinFollowers(Number(e.target.value))} min={0} placeholder="Min" className={inputClass} />
                 <input type="number" value={maxFollowers} onChange={(e) => setMaxFollowers(Number(e.target.value))} min={0} placeholder="Max" className={inputClass} />
@@ -415,17 +472,22 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className={labelClass}>Resultados Desejados</label>
+              <label className={labelClass}>Resultados Desejados<Tooltip text={`Quantidade de creators para buscar. O limite atual é ${userCredits} crédito${userCredits !== 1 ? "s" : ""}. Cada resultado consome 1 crédito.`} /></label>
               <input type="number" value={resultsCount} onChange={(e) => setResultsCount(Math.min(Number(e.target.value), userCredits))} min={1} max={userCredits} className={inputClass} />
               {userCredits < 100 && resultsCount >= userCredits && (
-                <a
-                  href="https://wa.me/5511941238555?text=Ola!%20Tenho%20interesse%20em%20comprar%20creditos%20no%20BubbleIn"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[#a2f31f]/30 bg-[#a2f31f]/10 px-3 py-1.5 text-xs font-semibold text-[#a2f31f] hover:bg-[#a2f31f]/20 transition-colors font-[family-name:var(--font-lexend)]"
-                >
-                  <span>✦</span> Comprar mais créditos
-                </a>
+                <span className="relative group">
+                  <a
+                    href="https://wa.me/5511941238555?text=Ola!%20Tenho%20interesse%20em%20comprar%20creditos%20no%20BubbleIn"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[#a2f31f]/30 bg-[#a2f31f]/10 px-3 py-1.5 text-xs font-semibold text-[#a2f31f] hover:bg-[#a2f31f]/20 transition-colors font-[family-name:var(--font-lexend)]"
+                  >
+                    <span>✦</span> Comprar mais créditos
+                  </a>
+                  <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-lg bg-[#262626] px-3 py-2 text-xs text-[#e0e0e0] opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-50">
+                    Créditos liberam mais buscas de creators. Cada creator encontrado consome 1 crédito. Fale conosco para adquirir mais.
+                  </span>
+                </span>
               )}
             </div>
           </div>
@@ -436,14 +498,19 @@ export default function HomePage() {
           {noCredits ? (
             <div className="text-center space-y-3">
               <p className="text-sm text-[#ff946e]">Sem créditos disponíveis.</p>
-              <a
-                href="https://wa.me/5511941238555?text=Ola!%20Tenho%20interesse%20em%20comprar%20creditos%20no%20BubbleIn"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#a2f31f]/30 bg-[#a2f31f]/10 px-5 py-3 text-sm font-semibold text-[#a2f31f] hover:bg-[#a2f31f]/20 transition-colors font-[family-name:var(--font-lexend)]"
-              >
-                <span>✦</span> Comprar créditos para começar
-              </a>
+              <span className="relative group inline-block">
+                <a
+                  href="https://wa.me/5511941238555?text=Ola!%20Tenho%20interesse%20em%20comprar%20creditos%20no%20BubbleIn"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#a2f31f]/30 bg-[#a2f31f]/10 px-5 py-3 text-sm font-semibold text-[#a2f31f] hover:bg-[#a2f31f]/20 transition-colors font-[family-name:var(--font-lexend)]"
+                >
+                  <span>✦</span> Comprar créditos para começar
+                </a>
+                <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-lg bg-[#262626] px-3 py-2 text-xs text-[#e0e0e0] opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-50">
+                  Créditos liberam mais buscas de creators. Cada creator encontrado consome 1 crédito. Fale conosco para adquirir mais.
+                </span>
+              </span>
             </div>
           ) : (
             <button
@@ -462,16 +529,40 @@ export default function HomePage() {
         <div className="rounded-xl bg-[#ff946e]/10 px-4 py-3 text-sm text-[#ff946e]">{error}</div>
       )}
 
+      {/* Partial results warning */}
+      {warningMessage && (
+        <div className="rounded-xl bg-[#ffb347]/10 px-4 py-3 text-sm text-[#ffb347] flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span>{warningMessage}</span>
+            <button
+              onClick={() => resultsRef.current?.scrollIntoView({ behavior: "smooth" })}
+              className="rounded-full bg-[#ffb347]/20 px-3 py-1 text-xs font-semibold text-[#ffb347] hover:bg-[#ffb347]/30 transition-colors whitespace-nowrap font-[family-name:var(--font-lexend)]"
+            >
+              &#8595; Ver resultados
+            </button>
+          </div>
+          <button onClick={() => setWarningMessage(null)} className="text-[#ffb347]/60 hover:text-[#ffb347] ml-3 text-lg leading-none">&times;</button>
+        </div>
+      )}
+
       {/* Success message */}
       {successMessage && (
         <div className="rounded-xl bg-[#a2f31f]/10 px-4 py-3 text-sm text-[#a2f31f] flex items-center justify-between">
-          <span>{successMessage}</span>
+          <div className="flex items-center gap-3">
+            <span>{successMessage}</span>
+            <button
+              onClick={() => resultsRef.current?.scrollIntoView({ behavior: "smooth" })}
+              className="rounded-full bg-[#a2f31f]/20 px-3 py-1 text-xs font-semibold text-[#a2f31f] hover:bg-[#a2f31f]/30 transition-colors whitespace-nowrap font-[family-name:var(--font-lexend)]"
+            >
+              &#8595; Ver resultados
+            </button>
+          </div>
           <button onClick={() => setSuccessMessage(null)} className="text-[#a2f31f]/60 hover:text-[#a2f31f] ml-3 text-lg leading-none">&times;</button>
         </div>
       )}
 
       {/* Results */}
-      {(filteredTabs.length > 0 || searching) && (
+      {(searchTabs.length > 0 || searching) && (
         <div ref={resultsRef} className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <h2 className="text-lg font-semibold text-white font-[family-name:var(--font-lexend)]">
@@ -492,69 +583,47 @@ export default function HomePage() {
             </select>
           </div>
 
-          {/* Search Tabs */}
-          {filteredTabs.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {filteredTabs.map((tab) => (
-                <div key={tab.id} className="flex items-center">
-                  {editingTabId === tab.id ? (
-                    <input
-                      type="text"
-                      value={editingTabName}
-                      onChange={(e) => setEditingTabName(e.target.value)}
-                      onBlur={() => handleTabRename(tab.id, editingTabName || tab.name)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleTabRename(tab.id, editingTabName || tab.name);
-                        if (e.key === "Escape") setEditingTabId(null);
-                      }}
-                      autoFocus
-                      className="rounded-full bg-[#ca98ff]/20 px-3 py-1.5 text-xs text-white outline-none border border-[#ca98ff]/40 font-[family-name:var(--font-lexend)]"
-                    />
-                  ) : (
-                    <button
-                      onClick={() => setActiveTabId(tab.id)}
-                      onDoubleClick={() => { setEditingTabId(tab.id); setEditingTabName(tab.name); }}
-                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all font-[family-name:var(--font-lexend)] ${
-                        activeTabId === tab.id
-                          ? "bg-[#ca98ff] text-[#46007d]"
-                          : "bg-[#20201f] text-[#adaaaa] hover:bg-[#262626] hover:text-white"
-                      }`}
-                      title="Duplo clique para renomear"
-                    >
-                      {tab.name}
-                      <span className="ml-1.5 text-[10px] opacity-70">({tab.profileCount})</span>
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
           {searching && (
-            <div className="py-6 text-center space-y-3">
-              <p className="text-sm text-[#ca98ff] animate-pulse">
-                Buscando creators no LinkedIn...
-                {(() => {
-                  const currentTab = searchTabs.find((t) => t.id === activeTabId);
-                  return currentTab && currentTab.profiles.length > 0
-                    ? ` (${currentTab.profiles.length} encontrados)`
-                    : "";
-                })()}
-              </p>
-              <button
-                onClick={handleStopSearch}
-                className="rounded-full bg-[#ff946e]/10 px-4 py-2 text-xs font-medium text-[#ff946e] hover:bg-[#ff946e]/20 transition-colors font-[family-name:var(--font-lexend)]"
-              >
-                Parar Busca
-              </button>
+            <div className="rounded-2xl bg-[#131313] p-6 space-y-4">
+              <div className="space-y-3">
+                {SEARCH_STEPS.map((step, i) => (
+                  <div key={i} className="flex items-center gap-3 transition-all duration-300">
+                    {i < searchStep ? (
+                      <span className="text-[#a2f31f] text-sm">&#10003;</span>
+                    ) : i === searchStep ? (
+                      <span className="animate-pulse text-[#ca98ff] text-sm">&#9679;</span>
+                    ) : (
+                      <span className="text-[#adaaaa]/30 text-sm">&#9675;</span>
+                    )}
+                    <span className={`text-sm transition-colors duration-300 ${i <= searchStep ? "text-white" : "text-[#adaaaa]/30"}`}>
+                      {step}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="text-center pt-2">
+                <button
+                  onClick={handleStopSearch}
+                  className="rounded-full bg-[#ff946e]/10 px-4 py-2 text-xs font-medium text-[#ff946e] hover:bg-[#ff946e]/20 transition-colors font-[family-name:var(--font-lexend)]"
+                >
+                  Parar Busca
+                </button>
+              </div>
             </div>
           )}
 
-          <CastingResultsDark
-            profiles={allProfiles}
-            queryTheme={themes}
-            highlightSlugs={highlightSlugs}
-          />
+          {!searching && allProfiles.length === 0 && filterCampaignId ? (
+            <div className="rounded-2xl bg-[#131313] overflow-hidden">
+              <div className="px-6 py-12 text-center text-[#adaaaa] text-sm">
+                Não foram encontrados creators para essa campanha.
+              </div>
+            </div>
+          ) : (
+            <CastingResultsDark
+              profiles={allProfiles}
+              queryTheme={themes}
+            />
+          )}
         </div>
       )}
     </div>
