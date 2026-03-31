@@ -52,6 +52,14 @@ export default function HomePage() {
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
   const [filterCampaignId, setFilterCampaignId] = useState<string | null>(null); // null = all
 
+  // View toggle & panorama stats
+  const [activeView, setActiveView] = useState<"campanhas" | "panorama">("campanhas");
+  const [lastSearchStats, setLastSearchStats] = useState<{
+    totalCandidates: number;
+    matched: number;
+    keywordStats: Record<string, { googleResults: number; candidates: number; matched: number; filteredJob: number; filteredRepost: number }>;
+  } | null>(null);
+
   // Search tabs
   const [searchTabs, setSearchTabs] = useState<SearchTab[]>([]);
 
@@ -160,6 +168,7 @@ export default function HomePage() {
               company: notes?.company ?? "",
               location: notes?.location ?? "",
               followers: notes?.followers ?? 0,
+              followers_range: notes?.followers_range ?? undefined,
               posts_per_month: notes?.posts_per_month ?? 0,
               avg_likes_per_post: notes?.avg_likes_per_post ?? null,
               avg_comments_per_post: notes?.avg_comments_per_post ?? null,
@@ -273,6 +282,14 @@ export default function HomePage() {
               partialData = event.data;
             } else if (event.type === "done") {
               dbListId = event.data.listId ?? null;
+              if (event.data.keywordStats) {
+                const totalMatched = Object.values(event.data.keywordStats as Record<string, { matched: number }>).reduce((sum: number, k) => sum + (k.matched || 0), 0);
+                setLastSearchStats({
+                  totalCandidates: event.data.totalCandidates ?? 0,
+                  matched: totalMatched,
+                  keywordStats: event.data.keywordStats,
+                });
+              }
             } else if (event.type === "error") {
               setError(event.data.message ?? "Busca falhou");
             }
@@ -450,6 +467,9 @@ export default function HomePage() {
               placeholder={"ex: marketing digital, liderança,\ncriação de conteúdo..."}
               className={`${inputClass} resize-none`}
             />
+            <p className="mt-1.5 text-[10px] text-[#adaaaa]/60 font-[family-name:var(--font-be-vietnam-pro)]">
+              Separe as palavras-chave por vírgula ou linha. Quanto mais palavras-chave, mais resultados.
+            </p>
           </div>
 
           {/* Right: Filters */}
@@ -565,22 +585,41 @@ export default function HomePage() {
       {(searchTabs.length > 0 || searching) && (
         <div ref={resultsRef} className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <h2 className="text-lg font-semibold text-white font-[family-name:var(--font-lexend)]">
-              Resultados da Busca
-              <span className="ml-2 text-sm font-normal text-[#adaaaa]">{allProfiles.length} resultados</span>
-            </h2>
+            <div className="flex items-center gap-4">
+              <h2 className="text-lg font-semibold text-white font-[family-name:var(--font-lexend)]">
+                Resultados da Busca
+                <span className="ml-2 text-sm font-normal text-[#adaaaa]">{allProfiles.length} resultados</span>
+              </h2>
+              {/* View toggle */}
+              <div className="flex rounded-full bg-[#20201f] p-0.5">
+                <button
+                  onClick={() => setActiveView("campanhas")}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-all font-[family-name:var(--font-lexend)] ${activeView === "campanhas" ? "bg-[#ca98ff] text-[#46007d]" : "text-[#adaaaa] hover:text-white"}`}
+                >
+                  Campanhas
+                </button>
+                <button
+                  onClick={() => setActiveView("panorama")}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-all font-[family-name:var(--font-lexend)] ${activeView === "panorama" ? "bg-[#ca98ff] text-[#46007d]" : "text-[#adaaaa] hover:text-white"}`}
+                >
+                  Panorama
+                </button>
+              </div>
+            </div>
 
             {/* Campaign filter */}
-            <select
-              value={filterCampaignId ?? ""}
-              onChange={(e) => setFilterCampaignId(e.target.value || null)}
-              className="rounded-full bg-[#20201f] px-4 py-2 text-xs text-[#adaaaa] outline-none font-[family-name:var(--font-lexend)] border-b-2 border-transparent focus:border-[#ca98ff]"
-            >
-              <option value="">Todas as campanhas</option>
-              {campaigns.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            {activeView === "campanhas" && (
+              <select
+                value={filterCampaignId ?? ""}
+                onChange={(e) => setFilterCampaignId(e.target.value || null)}
+                className="rounded-full bg-[#20201f] px-4 py-2 text-xs text-[#adaaaa] outline-none font-[family-name:var(--font-lexend)] border-b-2 border-transparent focus:border-[#ca98ff]"
+              >
+                <option value="">Todas as campanhas</option>
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {searching && (
@@ -612,17 +651,87 @@ export default function HomePage() {
             </div>
           )}
 
-          {!searching && allProfiles.length === 0 && filterCampaignId ? (
-            <div className="rounded-2xl bg-[#131313] overflow-hidden">
-              <div className="px-6 py-12 text-center text-[#adaaaa] text-sm">
-                Não foram encontrados creators para essa campanha.
+          {/* Campanhas view */}
+          {!searching && activeView === "campanhas" && (
+            <>
+              {allProfiles.length === 0 && filterCampaignId ? (
+                <div className="rounded-2xl bg-[#131313] overflow-hidden">
+                  <div className="px-6 py-12 text-center text-[#adaaaa] text-sm">
+                    Não foram encontrados creators para essa campanha.
+                  </div>
+                </div>
+              ) : (
+                <CastingResultsDark
+                  profiles={allProfiles}
+                  queryTheme={themes}
+                />
+              )}
+            </>
+          )}
+
+          {/* Panorama view */}
+          {!searching && activeView === "panorama" && (
+            lastSearchStats ? (
+              <div className="space-y-4">
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="rounded-xl bg-[#131313] p-4">
+                    <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Perfis analisados</div>
+                    <div className="text-2xl font-bold text-white mt-1">{lastSearchStats.totalCandidates}</div>
+                  </div>
+                  <div className="rounded-xl bg-[#131313] p-4">
+                    <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Creators encontrados</div>
+                    <div className="text-2xl font-bold text-[#a2f31f] mt-1">{lastSearchStats.matched}</div>
+                  </div>
+                  <div className="rounded-xl bg-[#131313] p-4">
+                    <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Taxa de conversão</div>
+                    <div className="text-2xl font-bold text-[#ca98ff] mt-1">{lastSearchStats.totalCandidates > 0 ? Math.round((lastSearchStats.matched / lastSearchStats.totalCandidates) * 100) : 0}%</div>
+                  </div>
+                  <div className="rounded-xl bg-[#131313] p-4">
+                    <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Creators ativos</div>
+                    <div className="text-2xl font-bold text-white mt-1">
+                      {lastSearchStats.totalCandidates > 0 ? Math.round((lastSearchStats.matched / lastSearchStats.totalCandidates) * 100) : 0}%
+                      <span className="text-xs font-normal text-[#adaaaa] ml-1">dos perfis</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Per-keyword breakdown */}
+                <div className="rounded-2xl bg-[#131313] overflow-hidden">
+                  <div className="px-4 py-3 border-b border-[#262626]">
+                    <h3 className="text-sm font-semibold text-white font-[family-name:var(--font-lexend)]">Desempenho por Keyword</h3>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[#262626]">
+                        <th className="px-4 py-2 text-left text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Keyword</th>
+                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Posts encontrados</th>
+                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Perfis descobertos</th>
+                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Creators válidos</th>
+                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Filtrados</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(lastSearchStats.keywordStats).map(([keyword, stats]) => (
+                        <tr key={keyword} className="border-b border-[#262626]/50 hover:bg-[#20201f]">
+                          <td className="px-4 py-2.5 text-white">{keyword}</td>
+                          <td className="px-4 py-2.5 text-right text-[#adaaaa]">{stats.googleResults}</td>
+                          <td className="px-4 py-2.5 text-right text-[#adaaaa]">{stats.candidates}</td>
+                          <td className="px-4 py-2.5 text-right text-[#a2f31f]">{stats.matched}</td>
+                          <td className="px-4 py-2.5 text-right text-[#ff946e]">{stats.filteredJob + stats.filteredRepost}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          ) : (
-            <CastingResultsDark
-              profiles={allProfiles}
-              queryTheme={themes}
-            />
+            ) : (
+              <div className="rounded-2xl bg-[#131313] overflow-hidden">
+                <div className="px-6 py-12 text-center text-[#adaaaa] text-sm">
+                  Realize uma busca para ver o panorama de resultados.
+                </div>
+              </div>
+            )
           )}
         </div>
       )}

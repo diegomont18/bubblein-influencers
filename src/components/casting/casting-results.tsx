@@ -49,6 +49,7 @@ export interface CastingProfile {
   company: string;
   location: string;
   followers: number;
+  followers_range?: string;
   posts_per_month: number;
   avg_likes_per_post?: number | null;
   avg_comments_per_post?: number | null;

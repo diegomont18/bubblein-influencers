@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
@@ -16,6 +16,7 @@ const WHATSAPP_BUY_URL = "https://wa.me/5511941238555?text=Ola!%20Tenho%20intere
 export default function HomeLayout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
   const router = useRouter();
+  const pathname = usePathname();
   const supabase = createClient();
 
   useEffect(() => {
@@ -78,7 +79,7 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
                 >
                   Comprar Créditos
                 </a>
-                <span className="text-sm text-[#adaaaa]">{user.email}</span>
+                <Link href="/home/account" className="text-sm text-[#adaaaa] hover:text-white transition-colors">{user.email}</Link>
               </>
             )}
             <button
@@ -91,8 +92,33 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
         </div>
       </nav>
 
-      {/* Content */}
-      <main className="max-w-7xl mx-auto px-6 py-12">{children}</main>
+      {/* Content with sidebar */}
+      <div className="max-w-7xl mx-auto px-6 py-12 flex gap-8">
+        {/* Sidebar */}
+        <aside className="w-44 shrink-0 hidden md:block">
+          <nav className="space-y-1 sticky top-24">
+            <Link
+              href="/home"
+              className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-lexend)] ${
+                pathname === "/home" ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
+              }`}
+            >
+              Casting
+            </Link>
+            <Link
+              href="/home/leads"
+              className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-lexend)] ${
+                pathname === "/home/leads" ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
+              }`}
+            >
+              Leads <span className="italic text-[10px] text-[#f5c542] ml-1">(beta)</span>
+            </Link>
+          </nav>
+        </aside>
+
+        {/* Main content */}
+        <main className="flex-1 min-w-0">{children}</main>
+      </div>
     </div>
   );
 }

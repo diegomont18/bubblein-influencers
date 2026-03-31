@@ -1,0 +1,17 @@
+{
+  "name": "BubbleIn - Creators B2B no LinkedIn",
+  "short_name": "BubbleIn",
+  "description": "Conectamos sua marca a creators B2B relevantes no LinkedIn. Ganhe visibilidade, gere demanda e construa confiança.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B0B1A",
+  "theme_color": "#E91E8C",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ],
+  "lang": "pt-BR"
+}

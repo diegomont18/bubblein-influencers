@@ -326,3 +326,65 @@ export async function searchLinkedInPosts(params: {
   }
   return [];
 }
+
+/**
+ * Fetch engagers (likers + commenters) from a LinkedIn post URL.
+ */
+export async function fetchPostEngagers(
+  postUrl: string,
+  maxReactions = 100,
+  maxComments = 100
+): Promise<{ reactions: Array<Record<string, unknown>>; comments: Array<Record<string, unknown>> }> {
+  const token = process.env.APIFY_API_TOKEN;
+  if (!token) {
+    console.error("[apify] APIFY_API_TOKEN is not set");
+    return { reactions: [], comments: [] };
+  }
+
+  const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
+  const body = {
+    includeQuotePosts: false,
+    includeReposts: false,
+    maxComments,
+    maxPosts: 1,
+    maxReactions,
+    scrapeComments: true,
+    scrapeReactions: true,
+    targetUrls: [postUrl],
+  };
+
+  console.log(`[apify] Fetching post engagers for ${postUrl}`);
+
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(240_000),
+      });
+
+      if (res.status === 200 || res.status === 201) {
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) return { reactions: [], comments: [] };
+        const post = data[0] as Record<string, unknown>;
+        const reactions = Array.isArray(post.reactions) ? post.reactions as Array<Record<string, unknown>> : [];
+        const comments = Array.isArray(post.comments) ? post.comments as Array<Record<string, unknown>> : [];
+        console.log(`[apify] Post engagers: ${reactions.length} reactions, ${comments.length} comments`);
+        return { reactions, comments };
+      }
+
+      if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
+        continue;
+      }
+      return { reactions: [], comments: [] };
+    } catch (err) {
+      console.error(`[apify] Post engagers exception: ${err instanceof Error ? err.message : err}`);
+      if (attempt < MAX_RETRIES) { await new Promise((r) => setTimeout(r, (attempt + 1) * 3000)); continue; }
+      return { reactions: [], comments: [] };
+    }
+  }
+  return { reactions: [], comments: [] };
+}

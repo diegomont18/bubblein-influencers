@@ -54,6 +54,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [stageMap, setStageMap] = useState<Record<string, string>>({});
+  const [showDetails, setShowDetails] = useState(false);
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -101,7 +102,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
   }
 
   function exportCsv() {
-    const headers = ["Nome", "LinkedIn URL", "Headline", "Seguidores", "Posts/Mês", "Média Likes", "Score", "Tópicos", "Keyword", "Etapa"];
+    const headers = ["Nome", "LinkedIn URL", "Headline", "Seguidores", "Posts/Mês", "Média Likes", "Score", "Tópicos", "Keyword", "Data", "Etapa"];
     const escapeField = (val: string) => {
       if (val.includes(",") || val.includes('"') || val.includes("\n")) return '"' + val.replace(/"/g, '""') + '"';
       return val;
@@ -114,6 +115,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
       (() => { const s = p.final_score ?? p.creator_score; return s != null ? String(Math.round(s)) : ""; })(),
       (p.topics || []).join("; "),
       p.source_keyword || "",
+      p.found_at ? new Date(p.found_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "",
       STAGES.find((s) => s.value === (stageMap[p.slug] ?? ""))?.label ?? "—",
     ].map(escapeField));
     const csv = [headers.map(escapeField).join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -151,8 +153,14 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
           </div>
         )}
         <button
-          onClick={exportCsv}
+          onClick={() => setShowDetails((v) => !v)}
           className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors ml-auto font-[family-name:var(--font-lexend)]"
+        >
+          {showDetails ? "Menos detalhes" : "Mais detalhes"}
+        </button>
+        <button
+          onClick={exportCsv}
+          className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)]"
         >
           Exportar CSV
         </button>
@@ -177,10 +185,11 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
                 <SortableHeader label="Creator" sortKey="name" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Seguidores" sortKey="followers" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Posts/mês" sortKey="posts_per_month" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                <SortableHeader label="Média Likes" sortKey="avg_likes_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                {showDetails && <SortableHeader label="Média Likes" sortKey="avg_likes_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />}
                 <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Tópicos</th>
                 <SortableHeader label="Score" sortKey="creator_score" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Keyword</th>
+                {showDetails && <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Keyword</th>}
+                {showDetails && <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Data</th>}
                 <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Etapa</th>
               </tr>
             </thead>
@@ -240,14 +249,16 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
                       )}
                     </td>
                     <td className="px-4 py-3 text-[#adaaaa]">
-                      {p.followers != null ? p.followers.toLocaleString() : "—"}
+                      {p.followers_range || (p.followers != null ? p.followers.toLocaleString() : "—")}
                     </td>
-                    <td className={`px-4 py-3 ${(p.posts_per_month ?? 0) < 3 ? "text-[#ff946e]" : "text-[#adaaaa]"}`}>
-                      {p.posts_per_month != null ? String(Math.round(p.posts_per_month)) : "—"}
+                    <td className={`px-4 py-3 ${(p.posts_per_month ?? 0) < 4 ? "text-[#ff946e]" : (p.posts_per_month ?? 0) > 10 ? "text-[#a2f31f]" : "text-[#adaaaa]"}`}>
+                      {p.posts_per_month != null ? ((p.posts_per_month) < 4 ? "1–4" : (p.posts_per_month) <= 10 ? "4–10" : "10+") : "—"}
                     </td>
-                    <td className="px-4 py-3 text-[#adaaaa]">
-                      {p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "—"}
-                    </td>
+                    {showDetails && (
+                      <td className="px-4 py-3 text-[#adaaaa]">
+                        {p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "—"}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       {p.topics && p.topics.length > 0 ? (
                         <div className="flex flex-wrap gap-1 max-w-[200px]">
@@ -262,18 +273,25 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
                     </td>
                     <td className="px-4 py-3">
                       {score != null ? (
-                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${
+                        <span className={`inline-flex items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold ${
                           score >= 70 ? "bg-[#a2f31f]/10 text-[#a2f31f]" :
                           score >= 40 ? "bg-[#ff946e]/10 text-[#ff946e]" :
                           "bg-white/5 text-[#adaaaa]"
                         }`}>
-                          {Math.round(score)}
+                          {score >= 70 ? "Alto" : score >= 40 ? "Médio" : "Baixo"}
                         </span>
                       ) : <span className="text-[#484847]">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-xs text-[#adaaaa] whitespace-nowrap">
-                      {p.source_keyword || "—"}
-                    </td>
+                    {showDetails && (
+                      <td className="px-4 py-3 text-xs text-[#adaaaa] whitespace-nowrap">
+                        {p.source_keyword || "—"}
+                      </td>
+                    )}
+                    {showDetails && (
+                      <td className="px-4 py-3 text-xs text-[#adaaaa] whitespace-nowrap">
+                        {p.found_at ? new Date(p.found_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <select
                         value={stage}

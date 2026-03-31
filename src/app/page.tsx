@@ -617,6 +617,50 @@ export default function Home() {
           </p>
         </div>
       </footer>
+
+      {/* Structured Data - Organization + WebSite + FAQ */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify([
+            {
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "BubbleIn",
+              url: "https://bubblein.com.br",
+              logo: "https://bubblein.com.br/logo.png",
+              description: "Conectamos marcas B2B a creators relevantes no LinkedIn. Ganhe visibilidade, gere demanda e construa confiança.",
+              contactPoint: {
+                "@type": "ContactPoint",
+                telephone: "+55-11-94123-8555",
+                contactType: "sales",
+                availableLanguage: ["Portuguese", "Spanish", "English"],
+              },
+              sameAs: ["https://www.linkedin.com/company/bubblein"],
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "BubbleIn",
+              url: "https://bubblein.com.br",
+              description: "Plataforma de marketing de influência B2B no LinkedIn.",
+              inLanguage: "pt-BR",
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "FAQPage",
+              mainEntity: FAQ_ITEMS.map((item) => ({
+                "@type": "Question",
+                name: item.q,
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: item.a,
+                },
+              })),
+            },
+          ]),
+        }}
+      />
     </div>
   );
 }

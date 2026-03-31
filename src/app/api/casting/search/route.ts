@@ -130,6 +130,21 @@ function extractLinkedInSlug(url: string): string | null {
   try { return decodeURIComponent(profileMatch[1]); } catch { return profileMatch[1]; }
 }
 
+function getFollowersRange(n: number): string {
+  if (n < 500) return "0–500";
+  if (n < 1000) return "500–1K";
+  if (n < 2500) return "1K–2.5K";
+  if (n < 5000) return "2.5K–5K";
+  if (n < 10000) return "5K–10K";
+  if (n < 25000) return "10K–25K";
+  if (n < 50000) return "25K–50K";
+  if (n < 100000) return "50K–100K";
+  if (n < 250000) return "100K–250K";
+  if (n < 500000) return "250K–500K";
+  if (n < 1000000) return "500K–1M";
+  return "1M+";
+}
+
 interface MatchedProfile {
   slug: string;
   name: string;
@@ -138,6 +153,7 @@ interface MatchedProfile {
   company: string;
   location: string;
   followers: number;
+  followers_range: string;
   posts_per_month: number;
   avg_likes_per_post: number | null;
   avg_comments_per_post: number | null;
@@ -337,6 +353,7 @@ export async function POST(request: Request) {
         company: profile.company,
         location: profile.location,
         followers: profile.followers,
+        followers_range: profile.followers_range,
         posts_per_month: profile.posts_per_month,
         avg_likes_per_post: profile.avg_likes_per_post,
         avg_comments_per_post: profile.avg_comments_per_post,
@@ -526,6 +543,7 @@ export async function POST(request: Request) {
       company: normalized.company_current ?? "",
       location: String(data.location ?? ""),
       followers,
+      followers_range: getFollowersRange(followers),
       posts_per_month: postsPerMonth,
       avg_likes_per_post: engagement.avgLikes,
       avg_comments_per_post: engagement.avgComments,
@@ -631,6 +649,7 @@ export async function POST(request: Request) {
       company: normalized.company_current ?? "",
       location: String(data.location ?? ""),
       followers,
+      followers_range: getFollowersRange(followers),
       posts_per_month: postsPerMonth,
       avg_likes_per_post: engagement.avgLikes,
       avg_comments_per_post: engagement.avgComments,
