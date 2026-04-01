@@ -121,7 +121,7 @@ export async function POST(request: Request) {
       .insert({
         name: listName,
         query_theme: themes.join("\n"),
-        filters_applied: { minFollowers, maxFollowers, language, country, domain, publico, searchMode, ...(isPostsMode ? { minReactions, datePosted } : {}) },
+        filters_applied: { minFollowers, maxFollowers, language, country, domain, publico, searchMode, resultsCount, ...(isPostsMode ? { minReactions, datePosted } : {}) },
         created_by: user.id,
         campaign_id: campaignId ?? null,
         status: "processing",
@@ -139,38 +139,47 @@ export async function POST(request: Request) {
     listId = newList.id;
   }
 
-  // Trigger background function (fire-and-forget)
+  // Trigger background function (await the 202 response before returning)
   const siteUrl = process.env.URL || process.env.NEXT_PUBLIC_SITE_URL || "";
   const bgUrl = `${siteUrl}/.netlify/functions/casting-search-background`;
 
   console.log(`[casting] Triggering background function at ${bgUrl} for list ${listId}`);
 
-  fetch(bgUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      themes,
-      language,
-      country,
-      domain,
-      minFollowers,
-      maxFollowers,
-      resultsCount,
-      approvedSynonyms,
-      coverAllKeywords,
-      publico,
-      searchMode,
-      minReactions,
-      datePosted,
-      existingListId,
-      campaignId,
-      listId,
-      userId: user.id,
-      excludeSlugs,
-    }),
-  }).catch(err => {
+  try {
+    const bgRes = await fetch(bgUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        themes,
+        language,
+        country,
+        domain,
+        minFollowers,
+        maxFollowers,
+        resultsCount,
+        approvedSynonyms,
+        coverAllKeywords,
+        publico,
+        searchMode,
+        minReactions,
+        datePosted,
+        existingListId,
+        campaignId,
+        listId,
+        userId: user.id,
+        excludeSlugs,
+      }),
+    });
+    console.log(`[casting] Background function triggered: ${bgRes.status}`);
+  } catch (err) {
     console.error("[casting] Failed to trigger background function:", err);
-  });
+    // Mark list as error so polling doesn't hang forever
+    await service.from("casting_lists").update({
+      status: "error",
+      error_message: "Failed to start background search process",
+    }).eq("id", listId);
+    return NextResponse.json({ error: "Failed to start search" }, { status: 500 });
+  }
 
   return NextResponse.json({ searchId: listId });
 }

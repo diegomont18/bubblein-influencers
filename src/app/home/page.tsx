@@ -294,7 +294,11 @@ export default function HomePage() {
             searchComplete = true;
 
             // Show partial results warning if fewer results than requested
-            if (found < requested && found > 0) {
+            if (found === 0) {
+              setWarningMessage(
+                `Nenhum creator encontrado para essas palavras-chave. Experimente: (1) adicionar sinônimos ou variações (ex: "marketing digital" → "growth marketing", "inbound marketing"), (2) ampliar a faixa de seguidores, ou (3) buscar em inglês caso o nicho tenha termos internacionais.`
+              );
+            } else if (found < requested) {
               setWarningMessage(
                 `Encontramos ${found} de ${requested} creators solicitados. Para encontrar mais resultados, experimente: (1) adicionar sinônimos ou variações das palavras-chave (ex: "marketing digital" → "growth marketing", "inbound marketing"), (2) ampliar a faixa de seguidores, ou (3) buscar em inglês caso o nicho tenha termos internacionais.`
               );
@@ -652,7 +656,7 @@ export default function HomePage() {
               {allProfiles.length === 0 && filterCampaignId ? (
                 <div className="rounded-2xl bg-[#131313] overflow-hidden">
                   <div className="px-6 py-12 text-center text-[#adaaaa] text-sm">
-                    Não foram encontrados creators para essa campanha.
+                    Nenhum creator encontrado para essa campanha. Faça uma busca adicionando palavras-chave e sinônimos para encontrar creators relevantes.
                   </div>
                 </div>
               ) : (
