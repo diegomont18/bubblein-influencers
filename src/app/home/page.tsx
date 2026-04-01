@@ -54,7 +54,8 @@ export default function HomePage() {
 
   // View toggle & panorama stats
   const [activeView, setActiveView] = useState<"campanhas" | "panorama">("campanhas");
-  const [lastSearchStats, setLastSearchStats] = useState<{
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [lastSearchStats, _setLastSearchStats] = useState<{
     totalCandidates: number;
     matched: number;
     keywordStats: Record<string, { googleResults: number; candidates: number; matched: number; filteredJob: number; filteredRepost: number }>;
@@ -237,10 +238,10 @@ export default function HomePage() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const maxResults = resultsCount;
-    let dbListId: string | null = null;
-    let partialData: { found: number; requested: number } | null = null;
+    const creditsBefore = userCredits;
 
     try {
+      // 1. Trigger the search (returns immediately with searchId)
       const res = await fetch("/api/casting/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -260,49 +261,75 @@ export default function HomePage() {
       });
       if (!res.ok) { const json = await res.json().catch(() => ({})); throw new Error(json.error ?? `Busca falhou (${res.status})`); }
 
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let streamBuffer = "";
-      let count = 0;
-      const bufferedProfiles: CastingProfile[] = [];
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        streamBuffer += decoder.decode(value, { stream: true });
-        const lines = streamBuffer.split("\n");
-        streamBuffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-            if (event.type === "profile" && count < maxResults) {
-              count++;
-              bufferedProfiles.push(event.data as CastingProfile);
-            } else if (event.type === "partial") {
-              partialData = event.data;
-            } else if (event.type === "done") {
-              dbListId = event.data.listId ?? null;
-              if (event.data.keywordStats) {
-                const totalMatched = Object.values(event.data.keywordStats as Record<string, { matched: number }>).reduce((sum: number, k) => sum + (k.matched || 0), 0);
-                setLastSearchStats({
-                  totalCandidates: event.data.totalCandidates ?? 0,
-                  matched: totalMatched,
-                  keywordStats: event.data.keywordStats,
-                });
-              }
-            } else if (event.type === "error") {
-              setError(event.data.message ?? "Busca falhou");
+      const { searchId } = await res.json();
+
+      // Update tab with real list ID
+      setSearchTabs((prev) =>
+        prev.map((t) => t.id === tempId ? { ...t, id: searchId } : t)
+      );
+
+      // 2. Poll for status every 5 seconds
+      let searchComplete = false;
+      while (!searchComplete && !controller.signal.aborted) {
+        await new Promise((r) => setTimeout(r, 5000));
+        if (controller.signal.aborted) break;
+
+        try {
+          const statusRes = await fetch(`/api/casting/search/${searchId}/status`, {
+            signal: controller.signal,
+          });
+          if (!statusRes.ok) continue;
+
+          const statusData = await statusRes.json();
+          const { status, profiles: foundProfiles, found, requested, errorMessage } = statusData;
+
+          // Update displayed profiles progressively
+          if (foundProfiles && foundProfiles.length > 0) {
+            setSearchTabs((prev) =>
+              prev.map((t) => t.id === searchId ? { ...t, profiles: foundProfiles as CastingProfile[], profileCount: foundProfiles.length } : t)
+            );
+          }
+
+          if (status === "complete") {
+            searchComplete = true;
+
+            // Show partial results warning if fewer results than requested
+            if (found < requested && found > 0) {
+              setWarningMessage(
+                `Encontramos ${found} de ${requested} creators solicitados. Para encontrar mais resultados, experimente: (1) adicionar sinônimos ou variações das palavras-chave (ex: "marketing digital" → "growth marketing", "inbound marketing"), (2) ampliar a faixa de seguidores, ou (3) buscar em inglês caso o nicho tenha termos internacionais.`
+              );
             }
-          } catch { /* skip */ }
+
+            // Refresh credits
+            fetch("/api/auth/me")
+              .then((r) => (r.ok ? r.json() : null))
+              .then((data) => {
+                if (data?.user) {
+                  const rawCredits = data.user.credits;
+                  const newCredits = rawCredits === -1 ? 100 : rawCredits;
+                  setUserCredits(newCredits);
+                  window.dispatchEvent(new CustomEvent("credits-updated", { detail: rawCredits }));
+                  if (rawCredits !== -1) {
+                    const spent = creditsBefore - newCredits;
+                    if (spent > 0) {
+                      setSuccessMessage(`Parabéns, você encontrou mais creators para divulgar sua empresa. Foram gastos ${spent} créditos, e restam ${newCredits} créditos.`);
+                      setTimeout(() => setSuccessMessage(null), 8000);
+                    }
+                  }
+                }
+              })
+              .catch(() => {});
+
+            loadPastSearches();
+          } else if (status === "error") {
+            searchComplete = true;
+            setError(errorMessage ?? "Busca falhou no servidor.");
+          }
+        } catch (pollErr) {
+          if (pollErr instanceof DOMException && pollErr.name === "AbortError") break;
+          // Polling error — retry on next interval
         }
       }
-      if (streamBuffer.trim()) {
-        try { const event = JSON.parse(streamBuffer); if (event.type === "done") dbListId = event.data.listId ?? null; } catch { /* ignore */ }
-      }
-      // Batch all profiles at once
-      setSearchTabs((prev) =>
-        prev.map((t) => t.id === tempId ? { ...t, profiles: bufferedProfiles, profileCount: bufferedProfiles.length } : t)
-      );
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) {
         setError(err instanceof Error ? err.message : "Busca falhou");
@@ -312,38 +339,6 @@ export default function HomePage() {
       setSearchStep(0);
       setSearching(false);
       abortControllerRef.current = null;
-      if (dbListId) {
-        setSearchTabs((prev) =>
-          prev.map((t) => t.id === tempId ? { ...t, id: dbListId! } : t)
-        );
-        loadPastSearches();
-      }
-      // Show partial results warning
-      if (partialData) {
-        setWarningMessage(`Encontramos ${partialData.found} de ${partialData.requested} creators solicitados. Para melhores resultados, tente adicionar mais palavras-chave e/ou ampliar a faixa de seguidores.`);
-      }
-      // Refresh credits after search (they were deducted server-side)
-      const creditsBefore = userCredits;
-      fetch("/api/auth/me")
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data?.user) {
-            const rawCredits = data.user.credits;
-            const newCredits = rawCredits === -1 ? 100 : rawCredits;
-            setUserCredits(newCredits);
-            // Notify navbar layout
-            window.dispatchEvent(new CustomEvent("credits-updated", { detail: rawCredits }));
-            // Show success message
-            if (rawCredits !== -1) {
-              const spent = creditsBefore - newCredits;
-              if (spent > 0) {
-                setSuccessMessage(`Parabéns, você encontrou mais creators para divulgar sua empresa. Foram gastos ${spent} créditos, e restam ${newCredits} créditos.`);
-                setTimeout(() => setSuccessMessage(null), 8000);
-              }
-            }
-          }
-        })
-        .catch(() => {});
     }
   }
 
