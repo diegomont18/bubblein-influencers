@@ -274,6 +274,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         linkedin_url: profile.linkedin_url,
         focus: profile.focus,
         source_keyword: profile.source_keyword,
+        profile_photo: profile.profile_photo,
       }),
       status: "found",
     };
@@ -411,6 +412,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       ?? data.profile_image_url ?? data.profilePictureUrl ?? ""
     );
     let profilePhoto = "";
+    console.log(`[casting] Profile ${slug}: rawPhotoUrl=${rawPhotoUrl ? rawPhotoUrl.slice(0, 80) : "(empty)"}`);
     if (rawPhotoUrl && rawPhotoUrl.startsWith("http")) {
       try {
         const photoRes = await fetch(rawPhotoUrl, { signal: AbortSignal.timeout(10_000) });
@@ -424,13 +426,18 @@ const handler: Handler = async (event: HandlerEvent) => {
               contentType: ext === "png" ? "image/png" : "image/jpeg",
               upsert: true,
             });
-          if (!uploadError) {
+          if (uploadError) {
+            console.warn(`[casting] Photo upload failed for ${slug}:`, uploadError.message);
+          } else {
             const { data: urlData } = service.storage.from("profile-photos").getPublicUrl(filePath);
             profilePhoto = urlData.publicUrl;
+            console.log(`[casting] Profile ${slug}: photo uploaded -> ${profilePhoto.slice(0, 80)}`);
           }
+        } else {
+          console.warn(`[casting] Photo download failed for ${slug}: HTTP ${photoRes.status}`);
         }
-      } catch {
-        // Photo download/upload failed, continue without photo
+      } catch (photoErr) {
+        console.warn(`[casting] Photo error for ${slug}:`, String(photoErr));
       }
     }
 
