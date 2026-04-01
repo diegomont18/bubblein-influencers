@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>BubbleIn - LinkedIn B2B Influencer Marketing</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800;900&amp;family=Be+Vietnam+Pro:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-tertiary-fixed": "#320a00",
+                        "secondary-fixed-dim": "#95e400",
+                        "on-secondary": "#365700",
+                        "on-primary": "#46007d",
+                        "error": "#ff6e84",
+                        "outline-variant": "#484847",
+                        "tertiary-dim": "#f7794b",
+                        "primary": "#ca98ff",
+                        "error-dim": "#d73357",
+                        "tertiary-container": "#fe7e4f",
+                        "surface-dim": "#0e0e0e",
+                        "on-secondary-fixed": "#294300",
+                        "primary-container": "#c185ff",
+                        "on-primary-fixed": "#000000",
+                        "inverse-primary": "#8523dd",
+                        "on-background": "#ffffff",
+                        "error-container": "#a70138",
+                        "on-tertiary-container": "#491300",
+                        "secondary-fixed": "#a2f31f",
+                        "on-error-container": "#ffb2b9",
+                        "surface-container-high": "#20201f",
+                        "surface-container": "#1a1a1a",
+                        "surface-tint": "#ca98ff",
+                        "surface-bright": "#2c2c2c",
+                        "surface-container-low": "#131313",
+                        "on-tertiary": "#5c1a00",
+                        "tertiary-fixed": "#ff946e",
+                        "secondary-dim": "#95e400",
+                        "inverse-on-surface": "#565555",
+                        "on-secondary-fixed-variant": "#3d6200",
+                        "on-tertiary-fixed-variant": "#6b1f00",
+                        "tertiary-fixed-dim": "#fe7e4f",
+                        "background": "#0e0e0e",
+                        "on-secondary-container": "#ebffcb",
+                        "surface": "#0e0e0e",
+                        "secondary": "#a2f31f",
+                        "on-surface-variant": "#adaaaa",
+                        "surface-container-highest": "#262626",
+                        "on-surface": "#ffffff",
+                        "surface-container-lowest": "#000000",
+                        "secondary-container": "#426900",
+                        "surface-variant": "#262626",
+                        "outline": "#767575",
+                        "on-error": "#490013",
+                        "tertiary": "#ff946e",
+                        "on-primary-fixed-variant": "#420078",
+                        "primary-dim": "#9c42f4",
+                        "primary-fixed-dim": "#b772ff",
+                        "primary-fixed": "#c185ff",
+                        "inverse-surface": "#fcf9f8",
+                        "on-primary-container": "#350062"
+                    },
+                    fontFamily: {
+                        "headline": ["Lexend"],
+                        "body": ["Be Vietnam Pro"],
+                        "label": ["Lexend"]
+                    },
+                    borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(38, 38, 38, 0.4);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        .neon-glow {
+            box-shadow: 0 0 20px rgba(202, 152, 255, 0.3);
+        }
+        .text-gradient-purple {
+            background: linear-gradient(to right, #ca98ff, #9c42f4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .influencer-bubble {
+            position: absolute;
+            border-radius: 9999px;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 5;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border: 2px solid rgba(202, 152, 255, 0.4);
+        }
+        .float-animation {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+        .float-animation-delayed {
+            animation: float 8s ease-in-out infinite 1s;
+        }
+        .float-animation-slow {
+            animation: float 10s ease-in-out infinite 0.5s;
+        }
+    
+        @keyframes pulse-glow {
+            0%, 100% { 
+                box-shadow: 0 0 15px rgba(202, 152, 255, 0.4), 0 0 30px rgba(202, 152, 255, 0.1), inset 0 0 10px rgba(255, 255, 255, 0.2); 
+                transform: scale(1);
+            }
+            50% { 
+                box-shadow: 0 0 25px rgba(202, 152, 255, 0.8), 0 0 50px rgba(202, 152, 255, 0.3), inset 0 0 15px rgba(255, 255, 255, 0.4); 
+                transform: scale(1.05);
+            }
+        }
+        .bubble-glow {
+            animation: pulse-glow 4s infinite ease-in-out;
+            border: 2px solid rgba(202, 152, 255, 0.7) !important;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body selection:bg-primary selection:text-on-primary">
+<!-- Top Navigation -->
+<nav class="fixed top-0 w-full z-50 bg-surface/40 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(138,43,226,0.06)]">
+<div class="flex justify-between items-center px-8 py-4 max-w-7xl mx-auto">
+<div class="text-2xl font-black text-[#ca98ff] tracking-tighter font-headline">BubbleIn</div>
+<div class="hidden md:flex items-center gap-8 font-headline font-medium text-sm tracking-tight">
+<a class="text-[#ca98ff] font-bold border-b-2 border-[#ca98ff] pb-1" href="#">For Brands</a>
+<a class="text-white/70 hover:text-white transition-colors" href="#">For Creators</a>
+<a class="text-white/70 hover:text-white transition-colors" href="#">Pricing</a>
+<a class="text-white/70 hover:text-white transition-colors" href="#">Blog</a>
+</div>
+<button class="bg-gradient-to-r from-primary to-primary-dim text-on-primary-container font-headline font-bold py-2.5 px-6 rounded-full hover:scale-105 active:opacity-80 transition-all shadow-[0_0_20px_rgba(202,152,255,0.4)]">
+                Join the Hub
+            </button>
+</div>
+</nav>
+<!-- Hero Section -->
+<section class="relative min-h-screen flex items-center pt-20 overflow-hidden">
+<!-- Floating Influencer Bubbles - Hero -->
+<div class="influencer-bubble float-animation w-16 h-16 top-[20%] left-[5%] border-2 border-primary/40 shadow-[0_0_15px_rgba(202,152,255,0.3)] bubble-glow">
+<img alt="B2B Creator" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuARsOYEf0oNGXJJ1ZJcLuy0qOBkkOMT6_fh2pBXFGPLxEsk_KgWEgb3kqi5TnZCFWp-HhE8kI-qtR3k9bX3Mi6axhc5MMOdjtGayeHrmRxTngu2Vw2Dfix45RIZe8qwdLQKObmlK9RxcgMY_VTap_n-q8gQnkv6TGtM-yb6nuGXWntunEmGITzEDX9eC1uuLCpTdvOFIJYWHFkNLiSPmvuoo9EA15hQbNU-8-h1y1GBQcIh--OLAxkdMCH4t-tG7l5xSh8QbgVv1lQ"/>
+</div>
+<div class="influencer-bubble float-animation-delayed w-12 h-12 bottom-[15%] left-[10%] border border-secondary/40 blur-[1px] bubble-glow">
+<img alt="Marketing Expert" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjCDofS5DyYrLbGcp-J1xABD51cI0zj0SNdz2ON7sbnc1pVYmF6fg4OhyUPkL5yMa59uFxCV41uPXqEUu9brsKS4ZPT31jo3BVeYfIvBAMfuvskO4ubvhpcqkWPMFMuOkAZGvul5bMueK2LQfeqO2QhEn5hldCJSa_vz3I9vybbXxp0XPsdN9NaHUJGaZRqFOYr5dhJpvnsCkHO6kYrBOinN-4eG2pc2KUucIirWV9Wj1PHSUNop8J5XWEAJmPR3J3JcAR6kRFOm8"/>
+</div>
+<div class="influencer-bubble float-animation-slow w-20 h-20 top-[15%] right-[25%] border-2 border-primary shadow-[0_0_20px_rgba(202,152,255,0.5)] bubble-glow">
+<img alt="Sales Pro" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD5OkykuJadANn-d-6WtHd470Ze60GQ4EpZr7sqLA13gqemd0_qGecrvvqOYCVim4p3CwrxIq0lVDrJjMq6pfwyvh3GgrEjjAmkdn7RgwnKB8CI3I5rzWxi1VORataY1KeDI-WJe2gtnXpUvxvxpq-0B05YxfVDE3LvG1El_0zxg2lOROG4PC6dmWQICDRd8T3kDuFrIIGx1OAssPB1k2LRO-OW2q6i2CcLgkGKrew8DsJz187cUOsyyAkf9QToiAQmlajtt47djk8"/>
+</div>
+<div class="absolute inset-0 z-0">
+<div class="absolute top-1/4 -left-20 w-96 h-96 bg-primary/20 rounded-full blur-[120px]"></div>
+<div class="absolute bottom-1/4 -right-20 w-80 h-80 bg-secondary/10 rounded-full blur-[100px]"></div>
+</div>
+<div class="max-w-7xl mx-auto px-8 w-full grid grid-cols-1 lg:grid-cols-2 gap-12 items-center relative z-10">
+<div>
+<span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-container-high border border-outline-variant/20 mb-6">
+<span class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_10px_#a2f31f]"></span>
+<span class="text-[10px] uppercase font-headline font-bold tracking-widest text-secondary">The New B2B Standard</span>
+</span>
+<h1 class="font-headline text-5xl md:text-7xl font-black leading-[1.1] tracking-tighter mb-6">
+                    Ganhe visibilidade no LinkedIn com <span class="text-gradient-purple">creators B2B</span>
+</h1>
+<p class="text-on-surface-variant text-xl leading-relaxed max-w-lg mb-10">
+                    Transforme sua marca em autoridade através da voz de quem já domina a maior rede profissional do mundo.
+                </p>
+<div class="flex flex-wrap gap-4">
+<button class="bg-primary text-on-primary-fixed px-8 py-4 rounded-full font-headline font-bold text-lg hover:scale-105 transition-transform">
+                        Quero contratar
+                    </button>
+<button class="bg-transparent border-2 border-primary/30 text-primary px-8 py-4 rounded-full font-headline font-bold text-lg hover:bg-primary/10 transition-all">
+                        Ver cases
+                    </button>
+</div>
+</div>
+<!-- Dynamic Creator Layout -->
+<div class="relative h-[600px] w-full hidden lg:block">
+<div class="absolute top-10 right-10 w-64 h-80 rounded-lg overflow-hidden transform rotate-3 shadow-2xl z-20">
+<img alt="Female tech executive creator looking confident" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB43EqCCackvY7NnQkebcNVoRU3ah8mfwfTZDicKVZWqFCoW_fg_21P-_8aSvN0aENcLdoTQcOva2mE0SvphEuip7yz5Q9OKS5lX63aYKn5Xa50YGHwaULRNAYuhN1R4LUNE_4FiRn2I299A95YnDXKnFVG1oooZJlPOR6OTNgvy4Jr3MNtWRlMlXuRa6Ji4NAQh5rz0lFTyBndVeStLd-AiuYogHBaCP3UuU1qh44JOhktg4vexWsit4OHrlNUQW9-vNtSGtf1sKM"/>
+<div class="absolute bottom-0 left-0 w-full p-4 glass-card">
+<p class="font-headline font-bold text-sm">Mariana Silva</p>
+<p class="text-[10px] text-primary">Tech &amp; Leadership</p>
+</div>
+</div>
+<div class="absolute bottom-10 left-0 w-72 h-96 rounded-lg overflow-hidden transform -rotate-6 shadow-2xl z-10">
+<img alt="Male business creator speaking at a conference" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBniKmMOD4iBvMyKwfPBEgYE8IuACsey2_v1G17OlUMJOuUSmCrYR62U9j2jQLaDUmefCCoj68jv0hlt7YTLlk12xTghvKsjjYdGlCsiuz-LdqUY8Wv_oGfSqN0UQceqrnmePE-i4F_u2ugDsIJJMo9Y6qZvJBpDfVF0NY32vumHvxfPJFM3iOhw1gEhP6BWlNJ3AvbXEslNmLHUf_mWePJ_-guMYAMY0LqNWYEPgenv-_0www0fVT0J-0hEW-Rdy-ORiwExvMfHQg"/>
+<div class="absolute bottom-0 left-0 w-full p-4 glass-card">
+<p class="font-headline font-bold text-sm">Roberto Costa</p>
+<p class="text-[10px] text-secondary">B2B Sales Expert</p>
+</div>
+</div>
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 glass-card p-6 rounded-lg border border-outline-variant/30 z-30 w-48 text-center animate-pulse">
+<div class="w-12 h-12 bg-primary rounded-full mx-auto mb-3 flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary">trending_up</span>
+</div>
+<p class="font-headline font-black text-2xl text-primary">4.2x</p>
+<p class="text-[10px] text-white/60 uppercase font-bold">ROI Médio</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Data Visualization Section -->
+<section class="py-24 bg-surface-container-low relative overflow-hidden">
+<!-- Floating Bubbles -->
+<div class="influencer-bubble float-animation w-14 h-14 top-[10%] right-[10%] border border-primary/20 blur-[2px] bubble-glow">
+<img alt="Influencer" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAywMs6gM43RWfjngw21zxRRVx26bPhH1CKOzC0ZnKcBbEvtT__fTdQLgpg7c84lJk-eEUF3aRbrxJOyjmIVbIosBWmDXUX4QfIsc44vlxZN8cd7OfD77zVThN9mRnyQceJrWfYDK-ujOtExCcchtTetnNCOGe8ApuK36sB3Cd_vO_4OIcOw4DsaDFKgV9goJrWPJfVyO72YEXlPllO3ODZ8PbHvchz8J-0CaYVZuMOlQmZEgQutNPVUj-bLbIrEKx0YZKb77CoFU"/>
+</div>
+<div class="influencer-bubble float-animation-delayed w-10 h-10 bottom-[20%] left-[5%] border border-secondary/30 bubble-glow">
+<img alt="Tech Lead" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCkL9k29EslmJVQm_vYZXdYaWA98Qx69t_cnadUKaDg7B9eyxhgBL3WgYTxlE6D0XZviKm_4YHSUR5rHbNhN1Q7xTUXM9cdKfkSul_YrttGtDXMmtGytjBFRiAwUcOPeapP5EJDj3XL01PpQ1zqNOUqSV2krQ4orLXSCsEPEGbmjCdNr6hPAq7mjxYgQv5hdeY_one327YDGymu5EkSlbrEyhxpNBC2cVRa2L1tqTUvtrfKklqgnfiyMzfLwQHEkK2eS-7NHqUQZOU"/>
+</div>
+<div class="max-w-7xl mx-auto px-8 relative z-10">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-20 items-center">
+<div class="space-y-8">
+<h2 class="font-headline text-4xl font-extrabold tracking-tight">O fim da era dos anúncios <span class="text-error">frios</span></h2>
+<div class="space-y-6">
+<div class="bg-surface p-6 rounded-xl border-l-4 border-error">
+<div class="flex justify-between mb-2">
+<span class="font-headline font-bold text-sm uppercase">CTR de ads B2B</span>
+<span class="text-error font-bold">-32% YoY</span>
+</div>
+<div class="w-full bg-surface-container-high h-3 rounded-full overflow-hidden">
+<div class="bg-error h-full w-[40%] rounded-full"></div>
+</div>
+<p class="text-on-surface-variant text-sm mt-4">Públicos qualificados estão ignorando banners corporativos tradicionais.</p>
+</div>
+<div class="bg-surface p-6 rounded-xl border-l-4 border-secondary">
+<div class="flex justify-between mb-2">
+<span class="font-headline font-bold text-sm uppercase">Confiança em recomendações</span>
+<span class="text-secondary font-bold">92%</span>
+</div>
+<div class="w-full bg-surface-container-high h-3 rounded-full overflow-hidden">
+<div class="bg-secondary h-full w-[92%] rounded-full"></div>
+</div>
+<p class="text-on-surface-variant text-sm mt-4">Executivos compram de pessoas, não de logotipos.</p>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="aspect-square bg-surface-container-high rounded-lg p-8 flex flex-col justify-center items-center text-center">
+<span class="material-symbols-outlined text-4xl text-primary mb-4" data-weight="fill">verified</span>
+<h3 class="font-headline font-bold text-lg mb-2">SEO &amp; AEIO</h3>
+<p class="text-xs text-on-surface-variant">Otimização orgânica via creators.</p>
+</div>
+<div class="aspect-square bg-surface-container-high rounded-lg p-8 flex flex-col justify-center items-center text-center mt-8">
+<span class="material-symbols-outlined text-4xl text-tertiary mb-4" data-weight="fill">visibility</span>
+<h3 class="font-headline font-bold text-lg mb-2">Awareness</h3>
+<p class="text-xs text-on-surface-variant">Sua marca no topo do feed.</p>
+</div>
+<div class="aspect-square bg-surface-container-high rounded-lg p-8 flex flex-col justify-center items-center text-center">
+<span class="material-symbols-outlined text-4xl text-secondary mb-4" data-weight="fill">thumb_up</span>
+<h3 class="font-headline font-bold text-lg mb-2">Confiança</h3>
+<p class="text-xs text-on-surface-variant">Prova social de impacto real.</p>
+</div>
+<div class="aspect-square bg-surface-container-high rounded-lg p-8 flex flex-col justify-center items-center text-center mt-8">
+<span class="material-symbols-outlined text-4xl text-primary-dim mb-4" data-weight="fill">groups</span>
+<h3 class="font-headline font-bold text-lg mb-2">Comunidade</h3>
+<p class="text-xs text-on-surface-variant">Conecte-se com o público certo.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Services Section -->
+<section class="py-32 bg-surface relative overflow-hidden">
+<!-- Background Network Bubbles -->
+<div class="influencer-bubble float-animation-slow w-8 h-8 top-[30%] left-[2%] opacity-40 blur-[3px] bubble-glow">
+<img alt="Network" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDi7nLpm388gWPb6gWUDw3QZn65g8HUfFXGlO048dMG1tm88D4YBGvup4o3sKb7v7hUvisJawrylnsRYnqby5tazyrVXVKDGsLkjUzRCs62S-MhB8efINPLkf6AFCRxXhK2uHUOYVZQ2yFmvtuFKB_bL0z5mvYpDKOi1SHu_81Ww-1qB7F0UfBh9d6gjvJgFD5KuaJ_XUv6pUp1Ccv9jiu9YcEx1lcGErailw59VQhmI8rbEbJ1b-iap8V26T6eEi3atGNhDpxk9dY"/>
+</div>
+<div class="influencer-bubble float-animation w-12 h-12 bottom-[10%] right-[3%] border border-primary/20 blur-[1px] bubble-glow">
+<img alt="Executive" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBXsOTSgFMBEO0oLAj81iWsFjMuJfrOfpd_wgsgBNnBNYsChbf7YXFIlrlmo5GLHJu5gcsgsMymvZwviwVwQ41SoJqVNU7xA7tt2D0JD6XZoywvZOHGWlKZ5OYesNlrp31BBcA9baDjL8wZXVDYFDpQJ4dvf2OLv9TvzQvOs5DNil_FGLZbBvTBK58SRVxcW2uDVI0x94Omy4iIhjxHq_g9RrtN9-VQIRwBT3unZCI9jKh6oMNOVxaKqE8CpBLDXcRNvVl2_puqZDE"/>
+</div>
+<div class="max-w-7xl mx-auto px-8 text-center mb-20 relative z-10">
+<h2 class="font-headline text-5xl font-black mb-6">A agência de creators que entende de <span class="text-primary">negócios</span></h2>
+<p class="text-on-surface-variant text-xl max-w-2xl mx-auto">Não entregamos apenas posts. Entregamos autoridade, pipeline e relevância estratégica no ecossistema B2B.</p>
+</div>
+<div class="max-w-7xl mx-auto px-8 grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
+<div class="bg-surface-container p-10 rounded-lg hover:bg-surface-container-high transition-colors">
+<div class="mb-6 w-14 h-14 bg-primary/10 flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined text-primary text-3xl">psychology</span>
+</div>
+<h4 class="font-headline text-xl font-bold mb-4">Curadoria Estratégica</h4>
+<p class="text-on-surface-variant leading-relaxed">Selecionamos creators cujos valores e audiência se alinham perfeitamente ao seu ICP (Ideal Customer Profile).</p>
+</div>
+<div class="bg-surface-container p-10 rounded-lg hover:bg-surface-container-high transition-colors border-t-4 border-secondary">
+<div class="mb-6 w-14 h-14 bg-secondary/10 flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined text-secondary text-3xl">edit_square</span>
+</div>
+<h4 class="font-headline text-xl font-bold mb-4">Co-criação de Conteúdo</h4>
+<p class="text-on-surface-variant leading-relaxed">Nossa equipe editorial refina os roteiros para garantir que a mensagem técnica seja humana e engajadora.</p>
+</div>
+<div class="bg-surface-container p-10 rounded-lg hover:bg-surface-container-high transition-colors">
+<div class="mb-6 w-14 h-14 bg-tertiary/10 flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined text-tertiary text-3xl">analytics</span>
+</div>
+<h4 class="font-headline text-xl font-bold mb-4">Análise de Atribuição</h4>
+<p class="text-on-surface-variant leading-relaxed">Dashboards em tempo real para medir o impacto nas buscas da marca e na geração de leads.</p>
+</div>
+</div>
+</section>
+<!-- Pricing / Models -->
+<section class="py-32 bg-surface-container-low relative overflow-hidden">
+<!-- Scale Bubbles -->
+<div class="influencer-bubble float-animation-delayed w-24 h-24 -top-10 left-1/4 border-2 border-primary/10 blur-[4px] bubble-glow">
+<img alt="Diversity" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChUT5jl869QGrdmZDZwLoo7gcOPo4GUq9SiYuEeB5UvuGj9ViqLEf6jZjAqw7xcMAYgZ0rmgnTRO7atsBorGijn7ChXZSnkYINE1cFp2WinKAMibaHVPzpEScen7uX4_8HdCcH98hWz0cy4BvUuSFDFduefJzJtGeJu1Uwqpvaxc_xS6hv25t2iLj-f66ZTZxH_quCZLN1mlTZ8mxer3CRmu9yr0wZrmeEC2172Y3N_1IUBWMc__Sx1ntMRYPgIJG7KiVEgLC3JSg"/>
+</div>
+<div class="influencer-bubble float-animation w-16 h-16 bottom-[5%] left-[5%] border border-secondary/20 blur-[1px] bubble-glow">
+<img alt="Leader" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCtrk93zM19T0wBY57niEb8pIi9XGGHizXo60GuyfwiSWk7b0CEDrHycxZoe6FpymxAuUx3roRXocdjqTu9GU9l9LQdZcAIJjS2l-gX3A6rJJFRNaZG5XBVwKlkMixDP-1o_TSLYHDHD5ozQPltmUgQDTMEBFK2yBIVH3YZFpQTkNUT7v2HV6ejXI9OnHDxtcRIPt_AG7iRjq10r756Y42gTB93VPQXlrbMsjk-mHvghT1r60M1bw0GP9MyTT_3IE4MKB4F-BcTZ9A"/>
+</div>
+<div class="influencer-bubble float-animation-slow w-12 h-12 top-1/2 -right-6 border border-primary/30 blur-[2px] bubble-glow">
+<img alt="Creator" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA12Jc3YMwPJGQV39NVUhbw3OWpoUcOLvetYHmDfsOgENHzp8JO6BQKZScBdAVtxcz03DWOTk7wEc-usdXlQzDZFNUlX1pci8IlBamkK5RJFKbVroBcUCpwOr_GEuolYIpydAj7uSpdyvqCmb0hav_HxAdW6XmYqelHs7iz7nW_Gadd8dAy0l6PY73yAqfVe_5ZDmvdwc-dpzYzGNVW4g12cjJzbHOZdAGlSVamO52B19fVchgRCCFio7DMKNEYDzylvxNiim1xJVo"/>
+</div>
+<div class="max-w-7xl mx-auto px-8 relative z-10">
+<div class="text-center mb-16">
+<h2 class="font-headline text-4xl font-black mb-4 uppercase tracking-tighter">Modelos de Parceria</h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+<!-- One-off -->
+<div class="bg-surface-container-high p-12 rounded-lg border border-outline-variant/10 flex flex-col items-center text-center">
+<h5 class="font-headline text-2xl font-bold mb-2">Campanha Pontual</h5>
+<p class="text-on-surface-variant mb-8">Ideal para lançamentos e eventos específicos.</p>
+<ul class="space-y-4 text-left w-full mb-10">
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-sm">check_circle</span>
+<span>Seleção de até 5 creators</span>
+</li>
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-sm">check_circle</span>
+<span>1 mês de execução</span>
+</li>
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-sm">check_circle</span>
+<span>Relatório de impacto final</span>
+</li>
+</ul>
+<button class="w-full py-4 border-2 border-primary text-primary font-headline font-bold rounded-full hover:bg-primary/10 transition-colors mt-auto">Consultar valores</button>
+</div>
+<!-- Continuous -->
+<div class="bg-surface p-12 rounded-lg border-2 border-primary shadow-[0_0_40px_rgba(202,152,255,0.15)] flex flex-col items-center text-center relative overflow-hidden">
+<div class="absolute top-4 right-[-35px] bg-secondary text-on-secondary-fixed font-headline font-bold text-[10px] py-1 px-10 rotate-45 uppercase">Recomendado</div>
+<h5 class="font-headline text-2xl font-bold mb-2">Programa Contínuo</h5>
+<p class="text-on-surface-variant mb-8">Construção de autoridade a longo prazo.</p>
+<ul class="space-y-4 text-left w-full mb-10">
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-sm">check_circle</span>
+<span>Embaixadores recorrentes</span>
+</li>
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-sm">check_circle</span>
+<span>Estratégia SEO &amp; AEIO</span>
+</li>
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-sm">check_circle</span>
+<span>Squad de produção dedicada</span>
+</li>
+</ul>
+<button class="w-full py-4 bg-primary text-on-primary-fixed font-headline font-bold rounded-full hover:scale-105 transition-transform mt-auto">Agendar call</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Forms Section -->
+<section class="py-32 bg-surface relative overflow-hidden">
+<!-- Forms Network Bubbles -->
+<div class="influencer-bubble float-animation w-10 h-10 top-[10%] left-[45%] border border-secondary/20 bubble-glow">
+<img alt="Professional" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBhj2z-DYcGUFBtlYh5Td3vfj8TX9004pyXT6FdI_9luB_iOrt0-ULJM0ge1YivsW6SV1sZQE_9EVY4HjCU5bpk7i2RSyHkNDE3V3cEdxKOPfPAxTie0Buw890ci9ECycxKhxgGxx-ZkrXULRgzcv_ZYrFt3O36_UiR2ZShlmIIXK7QKjMtpCCfeSvK_a0oU-j9bZ5Skw_cBbVP6FaqBxV77r-_IK1oq-daa48i-2aSYm4f95CwShyYSJRhUPrFy_PFWjEm8H4HoQI"/>
+</div>
+<div class="max-w-7xl mx-auto px-8 relative z-10">
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-16">
+<!-- Brands Form -->
+<div class="bg-surface-container-low p-10 rounded-lg">
+<h3 class="font-headline text-3xl font-black mb-6">Quero contratar</h3>
+<p class="text-on-surface-variant mb-8">Nossa equipe entrará em contato em até 24h para entender seu desafio B2B.</p>
+<form class="space-y-6">
+<div>
+<label class="block text-xs font-headline font-bold uppercase mb-2 text-primary">Nome Completo</label>
+<input class="w-full bg-surface-container-lowest border-none rounded-lg p-4 focus:ring-2 focus:ring-primary transition-all text-on-surface" placeholder="Seu nome" type="text"/>
+</div>
+<div>
+<label class="block text-xs font-headline font-bold uppercase mb-2 text-primary">E-mail Corporativo</label>
+<input class="w-full bg-surface-container-lowest border-none rounded-lg p-4 focus:ring-2 focus:ring-primary transition-all text-on-surface" placeholder="voce@empresa.com" type="email"/>
+</div>
+<div>
+<label class="block text-xs font-headline font-bold uppercase mb-2 text-primary">Budget Estimado</label>
+<select class="w-full bg-surface-container-lowest border-none rounded-lg p-4 focus:ring-2 focus:ring-primary transition-all text-on-surface">
+<option>Abaixo de R$10k</option>
+<option>R$10k - R$50k</option>
+<option>Acima de R$50k</option>
+</select>
+</div>
+<button class="w-full py-4 bg-primary text-on-primary-fixed font-headline font-bold rounded-lg hover:brightness-110 transition-all">Enviar solicitação</button>
+</form>
+</div>
+<!-- Creators Form -->
+<div class="bg-surface-container-highest p-10 rounded-lg relative overflow-hidden">
+<div class="absolute -top-10 -right-10 w-40 h-40 bg-secondary/10 rounded-full blur-3xl"></div>
+<h3 class="font-headline text-3xl font-black mb-6">Você é creator?</h3>
+<p class="text-on-surface-variant mb-8">Faz parte do 1% que produz conteúdo B2B de qualidade? Queremos você no nosso hub.</p>
+<form class="space-y-6">
+<div>
+<label class="block text-xs font-headline font-bold uppercase mb-2 text-secondary">Link do LinkedIn</label>
+<input class="w-full bg-surface-container-lowest border-none rounded-lg p-4 focus:ring-2 focus:ring-secondary transition-all text-on-surface" placeholder="linkedin.com/in/perfil" type="text"/>
+</div>
+<div>
+<label class="block text-xs font-headline font-bold uppercase mb-2 text-secondary">Nicho de atuação</label>
+<input class="w-full bg-surface-container-lowest border-none rounded-lg p-4 focus:ring-2 focus:ring-secondary transition-all text-on-surface" placeholder="Ex: Finanças, SaaS, RH..." type="text"/>
+</div>
+<button class="w-full py-4 border-2 border-secondary text-secondary font-headline font-bold rounded-lg hover:bg-secondary/10 transition-all">Quero entrar para o Hub</button>
+</form>
+<div class="mt-10 flex items-center gap-4 p-4 rounded-lg bg-white/5 border border-white/10">
+<span class="material-symbols-outlined text-secondary">verified</span>
+<p class="text-xs text-white/70">Aprovação sujeita a curadoria de engajamento e qualidade técnica.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Footer -->
+<footer class="bg-[#0e0e0e] w-full rounded-t-[2rem] border-t border-outline-variant/10">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-12 px-12 py-20 max-w-7xl mx-auto font-['Be_Vietnam_Pro'] text-sm leading-relaxed">
+<div class="space-y-6">
+<div class="text-xl font-bold text-[#ca98ff]">CreatorPulse</div>
+<p class="text-white/50">Elevando o marketing de influência B2B para o patamar editorial e estratégico que sua marca merece.</p>
+</div>
+<div class="space-y-4">
+<h6 class="font-headline font-bold text-white text-xs uppercase tracking-widest">Plataforma</h6>
+<ul class="space-y-2">
+<li><a class="text-white/50 hover:text-[#ff946e] transition-colors" href="#">Product</a></li>
+<li><a class="text-white/50 hover:text-[#ff946e] transition-colors" href="#">Pricing</a></li>
+<li><a class="text-white/50 hover:text-[#ff946e] transition-colors" href="#">Newsletter</a></li>
+</ul>
+</div>
+<div class="space-y-4">
+<h6 class="font-headline font-bold text-white text-xs uppercase tracking-widest">Social</h6>
+<ul class="space-y-2">
+<li><a class="text-white/50 hover:text-[#ff946e] transition-colors" href="#">LinkedIn</a></li>
+<li><a class="text-white/50 hover:text-[#ff946e] transition-colors" href="#">Twitter</a></li>
+<li><a class="text-white/50 hover:text-[#ff946e] transition-colors" href="#">Instagram</a></li>
+</ul>
+</div>
+<div class="space-y-4">
+<h6 class="font-headline font-bold text-white text-xs uppercase tracking-widest">Legal</h6>
+<ul class="space-y-2">
+<li><a class="text-white/50 hover:text-[#ff946e] transition-colors" href="#">Privacy</a></li>
+<li class="text-white/50">© 2024 BubbleIn.</li>
+<li class="text-[#ca98ff] font-bold">Neon Pulse Editorial.</li>
+</ul>
+</div>
+</div>
+</footer>
+</body></html>

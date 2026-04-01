@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&amp;family=Be+Vietnam+Pro:ital,wght@0,100..900;1,100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-secondary-fixed-variant": "#3d6200",
+              "primary": "#ca98ff",
+              "on-primary-fixed-variant": "#420078",
+              "on-tertiary": "#5c1a00",
+              "on-surface": "#ffffff",
+              "on-tertiary-container": "#491300",
+              "tertiary-fixed": "#ff946e",
+              "tertiary": "#ff946e",
+              "on-background": "#ffffff",
+              "secondary-fixed-dim": "#95e400",
+              "secondary-fixed": "#a2f31f",
+              "tertiary-container": "#fe7e4f",
+              "primary-fixed-dim": "#b772ff",
+              "on-error-container": "#ffb2b9",
+              "surface-container-high": "#20201f",
+              "surface-bright": "#2c2c2c",
+              "secondary-dim": "#95e400",
+              "primary-dim": "#9c42f4",
+              "surface-dim": "#0e0e0e",
+              "surface": "#0e0e0e",
+              "error-dim": "#d73357",
+              "on-surface-variant": "#adaaaa",
+              "outline": "#767575",
+              "on-error": "#490013",
+              "tertiary-dim": "#f7794b",
+              "surface-container-low": "#131313",
+              "on-primary": "#46007d",
+              "secondary-container": "#426900",
+              "on-secondary-fixed": "#294300",
+              "outline-variant": "#484847",
+              "background": "#0e0e0e",
+              "primary-container": "#c185ff",
+              "on-tertiary-fixed-variant": "#6b1f00",
+              "on-tertiary-fixed": "#320a00",
+              "tertiary-fixed-dim": "#fe7e4f",
+              "inverse-surface": "#fcf9f8",
+              "inverse-on-surface": "#565555",
+              "on-primary-container": "#350062",
+              "primary-fixed": "#c185ff",
+              "surface-container-lowest": "#000000",
+              "on-primary-fixed": "#000000",
+              "on-secondary-container": "#ebffcb",
+              "surface-container": "#1a1a1a",
+              "surface-variant": "#262626",
+              "error": "#ff6e84",
+              "surface-tint": "#ca98ff",
+              "surface-container-highest": "#262626",
+              "on-secondary": "#365700",
+              "secondary": "#a2f31f",
+              "inverse-primary": "#8523dd",
+              "error-container": "#a70138"
+            },
+            fontFamily: {
+              "headline": ["Lexend"],
+              "body": ["Be Vietnam Pro"],
+              "label": ["Lexend"]
+            },
+            borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body selection:bg-primary/30">
+<!-- Sidebar Navigation -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-40 bg-[#0e0e0e] flex flex-col py-8 px-4 border-r border-white/5 font-['Lexend'] font-semibold text-sm">
+<div class="mb-12 px-2">
+<h1 class="text-2xl font-black text-[#ca98ff] tracking-tighter">BubbleIn</h1>
+<p class="text-[10px] uppercase tracking-[0.2em] text-white/40 mt-1">Creator Intelligence</p>
+</div>
+<nav class="flex-1 space-y-2">
+<!-- Overview -->
+<a class="flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white hover:bg-white/5 rounded-full transition-all duration-300" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Overview</span>
+</a>
+<!-- Casting (Active) -->
+<a class="flex items-center gap-3 px-4 py-3 text-[#ca98ff] bg-[#ca98ff]/10 rounded-full border-r-4 border-[#ca98ff] translate-x-1 duration-300 ease-out" href="#">
+<span class="material-symbols-outlined" data-icon="group_search" style="font-variation-settings: 'FILL' 1;">group_search</span>
+<span>Casting</span>
+</a>
+<!-- Lists -->
+<a class="flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white hover:bg-white/5 rounded-full transition-all duration-300" href="#">
+<span class="material-symbols-outlined" data-icon="subscriptions">subscriptions</span>
+<span>Lists</span>
+</a>
+</nav>
+<div class="mt-auto space-y-6">
+<div class="bg-surface-container-high p-4 rounded-lg border border-white/5">
+<p class="text-xs text-white/50 mb-3">Credits: 1,240 / 5,000</p>
+<button class="w-full py-2 bg-gradient-to-r from-primary to-primary-dim text-on-primary font-bold rounded-full text-xs hover:scale-105 active:scale-95 transition-all duration-200">
+                    Upgrade to Pro
+                </button>
+</div>
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-white/60 hover:text-white transition-all" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-white/60 hover:text-white transition-all" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="help">help</span>
+<span>Support</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-64 min-h-screen bg-surface relative">
+<!-- TopAppBar -->
+<header class="sticky top-0 z-50 bg-[#0e0e0e]/40 backdrop-blur-xl flex justify-between items-center w-full px-8 py-4 shadow-[0_10px_40px_-15px_rgba(138,43,226,0.06)]">
+<div class="flex items-center gap-4 flex-1">
+<div class="relative group w-full max-w-md">
+<span class="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-white/40" data-icon="search">search</span>
+<input class="w-full bg-white/5 border-none rounded-full py-2.5 pl-12 pr-4 text-sm focus:ring-2 focus:ring-primary/50 transition-all font-body" placeholder="Search creators or lists..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<button class="p-2 text-white/70 hover:bg-white/5 rounded-full transition-all relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-secondary rounded-full border-2 border-surface"></span>
+</button>
+<button class="p-2 text-white/70 hover:bg-white/5 rounded-full transition-all">
+<span class="material-symbols-outlined" data-icon="bolt">bolt</span>
+</button>
+</div>
+<div class="h-8 w-[1px] bg-white/10"></div>
+<div class="flex items-center gap-3 pl-2">
+<div class="text-right">
+<p class="text-xs font-bold font-headline">Alex Rivera</p>
+<p class="text-[10px] text-white/40">Creator Scout</p>
+</div>
+<img alt="User Profile Avatar" class="w-10 h-10 rounded-full border-2 border-primary/20 object-cover" data-alt="Professional male portrait for user profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDZ5p8SeFon2Nd_HdfALZ-qfo7LL7UAas--EZDv2AVs72ZWuGZuZI0VIz9nWCqgy8NTdKl4rZP8i23GHMThT8KNw8sP2OMg1GDkEknqoEvBOU04-IzTNy1pFzUx31YcV7AnX351lS6f-C8buN5HFQ5KnIcFZ8Uf-3Wf3MgsvndyWmg2qUE8P72cgODUgGpwx-yu2k_R5IocYoZPjbOMiJmUWwv9n4ADSMN5AQaZndjuHuwCCRjUmJKSFqxDxnSZySZke4WZvxzauuI"/>
+</div>
+</div>
+</header>
+<!-- Content Content -->
+<div class="p-8 max-w-[1600px] mx-auto space-y-8">
+<!-- Page Heading & Abstract Accents -->
+<div class="relative overflow-hidden p-8 rounded-lg bg-surface-container-low border border-white/5">
+<div class="absolute -right-20 -top-20 w-80 h-80 bg-primary/10 blur-[100px] rounded-full"></div>
+<div class="absolute right-40 bottom-0 w-60 h-60 bg-secondary/5 blur-[80px] rounded-full"></div>
+<h2 class="text-4xl font-headline font-black tracking-tight mb-2">Creator Casting</h2>
+<p class="text-white/60 font-body max-w-xl">Find the perfect creators using AI-driven intelligence. Filter by niche, performance metrics, and audience quality.</p>
+</div>
+<!-- Bento Search Panel -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Left Search Controls -->
+<div class="lg:col-span-8 bg-surface-container-low p-8 rounded-lg space-y-8">
+<!-- Search Mode Tabs -->
+<div class="flex gap-2 p-1 bg-black/40 rounded-full w-fit">
+<button class="px-6 py-2 rounded-full text-sm font-headline bg-primary text-on-primary font-bold transition-all">Topics</button>
+<button class="px-6 py-2 rounded-full text-sm font-headline text-white/60 hover:text-white transition-all">Job Title</button>
+<button class="px-6 py-2 rounded-full text-sm font-headline text-white/60 hover:text-white transition-all">Post Keywords</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+<div class="space-y-4">
+<label class="block text-[10px] uppercase tracking-widest text-primary font-black">Keywords</label>
+<textarea class="w-full bg-surface-container-high border-none rounded-lg p-4 text-sm focus:ring-2 focus:ring-primary/50 transition-all font-body resize-none" placeholder="e.g. generative ai, sass growth, creator economy..." rows="4"></textarea>
+</div>
+<div class="space-y-4">
+<label class="block text-[10px] uppercase tracking-widest text-primary font-black">Target Audience</label>
+<div class="space-y-2">
+<input class="w-full bg-surface-container-high border-none rounded-lg p-4 text-sm focus:ring-2 focus:ring-primary/50 transition-all font-body" placeholder="Describe who you want to reach..." type="text"/>
+<p class="text-[10px] text-white/30 italic px-1">E.g.: CMOs at B2B SaaS companies</p>
+</div>
+<div class="pt-2 space-y-3">
+<label class="flex items-center gap-3 group cursor-pointer">
+<div class="w-5 h-5 rounded bg-surface-container-high flex items-center justify-center group-hover:bg-white/10 transition-all">
+<div class="w-2.5 h-2.5 bg-secondary rounded-sm"></div>
+</div>
+<span class="text-xs text-white/70">Cover all keywords</span>
+<input checked="" class="hidden" type="checkbox"/>
+</label>
+<label class="flex items-center gap-3 group cursor-pointer">
+<div class="w-5 h-5 rounded bg-surface-container-high flex items-center justify-center group-hover:bg-white/10 transition-all"></div>
+<span class="text-xs text-white/70">Use synonyms</span>
+<input class="hidden" type="checkbox"/>
+</label>
+</div>
+</div>
+</div>
+<button class="w-full py-4 bg-gradient-to-r from-primary to-primary-dim text-on-primary font-black text-lg font-headline rounded-full hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-primary/10 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined" data-icon="magic_button">magic_button</span>
+                        Search Creators
+                    </button>
+</div>
+<!-- Right Filters -->
+<div class="lg:col-span-4 bg-surface-container-low p-8 rounded-lg flex flex-col justify-between">
+<div class="space-y-6">
+<h3 class="text-lg font-headline font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary" data-icon="filter_list">filter_list</span>
+                            Smart Filters
+                        </h3>
+<div class="space-y-2">
+<label class="block text-[10px] uppercase tracking-widest text-white/40 font-black">Language</label>
+<select class="w-full bg-surface-container-high border-none rounded-lg py-3 px-4 text-sm focus:ring-2 focus:ring-primary/50 text-white font-body appearance-none cursor-pointer">
+<option>English (Global)</option>
+<option>Spanish</option>
+<option>French</option>
+</select>
+</div>
+<div class="space-y-4">
+<label class="block text-[10px] uppercase tracking-widest text-white/40 font-black">Follower Range</label>
+<div class="grid grid-cols-2 gap-3">
+<input class="w-full bg-surface-container-high border-none rounded-lg py-3 px-4 text-sm focus:ring-2 focus:ring-primary/50 text-white font-body" placeholder="Min" type="number"/>
+<input class="w-full bg-surface-container-high border-none rounded-lg py-3 px-4 text-sm focus:ring-2 focus:ring-primary/50 text-white font-body" placeholder="Max" type="number"/>
+</div>
+</div>
+<div class="space-y-2">
+<label class="block text-[10px] uppercase tracking-widest text-white/40 font-black">Desired Results</label>
+<input class="w-full bg-surface-container-high border-none rounded-lg py-3 px-4 text-sm focus:ring-2 focus:ring-primary/50 text-white font-body" type="number" value="100"/>
+</div>
+</div>
+<div class="mt-8 p-4 bg-primary/5 rounded-lg border border-primary/10 text-center">
+<p class="text-xs text-primary/80">Estimated tokens: 420</p>
+</div>
+</div>
+</section>
+<!-- Results Section Header -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-4">
+<div class="flex items-center gap-4">
+<h3 class="text-2xl font-headline font-bold">Search Results</h3>
+<span class="px-3 py-1 bg-white/5 rounded-full text-[10px] font-bold text-white/40 border border-white/5">
+                        124 creators found / 300 fetched
+                    </span>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 text-sm font-headline text-white/70 hover:bg-white/5 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+                        Export CSV
+                    </button>
+<button class="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 text-sm font-headline text-white hover:bg-white/10 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="bookmark">bookmark</span>
+                        Save as List
+                    </button>
+</div>
+</div>
+<!-- Results Table -->
+<div class="bg-surface-container-low rounded-lg overflow-hidden border border-white/5 shadow-2xl">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-black/20 border-b border-white/5">
+<th class="px-6 py-4 text-[10px] uppercase tracking-widest text-white/40 font-black">Rank</th>
+<th class="px-6 py-4 text-[10px] uppercase tracking-widest text-white/40 font-black">Creator</th>
+<th class="px-6 py-4 text-[10px] uppercase tracking-widest text-white/40 font-black">Topics / Match</th>
+<th class="px-6 py-4 text-[10px] uppercase tracking-widest text-white/40 font-black">Post Preview</th>
+<th class="px-6 py-4 text-[10px] uppercase tracking-widest text-white/40 font-black">Engagement</th>
+<th class="px-6 py-4 text-[10px] uppercase tracking-widest text-white/40 font-black">B2B Score</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-white/5">
+<!-- Row 1 -->
+<tr class="hover:bg-white/[0.02] transition-colors group">
+<td class="px-6 py-6 text-white/40 font-headline font-bold">#1</td>
+<td class="px-6 py-6">
+<div class="flex items-center gap-4">
+<div class="relative">
+<img alt="Creator Profile" class="w-12 h-12 rounded-full object-cover ring-2 ring-primary/20" data-alt="Close up portrait of a professional female creator" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBOagsRbu_b5mp6FObPIduzKi--u2EzZgQ9uMbwVFeMshXLxpC1b3u7WNN2rNNfqJqMSYVZjk1_2eB8WdZ64zv20LjSmw0pBle2SD6IiU48pqM0g6bNLX8vu_eDFYJLDZ2SfbCmzmqV0j2qzdybP-p0sj8iYxRgCo3QsHp_3JWLm8cdXJrvnGOYQZsUaU3LCia0qwpdbCff5DjHeofY7cnyo89u2n322tQEL7BSFXwW9Uyf5JZGGp0FIlzNc7vHG3BdWO_slGBl0tM"/>
+<span class="absolute -bottom-1 -right-1 w-4 h-4 bg-secondary border-2 border-surface rounded-full"></span>
+</div>
+<div>
+<p class="font-bold text-white group-hover:text-primary transition-colors">Sarah Chen</p>
+<p class="text-[10px] text-white/40">SaaS Growth Advisor &amp; Angel</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-6">
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold">B2B SaaS</span>
+<span class="px-2 py-0.5 bg-white/5 text-white/60 rounded-full text-[10px] font-bold">AI Strategy</span>
+<span class="px-2 py-0.5 bg-secondary/10 text-secondary rounded-full text-[10px] font-bold">98% Match</span>
+</div>
+</td>
+<td class="px-6 py-6 max-w-xs">
+<p class="text-xs text-white/70 line-clamp-2 italic">"The real secret to scaling B2B SaaS isn't the tech, it's the distribution network you build before you..."</p>
+</td>
+<td class="px-6 py-6">
+<p class="font-bold text-sm">42.5k <span class="text-[10px] font-normal text-white/40 font-headline">/avg</span></p>
+</td>
+<td class="px-6 py-6">
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center">
+<span class="text-secondary font-black text-xs">94</span>
+</div>
+<div class="h-1.5 w-16 bg-white/5 rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-[94%]"></div>
+</div>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-white/[0.02] transition-colors group">
+<td class="px-6 py-6 text-white/40 font-headline font-bold">#2</td>
+<td class="px-6 py-6">
+<div class="flex items-center gap-4">
+<div class="relative">
+<img alt="Creator Profile" class="w-12 h-12 rounded-full object-cover ring-2 ring-primary/20" data-alt="Professional male portrait in a studio setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC1I0QJGDjjxt9JwwghRmZ2y3OIvmse-wo2c81OjM_zsM7CFo53OGwJypS_wJWlE1J6aQA1ug2Z--q-dIvN2xPHbwzWk_KBcRN2rM0veq1naOlNX_QsYA5PagdB54kpxzYvkWzjS_JpJ4kE1XvLNZiW1B-yJNa-7mL9pmd8uqsP-QSiSfbt2SQ2vf-Spxc8OYOOf16gMPMFGHQFlrgaoPJlGfPlgLKpu9DLpTPWdc-Owb1fgREi0pja2XLKd3V3I3SZGjXYVCeqsEk"/>
+</div>
+<div>
+<p class="font-bold text-white group-hover:text-primary transition-colors">Marcus Vane</p>
+<p class="text-[10px] text-white/40">Content Strategist @ Velocity</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-6">
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold">Creator Economy</span>
+<span class="px-2 py-0.5 bg-white/5 text-white/60 rounded-full text-[10px] font-bold">Marketing</span>
+<span class="px-2 py-0.5 bg-secondary/10 text-secondary rounded-full text-[10px] font-bold">85% Match</span>
+</div>
+</td>
+<td class="px-6 py-6 max-w-xs">
+<p class="text-xs text-white/70 line-clamp-2 italic">"Most creators are sleeping on the LinkedIn newsletter feature. Here is why it's the next big channel for..."</p>
+</td>
+<td class="px-6 py-6">
+<p class="font-bold text-sm">18.2k <span class="text-[10px] font-normal text-white/40 font-headline">/avg</span></p>
+</td>
+<td class="px-6 py-6">
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded-lg bg-tertiary-container/10 flex items-center justify-center">
+<span class="text-tertiary font-black text-xs">72</span>
+</div>
+<div class="h-1.5 w-16 bg-white/5 rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[72%]"></div>
+</div>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-white/[0.02] transition-colors group">
+<td class="px-6 py-6 text-white/40 font-headline font-bold">#3</td>
+<td class="px-6 py-6">
+<div class="flex items-center gap-4">
+<div class="relative">
+<img alt="Creator Profile" class="w-12 h-12 rounded-full object-cover ring-2 ring-primary/20" data-alt="Confident female professional looking at camera" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDN5AD-HwPSX3IjLvTcEjXjR-q_XoJYZ4UjBpDnDjUpBTJ_bsnYZysg-d8EYKq52ivD04zgumyP4-y6Suinf3xkXzZgYOi3Gdzch-E3Qh6RCRsjhxuK22U5TO9xg3OWbaglcRmAbUZOrnJ4BYxuIk2HFgcoEH9lIVobrRVwBQKX4H4zfsxlLBt3eyZOQo__s3KiTzgYzXqS2v1jy3nL1lGGqZD_p2OAIAvFhK5wEmybAqPSEMN9doK0-iq2wQt6deTKcXSMpGDPwBc"/>
+</div>
+<div>
+<p class="font-bold text-white group-hover:text-primary transition-colors">Elena Rodriguez</p>
+<p class="text-[10px] text-white/40">VP of Sales at CloudScale</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-6">
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold">Sales Tech</span>
+<span class="px-2 py-0.5 bg-white/5 text-white/60 rounded-full text-[10px] font-bold">Ops</span>
+<span class="px-2 py-0.5 bg-secondary/10 text-secondary rounded-full text-[10px] font-bold">81% Match</span>
+</div>
+</td>
+<td class="px-6 py-6 max-w-xs">
+<p class="text-xs text-white/70 line-clamp-2 italic">"Stop sending cold emails that look like templates. Here's a 3-step framework that got me a 20% reply..."</p>
+</td>
+<td class="px-6 py-6">
+<p class="font-bold text-sm">9.8k <span class="text-[10px] font-normal text-white/40 font-headline">/avg</span></p>
+</td>
+<td class="px-6 py-6">
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center">
+<span class="text-secondary font-black text-xs">88</span>
+</div>
+<div class="h-1.5 w-16 bg-white/5 rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-[88%]"></div>
+</div>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<div class="p-6 bg-black/40 flex items-center justify-between">
+<button class="text-xs font-bold text-white/40 hover:text-white transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="chevron_left">chevron_left</span> Previous
+                    </button>
+<div class="flex gap-2">
+<span class="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center text-xs font-black">1</span>
+<span class="w-8 h-8 rounded-full text-white/40 flex items-center justify-center text-xs font-bold hover:bg-white/5 cursor-pointer">2</span>
+<span class="w-8 h-8 rounded-full text-white/40 flex items-center justify-center text-xs font-bold hover:bg-white/5 cursor-pointer">3</span>
+</div>
+<button class="text-xs font-bold text-white/40 hover:text-white transition-all flex items-center gap-2">
+                        Next <span class="material-symbols-outlined text-sm" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Signature "Influencer Bubbles" as background accents -->
+<div class="fixed bottom-10 -right-10 pointer-events-none z-0 opacity-20 hidden lg:block">
+<div class="relative w-96 h-96">
+<img class="absolute top-0 right-0 w-32 h-32 rounded-full object-cover blur-[2px] border-4 border-primary" data-alt="Abstract professional person bubble" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDDgXPxH-4Df4JIBz0PSEDuQTRsRfX78CHYvONw5tYNkmVc0J1LWxL7gq-pH4Z-pJO0usDf15-ZGlSt9oVDYX6HFFyYGdU1e5gNApz4BqPyANH4-5EzsORKCpSVmqJTS9YBg9xCDtF8Oa9hqJbkhXtolss6DdlH4kznwC8ZJu9slQWsWbBREiGDz03Pmc5Rl6RIHWEO82g3rtliMoCtu1758sZ9oyf1UP3iPF8xBcZJkFz6-Hi65Qtw4BNydtWapbznfM-VSzHHujU"/>
+<img class="absolute bottom-10 right-20 w-48 h-48 rounded-full object-cover blur-[1px] border-4 border-secondary" data-alt="Abstract professional person bubble" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWtaUzwHBmgta0mY6vFKQSlM2EE0ozyfF0qJDSxNsZewc73wT9U6fIoLmv1G5OXThnP0tI0OEb2PmvzflmBsXWRYzzL4PsKNpNtwvRwqd_cMh47PtWkkx9A5syv0rthEcjo5LF_1bMadrJencl0BIQlX9yxVZf4Rs4kd8y-rKYSnTsebeCxwsAZVE6NQsUIBdhlORpS082qfve-VoN5iOfhlnFbuKjfl0rtuEQzVG6fu636fzrQafToW0TqvDLz6jaTGQEmR30UQA"/>
+<img class="absolute top-20 right-40 w-24 h-24 rounded-full object-cover blur-[3px] border-2 border-white" data-alt="Abstract professional person bubble" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCObirkLVwfbCQxYmUrSawO7PrQj_bBoxPSjOo4KUqcdqArXQF7Or5tKEsG9yqO94kHJPLtfTRsm2DPFItQUvzraOHGe6YSWQjA1LvjRH8ODyMd1TVKybsev8hKwxTALo9EK6Ld0QyhBFg4lrUJHuWMX7in4dozMwi3SMyWeIOMR2u6p2Kaysk-u3_BQ90b9061ZPLrBo-PfcC-5qBFCF-p1SBs4B78DtbPO64qkDbLF_d7YEHdnh9uijW6p0n0nAomKoAo1Z5KpQQ"/>
+</div>
+</div>
+</main>
+</body></html>
