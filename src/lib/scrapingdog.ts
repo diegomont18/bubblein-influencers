@@ -35,8 +35,18 @@ export function buildDateRangeTbs(startDate: string, endDate: string): string {
  * Returns null if no activity ID found.
  */
 export function extractActivityId(url: string): string | null {
-  const match = url.match(/activity[_-](\d+)/);
-  return match ? match[1] : null;
+  // Match activity_XXXXX or activity-XXXXX (permalink format)
+  const actMatch = url.match(/activity[_-](\d+)/);
+  if (actMatch) return actMatch[1];
+  // Match urn:li:share:XXXXX or urn:li:activity:XXXXX (share link format)
+  const urnMatch = url.match(/urn:li:(?:share|activity):(\d+)/);
+  return urnMatch ? urnMatch[1] : null;
+}
+
+export function extractAuthorSlugFromPostUrl(url: string): string | null {
+  // Extract from permalink: linkedin.com/posts/username_title-activity-...
+  const postsMatch = url.match(/linkedin\.com\/posts\/([^_/?#]+)/);
+  return postsMatch ? postsMatch[1] : null;
 }
 
 export async function searchGoogle(
@@ -100,23 +110,23 @@ export async function fetchLinkedInPost(
     }
   } catch { /* leave cleanUrl as-is */ }
 
-  // Extract activity ID from URL
-  const activityMatch = cleanUrl.match(/activity[_-](\d+)/);
-  if (!activityMatch) {
+  // Extract activity ID from URL (supports both permalink and share link formats)
+  const activityId = extractActivityId(cleanUrl);
+  if (!activityId) {
     console.error(`[scrapingdog] Could not extract activity ID from: ${cleanUrl}`);
     return { status: 400, data: null, error: "Could not extract activity ID" };
   }
-  const activityId = activityMatch[1];
   console.log(`[scrapingdog] Extracted activity ID: ${activityId} from ${cleanUrl}`);
 
-  const url = `https://api.scrapingdog.com/profile/post?api_key=${encodeURIComponent(apiKey)}&id=${activityId}`;
-  const maskedUrl = url.replace(/api_key=[^&]+/, "api_key=***");
+  // Try the /profile/post endpoint first (works with activity IDs)
+  const postApiUrl = `https://api.scrapingdog.com/profile/post?api_key=${encodeURIComponent(apiKey)}&id=${activityId}`;
+  const maskedUrl = postApiUrl.replace(/api_key=[^&]+/, "api_key=***");
   console.log(`[scrapingdog] Fetching post url=${maskedUrl}`);
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(postApiUrl, { cache: "no-store" });
       const status = res.status;
       console.log(`[scrapingdog] Post response status=${status} attempt=${attempt + 1}`);
 
@@ -130,28 +140,113 @@ export async function fetchLinkedInPost(
           console.log(`[scrapingdog] Unwrapping post_results, inner keys: ${JSON.stringify(Object.keys(data.post_results))}`);
           data = data.post_results;
         }
-        return { status: 200, data };
+        // Check if response has MEANINGFUL data (not just echoed ID)
+        const d = data as Record<string, unknown>;
+        const authorObj = (d.author && typeof d.author === "object" ? d.author : {}) as Record<string, unknown>;
+        const hasRealData = (
+          (authorObj.public_identifier && authorObj.public_identifier !== null) ||
+          (d.activity_url && String(d.activity_url) !== "") ||
+          (d.text && String(d.text) !== "") ||
+          (Number(d.reactions_count) > 0)
+        );
+        if (hasRealData) {
+          return { status: 200, data };
+        }
+        console.log(`[scrapingdog] /profile/post returned empty shell for ID ${activityId} (share URN ≠ activity ID), trying general scraper...`);
+        break; // Fall through to general endpoint
       }
 
       const text = await res.text();
       console.error(`[scrapingdog] Post error status=${status} body=${text.slice(0, 500)}`);
 
-      // Retry on 429 or 400
       if ((status === 429 || status === 400) && attempt < MAX_RETRIES) {
         const delay = (attempt + 1) * 1500;
-        console.log(`[scrapingdog] Retrying post in ${delay}ms…`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
-
-      return { status, data: null, error: text };
+      break; // Fall through to general endpoint
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.error(`[scrapingdog] Post fetch exception: ${message}`);
       if (attempt < MAX_RETRIES) {
-        const delay = (attempt + 1) * 1500;
-        console.log(`[scrapingdog] Retrying post after exception in ${delay}ms…`);
-        await new Promise((r) => setTimeout(r, delay));
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 1500));
+        continue;
+      }
+      break; // Fall through to general endpoint
+    }
+  }
+
+  // Fallback: use ScrapingDog's general web scraper to load the LinkedIn page
+  // This follows redirects and returns the page content
+  // LinkedIn redirects urn:li:share URLs to /posts/username_title-activity-XXXXX
+  const scrapeUrl = `https://api.scrapingdog.com/scrape?api_key=${encodeURIComponent(apiKey)}&url=${encodeURIComponent(cleanUrl)}&dynamic=true`;
+  console.log(`[scrapingdog] Trying general scraper for: ${cleanUrl}`);
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(scrapeUrl, { cache: "no-store" });
+      const status = res.status;
+      console.log(`[scrapingdog] General scraper response status=${status} attempt=${attempt + 1}`);
+
+      if (status === 200) {
+        const html = await res.text();
+        console.log(`[scrapingdog] General scraper response length: ${html.length} chars`);
+
+        // Extract author slug and activity ID from the page HTML
+        // LinkedIn pages contain og:url meta tag or canonical URL with the permalink format
+        const ogUrlMatch = html.match(/property="og:url"\s+content="([^"]+)"/);
+        const canonicalMatch = html.match(/<link[^>]+rel="canonical"[^>]+href="([^"]+)"/);
+        const redirectUrl = ogUrlMatch?.[1] ?? canonicalMatch?.[1] ?? "";
+        console.log(`[scrapingdog] Extracted redirect/canonical URL: ${redirectUrl}`);
+
+        // Also try to find the author from data-urn or other patterns
+        const authorSlugMatch = redirectUrl.match(/linkedin\.com\/posts\/([^_/?#]+)/)
+          ?? html.match(/linkedin\.com\/in\/([^"/?#]+)/);
+        const realActivityMatch = redirectUrl.match(/activity[_-](\d+)/)
+          ?? html.match(/urn:li:activity:(\d+)/);
+
+        const extractedAuthor = authorSlugMatch?.[1] ?? null;
+        const realActivityId = realActivityMatch?.[1] ?? null;
+
+        console.log(`[scrapingdog] From page: author="${extractedAuthor}", activityId="${realActivityId}"`);
+
+        // Return extracted data as a structured result
+        return {
+          status: 200,
+          data: {
+            activity_id: realActivityId ?? activityId,
+            text: "",
+            reactions_count: 0,
+            comment_count: 0,
+            activity_url: redirectUrl,
+            share_url: cleanUrl,
+            author: {
+              name: null,
+              public_identifier: extractedAuthor,
+              headline: null,
+              follower_count: null,
+              image: null,
+              url: extractedAuthor ? `https://www.linkedin.com/in/${extractedAuthor}/` : null,
+            },
+            comments: [],
+            _source: "general_scraper",
+          },
+        };
+      }
+
+      const text = await res.text();
+      console.error(`[scrapingdog] General scraper error status=${status} body=${text.slice(0, 300)}`);
+
+      if ((status === 429 || status === 400) && attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 1500));
+        continue;
+      }
+      return { status, data: null, error: text };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      console.error(`[scrapingdog] General scraper exception: ${message}`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 1500));
         continue;
       }
       return { status: 500, data: null, error: message };

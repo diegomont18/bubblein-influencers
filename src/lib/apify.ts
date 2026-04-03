@@ -330,6 +330,18 @@ export async function searchLinkedInPosts(params: {
 /**
  * Fetch engagers (likers + commenters) from a LinkedIn post URL.
  */
+/**
+ * Fetch engagers (reactions + comments) from a LinkedIn post.
+ * Supports both URL formats:
+ *   - Share link: https://www.linkedin.com/feed/update/urn:li:share:XXXXX
+ *   - Permalink:  https://www.linkedin.com/posts/username_title-activity-XXXXX-xxxx
+ *
+ * Uses harvestapi~linkedin-profile-posts with the POST URL in targetUrls.
+ * The actor returns a flat array of items with type "reaction" or "comment",
+ * each containing an actor object with linkedinUrl.
+ *
+ * For share links (urn:li:share:), first resolves to permalink via ScrapingDog.
+ */
 export async function fetchPostEngagers(
   postUrl: string,
   maxReactions = 100,
@@ -341,24 +353,43 @@ export async function fetchPostEngagers(
     return { reactions: [], comments: [] };
   }
 
-  const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
+  let resolvedPostUrl = postUrl.trim();
+
+  // If URL is a share link, resolve it to a permalink first
+  if (resolvedPostUrl.includes("urn:li:share:") || resolvedPostUrl.includes("urn:li:activity:")) {
+    console.log(`[apify] fetchPostEngagers: share URL detected, resolving to permalink via ScrapingDog...`);
+    const { fetchLinkedInPost } = await import("./scrapingdog");
+    const postResult = await fetchLinkedInPost(resolvedPostUrl);
+    if (postResult.status === 200 && postResult.data) {
+      const postData = postResult.data as Record<string, unknown>;
+      const activityUrl = String(postData.activity_url ?? "");
+      if (activityUrl && activityUrl.includes("/posts/")) {
+        resolvedPostUrl = activityUrl;
+        console.log(`[apify] fetchPostEngagers: resolved to permalink: ${resolvedPostUrl}`);
+      } else {
+        console.log(`[apify] fetchPostEngagers: ScrapingDog didn't return permalink, using original URL`);
+      }
+    }
+  }
+
+  console.log(`[apify] fetchPostEngagers: calling Apify with targetUrls=[${resolvedPostUrl}]`);
+
+  const apifyUrl = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const body = {
-    includeQuotePosts: false,
-    includeReposts: false,
-    maxComments,
+    targetUrls: [resolvedPostUrl],
     maxPosts: 1,
     maxReactions,
-    scrapeComments: true,
+    maxComments,
     scrapeReactions: true,
-    targetUrls: [postUrl],
+    scrapeComments: true,
+    includeQuotePosts: false,
+    includeReposts: false,
   };
-
-  console.log(`[apify] Fetching post engagers for ${postUrl}`);
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(url, {
+      const res = await fetch(apifyUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -367,11 +398,33 @@ export async function fetchPostEngagers(
 
       if (res.status === 200 || res.status === 201) {
         const data = await res.json();
-        if (!Array.isArray(data) || data.length === 0) return { reactions: [], comments: [] };
-        const post = data[0] as Record<string, unknown>;
-        const reactions = Array.isArray(post.reactions) ? post.reactions as Array<Record<string, unknown>> : [];
-        const comments = Array.isArray(post.comments) ? post.comments as Array<Record<string, unknown>> : [];
-        console.log(`[apify] Post engagers: ${reactions.length} reactions, ${comments.length} comments`);
+        if (!Array.isArray(data) || data.length === 0) {
+          console.log(`[apify] fetchPostEngagers: Apify returned empty`);
+          return { reactions: [], comments: [] };
+        }
+
+        // The actor returns a FLAT array of items with type "reaction" or "comment"
+        // Each item has: { type, id, actor: { name, linkedinUrl, ... }, ... }
+        const reactions: Array<Record<string, unknown>> = [];
+        const comments: Array<Record<string, unknown>> = [];
+
+        for (const item of data as Array<Record<string, unknown>>) {
+          const itemType = String(item.type ?? "");
+          if (itemType === "reaction") {
+            reactions.push(item);
+          } else if (itemType === "comment") {
+            comments.push(item);
+          }
+          // Items without a type might be post data — skip
+        }
+
+        console.log(`[apify] fetchPostEngagers: ${reactions.length} reactions, ${comments.length} comments from ${data.length} items`);
+
+        if (reactions.length > 0) {
+          const actor = (reactions[0].actor ?? {}) as Record<string, unknown>;
+          console.log(`[apify] fetchPostEngagers: sample reactor: name="${actor.name}", linkedinUrl="${actor.linkedinUrl}"`);
+        }
+
         return { reactions, comments };
       }
 
@@ -379,9 +432,10 @@ export async function fetchPostEngagers(
         await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
         continue;
       }
+      console.error(`[apify] fetchPostEngagers: Apify error status=${res.status}`);
       return { reactions: [], comments: [] };
     } catch (err) {
-      console.error(`[apify] Post engagers exception: ${err instanceof Error ? err.message : err}`);
+      console.error(`[apify] fetchPostEngagers exception: ${err instanceof Error ? err.message : err}`);
       if (attempt < MAX_RETRIES) { await new Promise((r) => setTimeout(r, (attempt + 1) * 3000)); continue; }
       return { reactions: [], comments: [] };
     }

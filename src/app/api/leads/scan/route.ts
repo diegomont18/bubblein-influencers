@@ -7,7 +7,8 @@ interface ScanBody {
   postUrls: string[];
   icpJobTitles: string[];
   icpDepartments: string[];
-  icpCompanySize: string;
+  icpCompanySizes: string[];
+  icpCompanySize?: string; // legacy single value
 }
 
 const COMPANY_SIZE_RANGES: Record<string, [number, number]> = {
@@ -38,7 +39,7 @@ function scoreIcpMatch(
   profile: Record<string, unknown>,
   icpJobTitles: string[],
   icpDepartments: string[],
-  icpCompanySize: string
+  icpCompanySizes: string[]
 ): { score: number; matchedTitles: string[]; matchedDepartments: string[]; companySizeMatch: boolean } {
   const headline = String(profile.headline ?? profile.sub_title ?? "").toLowerCase();
   const role = String(profile.role_current ?? profile.current_company_position ?? "").toLowerCase();
@@ -53,13 +54,14 @@ function scoreIcpMatch(
   const matchedDepartments = icpDepartments.filter((dept) => searchText.includes(dept.toLowerCase()));
   const deptScore = icpDepartments.length > 0 ? (matchedDepartments.length / icpDepartments.length) * 100 : 50;
 
-  // Company size match (20%)
+  // Company size match (20%) — matches if company size falls in ANY selected range
   let companySizeMatch = false;
-  const range = COMPANY_SIZE_RANGES[icpCompanySize];
-  if (range) {
-    const companySize = Number(profile.company_size ?? profile.current_company_size ?? 0);
-    if (companySize >= range[0] && companySize <= range[1]) {
+  const companySize = Number(profile.company_size ?? profile.current_company_size ?? 0);
+  for (const sizeKey of icpCompanySizes) {
+    const range = COMPANY_SIZE_RANGES[sizeKey];
+    if (range && companySize >= range[0] && companySize <= range[1]) {
       companySizeMatch = true;
+      break;
     }
   }
   const sizeScore = companySizeMatch ? 100 : 0;
@@ -78,7 +80,9 @@ export async function POST(request: Request) {
   }
 
   const body: ScanBody = await request.json();
-  const { postUrls, icpJobTitles, icpDepartments, icpCompanySize } = body;
+  const { postUrls, icpJobTitles, icpDepartments, icpCompanySizes = [], icpCompanySize } = body;
+  // Support both new multi-select and legacy single value
+  const companySizes = icpCompanySizes.length > 0 ? icpCompanySizes : (icpCompanySize ? [icpCompanySize] : []);
 
   if (!postUrls || postUrls.length === 0) {
     return NextResponse.json({ error: "At least one post URL is required" }, { status: 400 });
@@ -100,7 +104,7 @@ export async function POST(request: Request) {
       post_urls: postUrls,
       icp_job_titles: icpJobTitles,
       icp_departments: icpDepartments,
-      icp_company_size: icpCompanySize,
+      icp_company_size: companySizes.join(","),
     })
     .select()
     .single();
@@ -126,7 +130,13 @@ export async function POST(request: Request) {
         const engagers: Array<{ slug: string; type: "reaction" | "comment"; postUrl: string }> = [];
 
         for (const r of reactions) {
-          const profileUrl = String(r.profileUrl ?? r.url ?? r.linkedInUrl ?? "");
+          // Apify returns: { type: "reaction", actor: { name, linkedinUrl, ... } }
+          const actor = (r.actor && typeof r.actor === "object" ? r.actor : {}) as Record<string, unknown>;
+          const profileUrl = String(
+            actor.linkedinUrl ?? actor.url ?? actor.profileUrl
+            ?? r.profileUrl ?? r.url ?? r.linkedInUrl ?? r.linkedinUrl
+            ?? ""
+          );
           const match = profileUrl.match(/linkedin\.com\/in\/([^/?#]+)/);
           if (match) {
             const slug = match[1].toLowerCase().replace(/\/$/, "");
@@ -138,10 +148,20 @@ export async function POST(request: Request) {
         }
 
         for (const c of comments) {
-          const profileUrl = String(c.authorProfileUrl ?? c.profileUrl ?? c.url ?? "");
+          // Apify returns: { type: "comment", actor: { name, linkedinUrl, ... } }
+          const actor = (c.actor && typeof c.actor === "object" ? c.actor : {}) as Record<string, unknown>;
+          const author = (c.author && typeof c.author === "object" ? c.author : {}) as Record<string, unknown>;
+          const profileUrl = String(
+            actor.linkedinUrl ?? actor.url ?? actor.profileUrl
+            ?? c.authorProfileUrl ?? c.profileUrl ?? c.url
+            ?? author.url ?? author.profileUrl ?? author.linkedinUrl
+            ?? ""
+          );
+          const directSlug = String(actor.publicIdentifier ?? author.public_identifier ?? "");
           const match = profileUrl.match(/linkedin\.com\/in\/([^/?#]+)/);
-          if (match) {
-            const slug = match[1].toLowerCase().replace(/\/$/, "");
+          const extractedSlug = match ? match[1] : directSlug;
+          if (extractedSlug) {
+            const slug = extractedSlug.toLowerCase().replace(/\/$/, "");
             if (seenSlugs.has(slug)) {
               // Already seen as reaction — upgrade to "both"
               const existing = engagers.find((e) => e.slug === slug);
@@ -190,7 +210,7 @@ export async function POST(request: Request) {
               profileData,
               icpJobTitles,
               icpDepartments,
-              icpCompanySize
+              companySizes
             );
 
             const followers = Number(profileData.followers ?? profileData.follower_count ?? 0);
@@ -262,7 +282,7 @@ export async function POST(request: Request) {
       try {
         await writer.write(encoder.encode(JSON.stringify({
           type: "done",
-          data: { totalEngagers, matchedLeads: leadCount, scanId: scan?.id },
+          data: { totalEngagers, matchedLeads: leadCount, scanId: scan?.id, postsAnalyzed: postUrls.length },
         }) + "\n"));
       } catch { /* disconnected */ }
     } catch (e) {
