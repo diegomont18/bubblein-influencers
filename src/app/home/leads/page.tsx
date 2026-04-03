@@ -6,10 +6,10 @@ interface Lead {
   slug: string;
   name: string;
   headline: string;
+  job_title: string;
   company: string;
   location: string;
   followers: number;
-  followers_range: string;
   linkedin_url: string;
   profile_photo: string;
   icp_score: number;
@@ -252,7 +252,12 @@ export default function LeadsPage() {
     );
   }
 
-  // --- Scan ---
+  // --- Filters ---
+  const [filterIcpLevel, setFilterIcpLevel] = useState<string>("all");
+  const [filterEngagement, setFilterEngagement] = useState<string>("all");
+  const [filterPostUrl, setFilterPostUrl] = useState<string>("all");
+
+  // --- Scan (background + polling) ---
   async function handleScan() {
     const urls = postUrls.split("\n").map((l) => l.trim()).filter(Boolean);
     if (urls.length === 0) { setError("Insira pelo menos uma URL de post."); return; }
@@ -270,9 +275,9 @@ export default function LeadsPage() {
 
     const controller = new AbortController();
     abortRef.current = controller;
-    const bufferedLeads: Lead[] = [];
 
     try {
+      // 1. Trigger the scan (returns immediately with scanId)
       const res = await fetch("/api/leads/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -290,37 +295,49 @@ export default function LeadsPage() {
         throw new Error(json.error ?? `Erro (${res.status})`);
       }
 
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      const { scanId } = await res.json();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-            if (event.type === "lead") {
-              bufferedLeads.push(event.data as Lead);
-            } else if (event.type === "done") {
-              const d = event.data;
-              if (d.totalEngagers === 0) {
-                setError(`Nenhum engajador encontrado nos ${d.postsAnalyzed ?? 0} posts analisados. Verifique se as URLs dos posts estao corretas e se os posts possuem curtidas/comentarios.`);
-              } else {
-                setSuccessMessage(`Encontramos ${d.matchedLeads} leads de ${d.totalEngagers} engajadores analisados em ${d.postsAnalyzed ?? 0} posts.`);
-              }
-            } else if (event.type === "error") {
-              setError(event.data.message ?? "Erro durante a busca");
+      // 2. Poll for status every 5 seconds
+      let scanComplete = false;
+      while (!scanComplete && !controller.signal.aborted) {
+        await new Promise((r) => setTimeout(r, 5000));
+        if (controller.signal.aborted) break;
+
+        try {
+          const statusRes = await fetch(`/api/leads/scan/${scanId}/status`, {
+            signal: controller.signal,
+          });
+          if (!statusRes.ok) continue;
+
+          const statusData = await statusRes.json();
+          const { status, leads: foundLeads, found, totalEngagers, postsAnalyzed, errorMessage } = statusData;
+
+          // Update displayed leads progressively
+          if (foundLeads && foundLeads.length > 0) {
+            setLeads(foundLeads as Lead[]);
+          }
+
+          if (status === "complete") {
+            scanComplete = true;
+            if (found === 0 && totalEngagers === 0) {
+              setError(`Nenhum engajador encontrado nos ${postsAnalyzed} posts analisados. Verifique se as URLs dos posts estao corretas e se os posts possuem curtidas/comentarios.`);
+            } else {
+              setSuccessMessage(`Encontramos ${found} leads de ${totalEngagers} engajadores analisados em ${postsAnalyzed} posts.`);
             }
-          } catch { /* skip */ }
+            // Refresh credits
+            window.dispatchEvent(new CustomEvent("credits-updated", { detail: null }));
+            fetch("/api/auth/me")
+              .then((r) => r.ok ? r.json() : null)
+              .then((d) => { if (d?.user) window.dispatchEvent(new CustomEvent("credits-updated", { detail: d.user.credits })); })
+              .catch(() => {});
+          } else if (status === "error") {
+            scanComplete = true;
+            setError(errorMessage ?? "Erro durante a busca no servidor.");
+          }
+        } catch (pollErr) {
+          if (pollErr instanceof DOMException && pollErr.name === "AbortError") break;
         }
       }
-
-      setLeads(bufferedLeads);
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) {
         setError(err instanceof Error ? err.message : "Erro na busca");
@@ -330,20 +347,16 @@ export default function LeadsPage() {
       setScanStep(0);
       setScanning(false);
       abortRef.current = null;
-      window.dispatchEvent(new CustomEvent("credits-updated", { detail: null }));
-      fetch("/api/auth/me")
-        .then((r) => r.ok ? r.json() : null)
-        .then((d) => { if (d?.user) window.dispatchEvent(new CustomEvent("credits-updated", { detail: d.user.credits })); })
-        .catch(() => {});
     }
   }
 
   function exportCsv() {
-    const headers = ["Nome", "LinkedIn URL", "Headline", "Empresa", "ICP Score", "Titulos Match", "Departamentos Match", "Tipo Engajamento", "Post URL"];
+    const headers = ["Nome", "LinkedIn URL", "Headline", "Cargo", "Empresa", "ICP Score", "ICP Nivel", "Titulos Match", "Departamentos Match", "Tipo Engajamento", "Post URL"];
     const escape = (v: string) => v.includes(",") || v.includes('"') || v.includes("\n") ? '"' + v.replace(/"/g, '""') + '"' : v;
-    const rows = leads.map((l) => [
-      l.name, l.linkedin_url, l.headline, l.company,
-      String(l.icp_score), l.matched_titles.join("; "), l.matched_departments.join("; "),
+    const rows = filteredLeads.map((l) => [
+      l.name, l.linkedin_url, l.headline, l.job_title ?? "", l.company,
+      String(l.icp_score), icpLabel(l.icp_score).text,
+      (l.matched_titles ?? []).join("; "), (l.matched_departments ?? []).join("; "),
       l.engagement_type, l.source_post_url,
     ].map(escape));
     const csv = [headers.map(escape).join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -364,6 +377,20 @@ export default function LeadsPage() {
 
   const activeIcp = icpProfiles.find((p) => p.id === activeIcpId);
   const activeUrl = urlProfiles.find((p) => p.id === activeUrlId);
+
+  // Filtered leads
+  const filteredLeads = leads.filter((l) => {
+    if (filterIcpLevel !== "all") {
+      const label = icpLabel(l.icp_score).text;
+      if (label !== filterIcpLevel) return false;
+    }
+    if (filterEngagement !== "all" && l.engagement_type !== filterEngagement) return false;
+    if (filterPostUrl !== "all" && l.source_post_url !== filterPostUrl) return false;
+    return true;
+  });
+
+  // Unique post URLs for filter dropdown
+  const uniquePostUrls = [...new Set(leads.map((l) => l.source_post_url).filter(Boolean))];
 
   if (pageLoading) {
     return (
@@ -634,12 +661,13 @@ export default function LeadsPage() {
       )}
 
       {/* Results */}
-      {!scanning && leads.length > 0 && (
+      {leads.length > 0 && (
         <div ref={resultsRef} className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <h2 className="text-lg font-semibold text-white font-[family-name:var(--font-lexend)]">
               Leads Encontrados
-              <span className="ml-2 text-sm font-normal text-[#adaaaa]">{leads.length} leads</span>
+              <span className="ml-2 text-sm font-normal text-[#adaaaa]">{filteredLeads.length}{filteredLeads.length !== leads.length ? ` de ${leads.length}` : ""} leads</span>
+              {scanning && <span className="ml-2 text-xs text-[#ca98ff] animate-pulse">(atualizando...)</span>}
             </h2>
             <button
               onClick={exportCsv}
@@ -647,6 +675,30 @@ export default function LeadsPage() {
             >
               Exportar CSV
             </button>
+          </div>
+
+          {/* Filters */}
+          <div className="flex gap-3 flex-wrap">
+            <select value={filterIcpLevel} onChange={(e) => setFilterIcpLevel(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff]">
+              <option value="all">ICP: Todos</option>
+              <option value="Alto">ICP: Alto</option>
+              <option value="Medio">ICP: Medio</option>
+              <option value="Baixo">ICP: Baixo</option>
+            </select>
+            <select value={filterEngagement} onChange={(e) => setFilterEngagement(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff]">
+              <option value="all">Engajamento: Todos</option>
+              <option value="both">Curtiu + Comentou</option>
+              <option value="comment">Comentou</option>
+              <option value="reaction">Curtiu</option>
+            </select>
+            {uniquePostUrls.length > 1 && (
+              <select value={filterPostUrl} onChange={(e) => setFilterPostUrl(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] max-w-[300px] truncate">
+                <option value="all">Post: Todos</option>
+                {uniquePostUrls.map((url) => (
+                  <option key={url} value={url}>{url.split("/posts/")[1]?.split("-activity")[0] ?? url.slice(-40)}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="rounded-2xl bg-[#131313] overflow-hidden">
@@ -657,14 +709,14 @@ export default function LeadsPage() {
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">#</th>
                     <th className="px-2 py-3"></th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Lead</th>
+                    <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Cargo</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Empresa</th>
-                    <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Seguidores</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">ICP Score</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Engajamento</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {leads
+                  {filteredLeads
                     .sort((a, b) => b.icp_score - a.icp_score)
                     .map((lead, idx) => {
                       const label = icpLabel(lead.icp_score);
@@ -684,10 +736,10 @@ export default function LeadsPage() {
                             <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-white hover:text-[#ca98ff] transition-colors font-medium">
                               {lead.name}
                             </a>
-                            {lead.headline && <div className="text-xs text-[#adaaaa] mt-0.5 max-w-[250px] truncate">{lead.headline}</div>}
+                            {lead.headline && <div className="text-xs text-[#adaaaa] mt-0.5 max-w-[280px] truncate">{lead.headline}</div>}
                           </td>
+                          <td className="px-4 py-3 text-[#adaaaa] text-sm max-w-[200px] truncate">{lead.job_title || "—"}</td>
                           <td className="px-4 py-3 text-[#adaaaa] text-sm">{lead.company || "—"}</td>
-                          <td className="px-4 py-3 text-[#adaaaa]">{lead.followers_range}</td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold ${label.cls}`}>
                               {label.text}
