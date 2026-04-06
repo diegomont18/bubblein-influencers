@@ -53,6 +53,7 @@ export interface PaginatedPosts {
 export async function getBlogPosts(page = 1): Promise<PaginatedPosts> {
   if (!isConfigured()) return { posts: [], total: 0, page: 1, totalPages: 0 };
   const skip = (page - 1) * POSTS_PER_PAGE;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const entries = await getClient().withoutUnresolvableLinks.getEntries<BlogPostSkeleton>({
     content_type: "bubbleInBlog",
     order: ["-fields.date"],
@@ -60,7 +61,7 @@ export async function getBlogPosts(page = 1): Promise<PaginatedPosts> {
     limit: POSTS_PER_PAGE,
     skip,
     include: 1,
-  });
+  } as any);
   return {
     posts: entries.items,
     total: entries.total,
@@ -84,13 +85,14 @@ export async function getBlogPostBySlug(
 
 export async function getAllBlogSlugs(): Promise<BlogPostEntry[]> {
   if (!isConfigured()) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const entries = await getClient().withoutUnresolvableLinks.getEntries<BlogPostSkeleton>({
     content_type: "bubbleInBlog",
     select: ["fields.slug", "sys.updatedAt"],
     order: ["-fields.date"],
     "fields.date[lte]": new Date().toISOString(),
     limit: 1000,
-  });
+  } as any);
   return entries.items;
 }
 
