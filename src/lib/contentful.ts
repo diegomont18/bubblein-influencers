@@ -53,14 +53,16 @@ export interface PaginatedPosts {
 export async function getBlogPosts(page = 1): Promise<PaginatedPosts> {
   if (!isConfigured()) return { posts: [], total: 0, page: 1, totalPages: 0 };
   const skip = (page - 1) * POSTS_PER_PAGE;
-  const entries = await getClient().withoutUnresolvableLinks.getEntries<BlogPostSkeleton>({
-    content_type: "bubbleInBlog",
-    order: ["-fields.date" as unknown as "sys.createdAt"],
+  const query = {
+    content_type: "bubbleInBlog" as const,
+    order: ["-fields.date"],
     "fields.date[lte]": new Date().toISOString(),
     limit: POSTS_PER_PAGE,
     skip,
-    include: 1,
-  });
+    include: 1 as const,
+  };
+  // @ts-expect-error Contentful SDK types don't support fields.* in order/filter but the API does
+  const entries = await getClient().withoutUnresolvableLinks.getEntries<BlogPostSkeleton>(query);
   return {
     posts: entries.items,
     total: entries.total,
@@ -84,13 +86,15 @@ export async function getBlogPostBySlug(
 
 export async function getAllBlogSlugs(): Promise<BlogPostEntry[]> {
   if (!isConfigured()) return [];
-  const entries = await getClient().withoutUnresolvableLinks.getEntries<BlogPostSkeleton>({
-    content_type: "bubbleInBlog",
-    select: ["fields.slug" as unknown as "sys", "sys.updatedAt"],
-    order: ["-fields.date" as unknown as "sys.createdAt"],
+  const slugQuery = {
+    content_type: "bubbleInBlog" as const,
+    select: ["fields.slug", "sys.updatedAt"],
+    order: ["-fields.date"],
     "fields.date[lte]": new Date().toISOString(),
     limit: 1000,
-  });
+  };
+  // @ts-expect-error Contentful SDK types don't support fields.* in order/select/filter but the API does
+  const entries = await getClient().withoutUnresolvableLinks.getEntries<BlogPostSkeleton>(slugQuery);
   return entries.items;
 }
 
