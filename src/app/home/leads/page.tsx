@@ -68,6 +68,10 @@ export default function LeadsPage() {
   // Page loading state
   const [pageLoading, setPageLoading] = useState(true);
 
+  // Past scans
+  const [pastScans, setPastScans] = useState<Array<{ id: string; created_at: string; post_urls: string[]; matched_leads: number; status: string; leads: Lead[] }>>([]);
+  const [activeScanId, setActiveScanId] = useState<string | null>(null);
+
   // Scan state
   const [scanning, setScanning] = useState(false);
   const [scanStep, setScanStep] = useState(0);
@@ -140,8 +144,23 @@ export default function LeadsPage() {
     }
   }, [activeUrlId]);
 
+  // --- Load past scans ---
+  const loadPastScans = useCallback(async () => {
+    const res = await fetch("/api/leads/scans");
+    if (!res.ok) return;
+    const json = await res.json();
+    const scans = json.scans ?? [];
+    setPastScans(scans);
+    // If we have past scans and no active scan, load the most recent one
+    if (scans.length > 0 && !activeScanId && leads.length === 0) {
+      const latest = scans[0];
+      setActiveScanId(latest.id);
+      setLeads((latest.leads ?? []).filter((l: Lead) => l.name && l.name !== "Unknown" && l.name.length >= 2));
+    }
+  }, [activeScanId, leads.length]);
+
   useEffect(() => {
-    Promise.all([loadIcpProfiles(), loadUrlProfiles()]).finally(() => setPageLoading(false));
+    Promise.all([loadIcpProfiles(), loadUrlProfiles(), loadPastScans()]).finally(() => setPageLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- ICP profile actions ---
@@ -252,10 +271,25 @@ export default function LeadsPage() {
     );
   }
 
+  // --- Select past scan ---
+  function handleSelectScan(scanId: string) {
+    const scan = pastScans.find((s) => s.id === scanId);
+    if (scan) {
+      setActiveScanId(scanId);
+      setLeads((scan.leads ?? []).filter((l: Lead) => l.name && l.name !== "Unknown" && l.name.length >= 2));
+      setFilterIcpLevel("all");
+      setFilterEngagement("all");
+      setFilterPostUrl("all");
+      setExpandedSourceRow(null);
+    }
+  }
+
   // --- Filters ---
   const [filterIcpLevel, setFilterIcpLevel] = useState<string>("all");
   const [filterEngagement, setFilterEngagement] = useState<string>("all");
   const [filterPostUrl, setFilterPostUrl] = useState<string>("all");
+  const [expandedSourceRow, setExpandedSourceRow] = useState<string | null>(null);
+  const [expandedHeadlineRow, setExpandedHeadlineRow] = useState<string | null>(null);
 
   // --- Scan (background + polling) ---
   async function handleScan() {
@@ -296,6 +330,7 @@ export default function LeadsPage() {
       }
 
       const { scanId } = await res.json();
+      setActiveScanId(scanId);
 
       // 2. Poll for status every 5 seconds
       let scanComplete = false;
@@ -312,9 +347,9 @@ export default function LeadsPage() {
           const statusData = await statusRes.json();
           const { status, leads: foundLeads, found, totalEngagers, postsAnalyzed, errorMessage } = statusData;
 
-          // Update displayed leads progressively
+          // Update displayed leads progressively (filter out Unknown)
           if (foundLeads && foundLeads.length > 0) {
-            setLeads(foundLeads as Lead[]);
+            setLeads((foundLeads as Lead[]).filter((l: Lead) => l.name && l.name !== "Unknown" && l.name.length >= 2));
           }
 
           if (status === "complete") {
@@ -324,12 +359,13 @@ export default function LeadsPage() {
             } else {
               setSuccessMessage(`Encontramos ${found} leads de ${totalEngagers} engajadores analisados em ${postsAnalyzed} posts.`);
             }
-            // Refresh credits
+            // Refresh credits and reload past scans
             window.dispatchEvent(new CustomEvent("credits-updated", { detail: null }));
             fetch("/api/auth/me")
               .then((r) => r.ok ? r.json() : null)
               .then((d) => { if (d?.user) window.dispatchEvent(new CustomEvent("credits-updated", { detail: d.user.credits })); })
               .catch(() => {});
+            loadPastScans();
           } else if (status === "error") {
             scanComplete = true;
             setError(errorMessage ?? "Erro durante a busca no servidor.");
@@ -351,10 +387,10 @@ export default function LeadsPage() {
   }
 
   function exportCsv() {
-    const headers = ["Nome", "LinkedIn URL", "Headline", "Cargo", "Empresa", "ICP Score", "ICP Nivel", "Titulos Match", "Departamentos Match", "Tipo Engajamento", "Post URL"];
+    const headers = ["Nome", "LinkedIn URL", "Cargo", "Especialidades", "Empresa", "ICP Score", "ICP Nivel", "Titulos Match", "Departamentos Match", "Tipo Engajamento", "Post URL"];
     const escape = (v: string) => v.includes(",") || v.includes('"') || v.includes("\n") ? '"' + v.replace(/"/g, '""') + '"' : v;
     const rows = filteredLeads.map((l) => [
-      l.name, l.linkedin_url, l.headline, l.job_title ?? "", l.company,
+      l.name, l.linkedin_url, l.job_title ?? "", l.headline ?? "", l.company,
       String(l.icp_score), icpLabel(l.icp_score).text,
       (l.matched_titles ?? []).join("; "), (l.matched_departments ?? []).join("; "),
       l.engagement_type, l.source_post_url,
@@ -378,8 +414,9 @@ export default function LeadsPage() {
   const activeIcp = icpProfiles.find((p) => p.id === activeIcpId);
   const activeUrl = urlProfiles.find((p) => p.id === activeUrlId);
 
-  // Filtered leads
+  // Filtered leads — always exclude Unknown/empty names
   const filteredLeads = leads.filter((l) => {
+    if (!l.name || l.name === "Unknown" || l.name.length < 2) return false;
     if (filterIcpLevel !== "all") {
       const label = icpLabel(l.icp_score).text;
       if (label !== filterIcpLevel) return false;
@@ -390,7 +427,22 @@ export default function LeadsPage() {
   });
 
   // Unique post URLs for filter dropdown
-  const uniquePostUrls = [...new Set(leads.map((l) => l.source_post_url).filter(Boolean))];
+  const uniquePostUrls = Array.from(new Set(leads.map((l) => l.source_post_url).filter(Boolean)));
+
+  // Extract short label from post URL (username or slug)
+  function shortPostLabel(url: string): string {
+    if (!url) return "—";
+    // /posts/username_title-activity-... → @username
+    const postsMatch = url.match(/\/posts\/([^_/?#]+)/);
+    if (postsMatch) return `@${postsMatch[1]}`;
+    // /feed/update/urn:li:share:... → Post #last6digits
+    const shareMatch = url.match(/urn:li:(?:share|activity):(\d+)/);
+    if (shareMatch) return `Post #${shareMatch[1].slice(-6)}`;
+    // /in/username → @username
+    const inMatch = url.match(/\/in\/([^/?#]+)/);
+    if (inMatch) return `@${inMatch[1]}`;
+    return url.slice(-30);
+  }
 
   if (pageLoading) {
     return (
@@ -661,14 +713,29 @@ export default function LeadsPage() {
       )}
 
       {/* Results */}
-      {leads.length > 0 && (
+      {(leads.length > 0 || pastScans.length > 0) && (
         <div ref={resultsRef} className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <h2 className="text-lg font-semibold text-white font-[family-name:var(--font-lexend)]">
-              Leads Encontrados
-              <span className="ml-2 text-sm font-normal text-[#adaaaa]">{filteredLeads.length}{filteredLeads.length !== leads.length ? ` de ${leads.length}` : ""} leads</span>
-              {scanning && <span className="ml-2 text-xs text-[#ca98ff] animate-pulse">(atualizando...)</span>}
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-white font-[family-name:var(--font-lexend)]">
+                Leads Encontrados
+                <span className="ml-2 text-sm font-normal text-[#adaaaa]">{filteredLeads.length}{filteredLeads.length !== leads.length ? ` de ${leads.length}` : ""} leads</span>
+                {scanning && <span className="ml-2 text-xs text-[#ca98ff] animate-pulse">(atualizando...)</span>}
+              </h2>
+              {pastScans.length > 0 && (
+                <select
+                  value={activeScanId ?? ""}
+                  onChange={(e) => handleSelectScan(e.target.value)}
+                  className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] font-[family-name:var(--font-lexend)]"
+                >
+                  {pastScans.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {new Date(s.created_at).toLocaleDateString("pt-BR")} {new Date(s.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} — {s.matched_leads ?? 0} leads
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
             <button
               onClick={exportCsv}
               className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)]"
@@ -691,14 +758,12 @@ export default function LeadsPage() {
               <option value="comment">Comentou</option>
               <option value="reaction">Curtiu</option>
             </select>
-            {uniquePostUrls.length > 1 && (
-              <select value={filterPostUrl} onChange={(e) => setFilterPostUrl(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] max-w-[300px] truncate">
-                <option value="all">Post: Todos</option>
-                {uniquePostUrls.map((url) => (
-                  <option key={url} value={url}>{url.split("/posts/")[1]?.split("-activity")[0] ?? url.slice(-40)}</option>
-                ))}
-              </select>
-            )}
+            <select value={filterPostUrl} onChange={(e) => setFilterPostUrl(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] max-w-[300px] truncate">
+              <option value="all">Fonte: Todas ({uniquePostUrls.length})</option>
+              {uniquePostUrls.map((url) => (
+                <option key={url} value={url}>{shortPostLabel(url)}</option>
+              ))}
+            </select>
           </div>
 
           <div className="rounded-2xl bg-[#131313] overflow-hidden">
@@ -710,9 +775,11 @@ export default function LeadsPage() {
                     <th className="px-2 py-3"></th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Lead</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Cargo</th>
+                    <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Especialidades</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Empresa</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">ICP Score</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Engajamento</th>
+                    <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Fonte</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -736,9 +803,27 @@ export default function LeadsPage() {
                             <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-white hover:text-[#ca98ff] transition-colors font-medium">
                               {lead.name}
                             </a>
-                            {lead.headline && <div className="text-xs text-[#adaaaa] mt-0.5 max-w-[280px] truncate">{lead.headline}</div>}
                           </td>
-                          <td className="px-4 py-3 text-[#adaaaa] text-sm max-w-[200px] truncate">{lead.job_title || "—"}</td>
+                          <td className="px-4 py-3 text-[#adaaaa] text-sm max-w-[180px] truncate">{lead.job_title || "—"}</td>
+                          <td className="px-4 py-3 text-[#adaaaa] text-xs max-w-[220px]">
+                            {lead.headline ? (
+                              expandedHeadlineRow === lead.slug ? (
+                                <div>
+                                  <span className="break-words">{lead.headline}</span>
+                                  <button onClick={() => setExpandedHeadlineRow(null)} className="block mt-1 text-[10px] text-[#ca98ff] hover:text-white">recolher</button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setExpandedHeadlineRow(lead.slug)}
+                                  className="text-left hover:text-[#ca98ff] transition-colors"
+                                  title={lead.headline}
+                                >
+                                  <span className="line-clamp-2">{lead.headline}</span>
+                                  {lead.headline.length > 60 && <span className="text-[10px] text-[#ca98ff] mt-0.5 block">ver mais</span>}
+                                </button>
+                              )
+                            ) : "—"}
+                          </td>
                           <td className="px-4 py-3 text-[#adaaaa] text-sm">{lead.company || "—"}</td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold ${label.cls}`}>
@@ -754,6 +839,24 @@ export default function LeadsPage() {
                               {lead.engagement_type === "both" ? "Curtiu + Comentou" :
                                lead.engagement_type === "comment" ? "Comentou" : "Curtiu"}
                             </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {expandedSourceRow === lead.slug ? (
+                              <div>
+                                <a href={lead.source_post_url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#ca98ff] hover:underline break-all">
+                                  {lead.source_post_url}
+                                </a>
+                                <button onClick={() => setExpandedSourceRow(null)} className="block mt-1 text-[10px] text-[#adaaaa] hover:text-white">recolher</button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setExpandedSourceRow(lead.slug)}
+                                className="text-xs text-[#adaaaa] hover:text-[#ca98ff] transition-colors truncate max-w-[120px] block"
+                                title={lead.source_post_url}
+                              >
+                                {shortPostLabel(lead.source_post_url)}
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
