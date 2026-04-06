@@ -26,8 +26,8 @@ export default async function BlogPage({
     <div className="min-h-screen bg-[#0B0B1A] text-white font-[family-name:var(--font-geist-sans)]">
       <Navbar />
 
-      <main className="max-w-4xl mx-auto px-6 pt-28 pb-20">
-        <h1 className="text-4xl md:text-5xl font-bold mb-4">
+      <main className="max-w-6xl mx-auto px-6 pt-28 pb-20">
+        <h1 className="text-3xl md:text-4xl font-bold mb-4">
           <span className="text-gradient">Blog</span>
         </h1>
         <p className="text-gray-400 mb-12 text-lg">
@@ -37,7 +37,7 @@ export default async function BlogPage({
         {posts.length === 0 ? (
           <p className="text-gray-500">Nenhum post publicado ainda.</p>
         ) : (
-          <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {posts.map((post) => {
               const imageUrl = getImageUrl(post.fields.image);
               return (
@@ -47,41 +47,30 @@ export default async function BlogPage({
                   className="block bg-[#12122A] border border-[#1E1E3A] rounded-2xl overflow-hidden hover:border-[#E91E8C]/30 transition-colors"
                 >
                   {imageUrl && (
-                    <div className="relative w-full h-48 md:h-64">
+                    <div className="relative w-full aspect-[4/3]">
                       <Image
                         src={imageUrl}
                         alt={post.fields.title}
                         fill
                         className="object-cover"
-                        sizes="(max-width: 768px) 100vw, 896px"
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                       />
                     </div>
                   )}
-                  <div className="p-6 md:p-8">
-                    <div className="flex items-center gap-3 mb-3">
-                      <time className="text-sm text-[#E91E8C] font-medium">
-                        {new Date(post.fields.date).toLocaleDateString("pt-BR", {
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                        })}
-                      </time>
-                      {post.fields.author && (
-                        <>
-                          <span className="text-gray-600">·</span>
-                          <span className="text-sm text-gray-400">{post.fields.author}</span>
-                        </>
-                      )}
-                    </div>
-                    <h2 className="text-xl md:text-2xl font-bold mb-3">
+                  <div className="p-4">
+                    <h2 className="text-base font-bold mb-2 line-clamp-2">
                       {post.fields.title}
                     </h2>
-                    <p className="text-gray-400 leading-relaxed line-clamp-3">
-                      {post.fields.summary}
-                    </p>
-                    <span className="inline-block mt-4 text-sm text-[#E91E8C] font-medium">
-                      Ler mais →
-                    </span>
+                    {post.fields.author && (
+                      <p className="text-sm text-gray-400 mb-1">{post.fields.author}</p>
+                    )}
+                    <time className="text-sm text-gray-500">
+                      {new Date(post.fields.date).toLocaleDateString("pt-BR", {
+                        year: "2-digit",
+                        month: "numeric",
+                        day: "numeric",
+                      })}
+                    </time>
                   </div>
                 </Link>
               );

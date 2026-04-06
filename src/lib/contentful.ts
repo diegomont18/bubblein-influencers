@@ -56,6 +56,7 @@ export async function getBlogPosts(page = 1): Promise<PaginatedPosts> {
   const entries = await getClient().withoutUnresolvableLinks.getEntries<BlogPostSkeleton>({
     content_type: "bubbleInBlog",
     order: ["-fields.date"],
+    "fields.date[lte]": new Date().toISOString(),
     limit: POSTS_PER_PAGE,
     skip,
     include: 1,
@@ -87,6 +88,7 @@ export async function getAllBlogSlugs(): Promise<BlogPostEntry[]> {
     content_type: "bubbleInBlog",
     select: ["fields.slug", "sys.updatedAt"],
     order: ["-fields.date"],
+    "fields.date[lte]": new Date().toISOString(),
     limit: 1000,
   });
   return entries.items;

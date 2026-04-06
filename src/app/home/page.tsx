@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { CastingResultsDark } from "@/components/casting/casting-results-dark";
+import { CastingResultsView } from "@/components/casting/casting-results-view";
 import { CastingProfile } from "@/components/casting/casting-results";
 
 const SEARCH_STEPS = [
@@ -52,14 +52,19 @@ export default function HomePage() {
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
   const [filterCampaignId, setFilterCampaignId] = useState<string | null>(null); // null = all
 
-  // View toggle & panorama stats
-  const [activeView, setActiveView] = useState<"campanhas" | "panorama">("campanhas");
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [lastSearchStats, _setLastSearchStats] = useState<{
-    totalCandidates: number;
-    matched: number;
-    keywordStats: Record<string, { googleResults: number; candidates: number; matched: number; filteredJob: number; filteredRepost: number }>;
-  } | null>(null);
+  // Share management
+  const [shares, setShares] = useState<Array<{
+    id: string;
+    token: string;
+    label: string | null;
+    campaign_id: string | null;
+    campaigns: { name: string } | null;
+    views_count: number;
+    created_at: string;
+  }>>([]);
+  const [showSharePanel, setShowSharePanel] = useState(false);
+  const [shareCreating, setShareCreating] = useState(false);
+  const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
 
   // Search tabs
   const [searchTabs, setSearchTabs] = useState<SearchTab[]>([]);
@@ -215,6 +220,57 @@ export default function HomePage() {
   const allProfiles = useMemo(() => {
     return filteredTabs.filter((t) => t.loaded).flatMap((t) => t.profiles);
   }, [filteredTabs]);
+
+  // Load shares
+  const loadShares = useCallback(async () => {
+    try {
+      const res = await fetch("/api/shares");
+      if (!res.ok) return;
+      const json = await res.json();
+      setShares(json.shares ?? []);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadShares(); }, [loadShares]);
+
+  async function handleCreateShare(campaignId: string | null) {
+    setShareCreating(true);
+    try {
+      const campaignName = campaignId
+        ? campaigns.find((c) => c.id === campaignId)?.name ?? "Campanha"
+        : "Todas as campanhas";
+      const res = await fetch("/api/shares", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId, label: campaignName }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setShares((prev) => [json.share, ...prev]);
+      }
+    } catch { /* ignore */ }
+    setShareCreating(false);
+  }
+
+  async function handleRevokeShare(id: string) {
+    try {
+      const res = await fetch("/api/shares", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        setShares((prev) => prev.filter((s) => s.id !== id));
+      }
+    } catch { /* ignore */ }
+  }
+
+  function copyShareUrl(id: string, token: string) {
+    const url = `${window.location.origin}/s/${token}`;
+    navigator.clipboard.writeText(url);
+    setCopiedShareId(id);
+    setTimeout(() => setCopiedShareId(null), 2000);
+  }
 
   async function handleSearch() {
     if (userCredits <= 0) { setError("Sem créditos. Compre mais para continuar buscando."); return; }
@@ -583,44 +639,6 @@ export default function HomePage() {
       {/* Results */}
       {(searchTabs.length > 0 || searching) && (
         <div ref={resultsRef} className="space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-4">
-              <h2 className="text-lg font-semibold text-white font-[family-name:var(--font-lexend)]">
-                Resultados da Busca
-                <span className="ml-2 text-sm font-normal text-[#adaaaa]">{allProfiles.length} resultados</span>
-              </h2>
-              {/* View toggle */}
-              <div className="flex rounded-full bg-[#20201f] p-0.5">
-                <button
-                  onClick={() => setActiveView("campanhas")}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition-all font-[family-name:var(--font-lexend)] ${activeView === "campanhas" ? "bg-[#ca98ff] text-[#46007d]" : "text-[#adaaaa] hover:text-white"}`}
-                >
-                  Campanhas
-                </button>
-                <button
-                  onClick={() => setActiveView("panorama")}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition-all font-[family-name:var(--font-lexend)] ${activeView === "panorama" ? "bg-[#ca98ff] text-[#46007d]" : "text-[#adaaaa] hover:text-white"}`}
-                >
-                  Panorama
-                </button>
-              </div>
-            </div>
-
-            {/* Campaign filter */}
-            {activeView === "campanhas" && (
-              <select
-                value={filterCampaignId ?? ""}
-                onChange={(e) => setFilterCampaignId(e.target.value || null)}
-                className="rounded-full bg-[#20201f] px-4 py-2 text-xs text-[#adaaaa] outline-none font-[family-name:var(--font-lexend)] border-b-2 border-transparent focus:border-[#ca98ff]"
-              >
-                <option value="">Todas as campanhas</option>
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            )}
-          </div>
-
           {searching && (
             <div className="rounded-2xl bg-[#131313] p-6 space-y-4">
               <div className="space-y-3">
@@ -650,87 +668,97 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Campanhas view */}
-          {!searching && activeView === "campanhas" && (
+          {!searching && (
             <>
-              {allProfiles.length === 0 && filterCampaignId ? (
-                <div className="rounded-2xl bg-[#131313] overflow-hidden">
-                  <div className="px-6 py-12 text-center text-[#adaaaa] text-sm">
-                    Nenhum creator encontrado para essa campanha. Faça uma busca adicionando palavras-chave e sinônimos para encontrar creators relevantes.
-                  </div>
-                </div>
-              ) : (
-                <CastingResultsDark
-                  profiles={allProfiles}
-                  queryTheme={themes}
-                />
-              )}
-            </>
-          )}
+              {/* Share button */}
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setShowSharePanel((v) => !v)}
+                  className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)] flex items-center gap-2"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                    <polyline points="16 6 12 2 8 6"/>
+                    <line x1="12" y1="2" x2="12" y2="15"/>
+                  </svg>
+                  Compartilhar
+                </button>
+              </div>
 
-          {/* Panorama view */}
-          {!searching && activeView === "panorama" && (
-            lastSearchStats ? (
-              <div className="space-y-4">
-                {/* Summary cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="rounded-xl bg-[#131313] p-4">
-                    <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Perfis analisados</div>
-                    <div className="text-2xl font-bold text-white mt-1">{lastSearchStats.totalCandidates}</div>
+              {/* Share management panel */}
+              {showSharePanel && (
+                <div className="rounded-2xl bg-[#131313] border border-[#262626] p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-white font-[family-name:var(--font-lexend)]">Compartilhamento</h3>
+                    <button onClick={() => setShowSharePanel(false)} className="text-[#adaaaa] hover:text-white text-lg leading-none">&times;</button>
                   </div>
-                  <div className="rounded-xl bg-[#131313] p-4">
-                    <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Creators encontrados</div>
-                    <div className="text-2xl font-bold text-[#a2f31f] mt-1">{lastSearchStats.matched}</div>
-                  </div>
-                  <div className="rounded-xl bg-[#131313] p-4">
-                    <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Taxa de conversão</div>
-                    <div className="text-2xl font-bold text-[#ca98ff] mt-1">{lastSearchStats.totalCandidates > 0 ? Math.round((lastSearchStats.matched / lastSearchStats.totalCandidates) * 100) : 0}%</div>
-                  </div>
-                  <div className="rounded-xl bg-[#131313] p-4">
-                    <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Creators ativos</div>
-                    <div className="text-2xl font-bold text-white mt-1">
-                      {lastSearchStats.totalCandidates > 0 ? Math.round((lastSearchStats.matched / lastSearchStats.totalCandidates) * 100) : 0}%
-                      <span className="text-xs font-normal text-[#adaaaa] ml-1">dos perfis</span>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Per-keyword breakdown */}
-                <div className="rounded-2xl bg-[#131313] overflow-hidden">
-                  <div className="px-4 py-3 border-b border-[#262626]">
-                    <h3 className="text-sm font-semibold text-white font-[family-name:var(--font-lexend)]">Desempenho por Keyword</h3>
+                  {/* Create share */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-xs text-[#adaaaa] font-[family-name:var(--font-lexend)]">Criar link para:</span>
+                    <button
+                      onClick={() => handleCreateShare(null)}
+                      disabled={shareCreating}
+                      className="rounded-full bg-[#ca98ff]/10 px-3 py-1.5 text-xs font-medium text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors font-[family-name:var(--font-lexend)] disabled:opacity-50"
+                    >
+                      Todas as campanhas
+                    </button>
+                    {campaigns.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => handleCreateShare(c.id)}
+                        disabled={shareCreating}
+                        className="rounded-full bg-[#20201f] px-3 py-1.5 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)] disabled:opacity-50"
+                      >
+                        {c.name}
+                      </button>
+                    ))}
                   </div>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-[#262626]">
-                        <th className="px-4 py-2 text-left text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Keyword</th>
-                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Posts encontrados</th>
-                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Perfis descobertos</th>
-                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Creators válidos</th>
-                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Filtrados</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(lastSearchStats.keywordStats).map(([keyword, stats]) => (
-                        <tr key={keyword} className="border-b border-[#262626]/50 hover:bg-[#20201f]">
-                          <td className="px-4 py-2.5 text-white">{keyword}</td>
-                          <td className="px-4 py-2.5 text-right text-[#adaaaa]">{stats.googleResults}</td>
-                          <td className="px-4 py-2.5 text-right text-[#adaaaa]">{stats.candidates}</td>
-                          <td className="px-4 py-2.5 text-right text-[#a2f31f]">{stats.matched}</td>
-                          <td className="px-4 py-2.5 text-right text-[#ff946e]">{stats.filteredJob + stats.filteredRepost}</td>
-                        </tr>
+
+                  {/* Active shares */}
+                  {shares.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Links ativos</div>
+                      {shares.map((s) => (
+                        <div key={s.id} className="flex items-center gap-3 rounded-xl bg-[#1a1a1a] px-4 py-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-white truncate">{s.label || (s.campaigns?.name ?? "Todas as campanhas")}</div>
+                            <div className="flex items-center gap-3 mt-1 text-[10px] text-[#adaaaa]">
+                              <span>{new Date(s.created_at).toLocaleDateString("pt-BR")}</span>
+                              <span>·</span>
+                              <span>{s.views_count} {s.views_count === 1 ? "visualização" : "visualizações"}</span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => copyShareUrl(s.id, s.token)}
+                            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors font-[family-name:var(--font-lexend)] whitespace-nowrap ${
+                              copiedShareId === s.id
+                                ? "bg-[#a2f31f]/10 text-[#a2f31f]"
+                                : "bg-[#ca98ff]/10 text-[#ca98ff] hover:bg-[#ca98ff]/20"
+                            }`}
+                          >
+                            {copiedShareId === s.id ? "Link copiado!" : "Copiar link"}
+                          </button>
+                          <button
+                            onClick={() => handleRevokeShare(s.id)}
+                            className="rounded-full bg-[#ff946e]/10 px-3 py-1.5 text-xs font-medium text-[#ff946e] hover:bg-[#ff946e]/20 transition-colors font-[family-name:var(--font-lexend)] whitespace-nowrap"
+                          >
+                            Revogar
+                          </button>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ) : (
-              <div className="rounded-2xl bg-[#131313] overflow-hidden">
-                <div className="px-6 py-12 text-center text-[#adaaaa] text-sm">
-                  Realize uma busca para ver o panorama de resultados.
-                </div>
-              </div>
-            )
+              )}
+
+              <CastingResultsView
+                profiles={allProfiles}
+                campaigns={campaigns}
+                filterCampaignId={filterCampaignId}
+                onFilterCampaignChange={setFilterCampaignId}
+              />
+            </>
           )}
         </div>
       )}

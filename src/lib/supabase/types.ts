@@ -376,6 +376,38 @@ export interface Database {
           created_at?: string;
         };
       };
+      campaign_shares: {
+        Row: {
+          id: string;
+          user_id: string;
+          campaign_id: string | null;
+          token: string;
+          label: string | null;
+          views_count: number;
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          campaign_id?: string | null;
+          token: string;
+          label?: string | null;
+          views_count?: number;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          campaign_id?: string | null;
+          token?: string;
+          label?: string | null;
+          views_count?: number;
+          is_active?: boolean;
+          created_at?: string;
+        };
+      };
       checker_entries: {
         Row: {
           id: string;

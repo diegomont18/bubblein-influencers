@@ -111,7 +111,7 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
                 pathname === "/home/leads" ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
               }`}
             >
-              Leads <span className="italic text-[10px] text-[#f5c542] ml-1">(beta)</span>
+              Leads
             </Link>
           </nav>
         </aside>

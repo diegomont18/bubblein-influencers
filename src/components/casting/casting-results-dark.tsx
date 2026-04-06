@@ -19,6 +19,7 @@ interface CastingResultsDarkProps {
   profiles: CastingProfile[];
   queryTheme?: string;
   highlightSlugs?: Set<string>;
+  readOnly?: boolean;
 }
 
 type SortKey = "name" | "followers" | "posts_per_month" | "avg_likes_per_post" | "creator_score";
@@ -49,7 +50,7 @@ function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort }:
   );
 }
 
-export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsDarkProps) {
+export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: CastingResultsDarkProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -190,7 +191,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
                 <SortableHeader label="Score" sortKey="creator_score" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 {showDetails && <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Keyword</th>}
                 {showDetails && <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Data</th>}
-                <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Etapa</th>
+                {!readOnly && <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Etapa</th>}
               </tr>
             </thead>
             <tbody>
@@ -292,6 +293,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
                         {p.found_at ? new Date(p.found_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
                       </td>
                     )}
+                    {!readOnly && (
                     <td className="px-4 py-3">
                       <select
                         value={stage}
@@ -307,6 +309,7 @@ export function CastingResultsDark({ profiles, highlightSlugs }: CastingResultsD
                         ))}
                       </select>
                     </td>
+                    )}
                   </tr>
                 );
               })}
