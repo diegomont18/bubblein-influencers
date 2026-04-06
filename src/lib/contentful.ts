@@ -61,7 +61,6 @@ export async function getBlogPosts(page = 1): Promise<PaginatedPosts> {
     skip,
     include: 1 as const,
   };
-  // @ts-expect-error Contentful SDK types don't support fields.* in order/filter but the API does
   const entries = await getClient().withoutUnresolvableLinks.getEntries<BlogPostSkeleton>(query);
   return {
     posts: entries.items,
@@ -93,7 +92,6 @@ export async function getAllBlogSlugs(): Promise<BlogPostEntry[]> {
     "fields.date[lte]": new Date().toISOString(),
     limit: 1000,
   };
-  // @ts-expect-error Contentful SDK types don't support fields.* in order/select/filter but the API does
   const entries = await getClient().withoutUnresolvableLinks.getEntries<BlogPostSkeleton>(slugQuery);
   return entries.items;
 }
