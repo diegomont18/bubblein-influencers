@@ -22,7 +22,6 @@ export function ImportForm({ onFilterDuplicates }: ImportFormProps) {
   } | null>(null);
   const [lastUrls, setLastUrls] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [showDuplicates, setShowDuplicates] = useState(false);
   const tagContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -121,7 +120,6 @@ export function ImportForm({ onFilterDuplicates }: ImportFormProps) {
     setLoading(true);
     setError(null);
     setResult(null);
-    setShowDuplicates(false);
     setLastUrls(urls);
 
     try {
