@@ -8,12 +8,18 @@ import { JobsTable } from "@/components/enricher/jobs-table";
 
 export default function EnricherPage() {
   const [activeTab, setActiveTab] = useState<"profiles" | "jobs">("profiles");
+  const [duplicateSlugs, setDuplicateSlugs] = useState<string[] | null>(null);
+
+  function handleFilterDuplicates(slugs: string[]) {
+    setDuplicateSlugs(slugs);
+    setActiveTab("profiles");
+  }
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Profile Enricher</h1>
       <div className="grid grid-cols-2 gap-6">
-        <ImportForm />
+        <ImportForm onFilterDuplicates={handleFilterDuplicates} />
         <QueueStatus />
       </div>
       <div className="flex gap-1 border-b border-gray-200">
@@ -38,7 +44,14 @@ export default function EnricherPage() {
           Queue Jobs
         </button>
       </div>
-      {activeTab === "profiles" ? <ProfileTable /> : <JobsTable />}
+      {activeTab === "profiles" ? (
+        <ProfileTable
+          filterSlugs={duplicateSlugs}
+          onClearFilterSlugs={() => setDuplicateSlugs(null)}
+        />
+      ) : (
+        <JobsTable />
+      )}
     </div>
   );
 }

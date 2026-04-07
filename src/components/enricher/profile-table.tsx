@@ -93,7 +93,12 @@ function EditableCell({
   );
 }
 
-export function ProfileTable() {
+interface ProfileTableProps {
+  filterSlugs?: string[] | null;
+  onClearFilterSlugs?: () => void;
+}
+
+export function ProfileTable({ filterSlugs, onClearFilterSlugs }: ProfileTableProps = {}) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -134,14 +139,18 @@ export function ProfileTable() {
   const fetchProfiles = useCallback(async (silent?: boolean) => {
     if (!silent) setLoading(true);
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (filters.name) params.set("name", filters.name);
-    if (filters.topic) params.set("topic", filters.topic);
-    if (filters.company) params.set("company", filters.company);
-    if (filters.role) params.set("role", filters.role);
-    if (filters.followers_min) params.set("followers_min", filters.followers_min);
-    if (filters.followers_max) params.set("followers_max", filters.followers_max);
-    if (filters.status) params.set("status", filters.status);
-    if (filters.tag) params.set("tag", filters.tag);
+    if (filterSlugs && filterSlugs.length > 0) {
+      params.set("slugs", filterSlugs.join(","));
+    } else {
+      if (filters.name) params.set("name", filters.name);
+      if (filters.topic) params.set("topic", filters.topic);
+      if (filters.company) params.set("company", filters.company);
+      if (filters.role) params.set("role", filters.role);
+      if (filters.followers_min) params.set("followers_min", filters.followers_min);
+      if (filters.followers_max) params.set("followers_max", filters.followers_max);
+      if (filters.status) params.set("status", filters.status);
+      if (filters.tag) params.set("tag", filters.tag);
+    }
     if (sortBy) {
       params.set("sort_by", sortBy);
       params.set("sort_dir", sortDir);
@@ -157,7 +166,7 @@ export function ProfileTable() {
     } finally {
       setLoading(false);
     }
-  }, [page, filters, sortBy, sortDir]);
+  }, [page, filters, sortBy, sortDir, filterSlugs]);
 
   useEffect(() => {
     fetchProfiles();
@@ -465,6 +474,21 @@ export function ProfileTable() {
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white">
+      {/* Duplicate filter banner */}
+      {filterSlugs && filterSlugs.length > 0 && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between">
+          <span className="text-sm font-medium text-amber-700">
+            Showing {filterSlugs.length} already enriched profile(s)
+          </span>
+          <button
+            onClick={onClearFilterSlugs}
+            className="text-amber-500 hover:text-amber-700 text-lg leading-none ml-3"
+            title="Close"
+          >
+            &times;
+          </button>
+        </div>
+      )}
       {/* Filters */}
       <div className="border-b border-gray-200 p-4">
         <div className="flex flex-wrap gap-3">
@@ -518,6 +542,26 @@ export function ProfileTable() {
                 {t}
               </option>
             ))}
+          </select>
+          <select
+            value={sortBy ? `${sortBy}:${sortDir}` : ""}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!val) { setSortBy(""); setSortDir("desc"); }
+              else {
+                const [col, dir] = val.split(":");
+                setSortBy(col);
+                setSortDir(dir as "asc" | "desc");
+              }
+              setPage(1);
+            }}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+          >
+            <option value="">Sort by...</option>
+            <option value="name:asc">Name A-Z</option>
+            <option value="name:desc">Name Z-A</option>
+            <option value="last_enriched_at:desc">Last Enriched</option>
+            <option value="last_enriched_at:asc">First Enriched</option>
           </select>
           <button
             onClick={handleExportCsv}
@@ -877,22 +921,22 @@ export function ProfileTable() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-end border-t border-gray-200 px-4 py-3">
-          <div className="flex gap-2">
+        <div className="flex items-center justify-center border-t border-gray-200 px-4 py-4">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="rounded-md border border-gray-300 px-3 py-1 text-sm disabled:opacity-50"
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
             >
               Previous
             </button>
-            <span className="px-3 py-1 text-sm text-gray-600">
+            <span className="px-4 py-2 text-sm font-medium text-gray-600">
               Page {page} of {totalPages}
             </span>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="rounded-md border border-gray-300 px-3 py-1 text-sm disabled:opacity-50"
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
             >
               Next
             </button>

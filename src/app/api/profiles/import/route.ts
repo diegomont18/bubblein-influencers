@@ -18,6 +18,7 @@ export async function POST(request: Request) {
   const urls: string[] = body.urls;
   const tags: string[] = Array.isArray(body.tags) ? body.tags : [];
   const castingKeywords: string | undefined = typeof body.casting_keywords === "string" ? body.casting_keywords : undefined;
+  const force: boolean = body.force === true;
   if (!Array.isArray(urls) || urls.length === 0) {
     return NextResponse.json(
       { error: "urls must be a non-empty array" },
@@ -40,19 +41,39 @@ export async function POST(request: Request) {
   const service = createServiceClient();
   const { data: existing } = await service
     .from("profiles")
-    .select("url")
+    .select("id, url")
     .in("url", validUrls);
 
-  const existingUrls = new Set((existing ?? []).map((p) => p.url));
+  const existingMap = new Map((existing ?? []).map((p) => [p.url, p.id]));
   const duplicates: string[] = [];
   const newUrls: string[] = [];
 
   for (const url of validUrls) {
-    if (existingUrls.has(url)) {
+    if (existingMap.has(url)) {
       duplicates.push(url);
     } else {
       newUrls.push(url);
     }
+  }
+
+  // Force re-import: reset existing profiles and re-queue enrichment
+  let requeued = 0;
+  if (force && duplicates.length > 0) {
+    const duplicateIds = duplicates.map((url) => existingMap.get(url)!);
+
+    // Reset profiles to pending
+    await service
+      .from("profiles")
+      .update({ enrichment_status: "pending" })
+      .in("id", duplicateIds);
+
+    // Create new enrichment jobs
+    const jobs = duplicateIds.map((id) => ({
+      profile_id: id,
+      status: "queued",
+    }));
+    await service.from("enrichment_jobs").insert(jobs);
+    requeued = duplicateIds.length;
   }
 
   // Deduplicate within batch
@@ -95,8 +116,9 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     queued: uniqueNewUrls.length,
-    duplicates: duplicates.length,
-    duplicate_urls: duplicateSlugs,
+    requeued,
+    duplicates: force ? 0 : duplicates.length,
+    duplicate_urls: force ? [] : duplicateSlugs,
     invalid: invalid.length,
   });
 }

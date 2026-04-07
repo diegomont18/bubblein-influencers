@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useRef } from "react";
 
-export function ImportForm() {
+interface ImportFormProps {
+  onFilterDuplicates?: (slugs: string[]) => void;
+}
+
+export function ImportForm({ onFilterDuplicates }: ImportFormProps) {
   const [text, setText] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagText, setTagText] = useState("");
@@ -11,10 +15,12 @@ export function ImportForm() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     queued: number;
+    requeued?: number;
     duplicates: number;
     duplicate_urls: string[];
     invalid: number;
   } | null>(null);
+  const [lastUrls, setLastUrls] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const tagContainerRef = useRef<HTMLDivElement>(null);
@@ -116,6 +122,7 @@ export function ImportForm() {
     setError(null);
     setResult(null);
     setShowDuplicates(false);
+    setLastUrls(urls);
 
     try {
       const res = await fetch("/api/profiles/import", {
@@ -137,6 +144,34 @@ export function ImportForm() {
         setSelectedTags([]);
         setTagText("");
       }
+    } catch {
+      setError("Network error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForceReimport() {
+    if (lastUrls.length === 0) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const res = await fetch("/api/profiles/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: lastUrls, tags: selectedTags, force: true }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error ?? "Import failed");
+        return;
+      }
+
+      const data = await res.json();
+      setResult(data);
     } catch {
       setError("Network error");
     } finally {
@@ -238,47 +273,54 @@ export function ImportForm() {
 
       {result && (
         <div className="mt-3 space-y-2">
-          {result.queued > 0 && result.duplicates === 0 && (
+          {result.queued > 0 && result.duplicates === 0 && !result.requeued && (
             <p className="text-sm text-green-700">
               Queued {result.queued} profile(s) for enrichment.
+            </p>
+          )}
+          {(result.requeued ?? 0) > 0 && (
+            <p className="text-sm text-green-700">
+              Re-queued {result.requeued} profile(s) for enrichment.
+              {result.queued > 0 && ` Also queued ${result.queued} new profile(s).`}
             </p>
           )}
           {result.queued > 0 && result.duplicates > 0 && (
             <p className="text-sm text-green-700">
               Queued {result.queued} profile(s).{" "}
               <span className="text-amber-600 font-medium">
-                {result.duplicates} duplicate(s) skipped.
+                {result.duplicates} already enriched.
               </span>
             </p>
           )}
           {result.duplicates > 0 && result.queued === 0 && (
-            <p className="text-sm font-medium text-amber-600">
-              All URLs already exist — nothing imported.
-            </p>
+            <div className="text-sm text-amber-600">
+              <span className="font-medium">URLs already enriched</span>
+              {" — Do you want to "}
+              <button
+                onClick={handleForceReimport}
+                disabled={loading}
+                className="font-medium text-blue-600 hover:underline disabled:opacity-50"
+              >
+                import again
+              </button>
+              {" or "}
+              <button
+                onClick={() => {
+                  if (result.duplicate_urls?.length > 0 && onFilterDuplicates) {
+                    onFilterDuplicates(result.duplicate_urls);
+                  }
+                }}
+                className="font-medium text-blue-600 hover:underline"
+              >
+                see their data in table below
+              </button>
+              ?
+            </div>
           )}
           {result.invalid > 0 && (
             <p className="text-sm text-gray-500">
               {result.invalid} invalid URL(s) ignored.
             </p>
-          )}
-          {result.duplicates > 0 && result.duplicate_urls?.length > 0 && (
-            <div>
-              <button
-                onClick={() => setShowDuplicates(!showDuplicates)}
-                className="text-xs text-amber-600 hover:underline"
-              >
-                {showDuplicates ? "Hide" : "Show"} duplicate slugs ({result.duplicate_urls.length})
-              </button>
-              {showDuplicates && (
-                <ul className="mt-1 max-h-32 overflow-y-auto rounded border border-amber-200 bg-amber-50 p-2">
-                  {result.duplicate_urls.map((slug) => (
-                    <li key={slug} className="text-xs text-amber-700 font-mono">
-                      /{slug}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
           )}
         </div>
       )}

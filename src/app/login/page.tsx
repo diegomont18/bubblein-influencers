@@ -30,6 +30,7 @@ function LoginForm() {
 
       if (error) {
         setError(error.message);
+        setLoading(false);
         return;
       }
 
@@ -37,7 +38,6 @@ function LoginForm() {
       router.refresh();
     } catch {
       setError("Algo deu errado. Tente novamente.");
-    } finally {
       setLoading(false);
     }
   }

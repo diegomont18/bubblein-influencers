@@ -21,6 +21,7 @@ export async function GET(request: Request) {
   const followersMax = searchParams.get("followers_max");
   const status = searchParams.get("status");
   const tag = searchParams.get("tag");
+  const slugs = searchParams.get("slugs");
   const sortByParam = searchParams.get("sort_by");
   const sortDirParam = searchParams.get("sort_dir");
 
@@ -60,6 +61,10 @@ export async function GET(request: Request) {
     query = query.eq("tags", "{}");
   } else if (tag) {
     query = query.contains("tags", [tag]);
+  }
+  if (slugs) {
+    const slugList = slugs.split(",").map((s) => `https://www.linkedin.com/in/${s.trim()}`);
+    query = query.in("url", slugList);
   }
 
   const from = (page - 1) * limit;
