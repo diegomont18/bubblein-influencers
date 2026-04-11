@@ -353,3 +353,104 @@ export async function generateEmbedding(
     return null;
   }
 }
+
+/**
+ * Batch ICP scoring: sends multiple lead headlines to AI for semantic matching against ICP criteria.
+ * Returns a map of lead index → { score (0-100), matchedTitles, matchedDepartments, company }.
+ */
+export async function batchScoreIcpMatch(
+  leads: Array<{ index: number; name: string; headline: string }>,
+  icpJobTitles: string[],
+  icpDepartments: string[],
+): Promise<Map<number, { score: number; matchedTitles: string[]; matchedDepartments: string[]; company: string; jobTitle: string }>> {
+  const results = new Map<number, { score: number; matchedTitles: string[]; matchedDepartments: string[]; company: string; jobTitle: string }>();
+
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping ICP scoring");
+    return results;
+  }
+
+  if (leads.length === 0) return results;
+
+  const leadsText = leads.map((l) =>
+    `[${l.index}] "${l.name}" — "${l.headline}"`
+  ).join("\n");
+
+  const prompt = `You are an ICP (Ideal Customer Profile) matching assistant. Analyze each lead's LinkedIn headline and determine how well they match the target ICP.
+
+TARGET ICP:
+- Job Titles: ${icpJobTitles.length > 0 ? icpJobTitles.join(", ") : "(any)"}
+- Departments: ${icpDepartments.length > 0 ? icpDepartments.join(", ") : "(any)"}
+
+LEADS TO SCORE:
+${leadsText}
+
+For each lead, determine:
+1. score: 0-100 ICP match percentage (consider synonyms, translations PT/EN/ES, similar roles)
+2. matchedTitles: which ICP job titles match (semantically, not just exact string)
+3. matchedDepartments: which ICP departments match
+4. company: extract the company name from the headline if present (look for "at Company", "em Empresa", "@ Company", or company names after role descriptions)
+5. jobTitle: the primary job title/role (first role mentioned, not the full headline)
+
+IMPORTANT: Match semantically! "VP Marketing" matches "Vice Presidente de Marketing". "Sales" matches "Vendas" or "Comercial". "CEO" matches "Chief Executive Officer" or "Diretor Executivo".
+
+Respond ONLY with a JSON array, one object per lead:
+[{"i":0,"s":85,"mt":["Marketing"],"md":["Sales"],"c":"Acme Corp","jt":"VP Marketing"}, ...]
+
+Where: i=index, s=score, mt=matchedTitles, md=matchedDepartments, c=company, jt=jobTitle`;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.0-flash-lite-001",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 2000,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[ai] batchScoreIcpMatch failed: status=${res.status} body=${errText.slice(0, 300)}`);
+      return results;
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? "";
+    console.log(`[ai] batchScoreIcpMatch raw response: ${content.slice(0, 500)}`);
+
+    // Parse JSON from response (handle markdown code blocks)
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      console.error("[ai] batchScoreIcpMatch: could not find JSON array in response");
+      return results;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as Array<{
+      i: number; s: number; mt?: string[]; md?: string[]; c?: string; jt?: string;
+    }>;
+
+    for (const item of parsed) {
+      results.set(item.i, {
+        score: Math.max(0, Math.min(100, item.s ?? 0)),
+        matchedTitles: item.mt ?? [],
+        matchedDepartments: item.md ?? [],
+        company: item.c ?? "",
+        jobTitle: item.jt ?? "",
+      });
+    }
+
+    console.log(`[ai] batchScoreIcpMatch: scored ${results.size}/${leads.length} leads`);
+  } catch (err) {
+    console.error(`[ai] batchScoreIcpMatch exception:`, err);
+  }
+
+  return results;
+}
