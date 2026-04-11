@@ -35,7 +35,7 @@ interface SearchTab {
 }
 
 export default function HomePage() {
-  const [userCredits, setUserCredits] = useState<number>(3);
+  const [userCredits, setUserCredits] = useState<number>(5);
   const [themes, setThemes] = useState("");
   const [languageIdx, setLanguageIdx] = useState(0);
   const [minFollowers, setMinFollowers] = useState(2500);

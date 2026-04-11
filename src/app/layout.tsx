@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { Lexend, Be_Vietnam_Pro } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -73,6 +74,13 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${lexend.variable} ${beVietnamPro.variable} antialiased`}
       >
         {children}
+        <Script id="microsoft-clarity" strategy="afterInteractive">
+          {`(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window, document, "clarity", "script", "wa18uxhnpd");`}
+        </Script>
+        <Script src="https://www.googletagmanager.com/gtag/js?id=G-XJ9GYD31ZF" strategy="afterInteractive" />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-XJ9GYD31ZF');`}
+        </Script>
       </body>
     </html>
   );

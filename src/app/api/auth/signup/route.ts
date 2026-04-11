@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   if (user) {
     await service
       .from("user_roles")
-      .insert({ user_id: user.id, role: "user", credits: 3 });
+      .insert({ user_id: user.id, role: "user", credits: 5 });
   }
 
   return NextResponse.json({

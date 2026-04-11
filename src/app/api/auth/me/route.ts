@@ -23,7 +23,7 @@ export async function GET() {
       id: user.id,
       email: user.email,
       role: roleData?.role ?? "user",
-      credits: roleData?.credits ?? 3,
+      credits: roleData?.credits ?? 5,
     },
   });
 }

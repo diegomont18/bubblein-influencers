@@ -64,6 +64,7 @@ export default function LeadsPage() {
 
   // URL form
   const [postUrls, setPostUrls] = useState("");
+  const [userCredits, setUserCredits] = useState<number>(5);
 
   // Page loading state
   const [pageLoading, setPageLoading] = useState(true);
@@ -161,6 +162,12 @@ export default function LeadsPage() {
 
   useEffect(() => {
     Promise.all([loadIcpProfiles(), loadUrlProfiles(), loadPastScans()]).finally(() => setPageLoading(false));
+    fetch("/api/auth/me").then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d?.user) {
+        const c = d.user.credits === -1 ? Infinity : d.user.credits;
+        setUserCredits(c);
+      }
+    }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- ICP profile actions ---
@@ -295,6 +302,11 @@ export default function LeadsPage() {
   async function handleScan() {
     const urls = postUrls.split("\n").map((l) => l.trim()).filter(Boolean);
     if (urls.length === 0) { setError("Insira pelo menos uma URL de post."); return; }
+    if (userCredits !== Infinity) {
+      const maxPosts = Math.floor(userCredits / 15);
+      if (maxPosts === 0) { setError("Créditos insuficientes. São necessários pelo menos 15 créditos por link de post."); return; }
+      if (urls.length > maxPosts) { setError(`Você pode analisar no máximo ${maxPosts} post(s) com seus ${userCredits} créditos (15 créditos por link).`); return; }
+    }
     const titles = icpJobTitles.split(",").map((t) => t.trim()).filter(Boolean);
     const depts = icpDepartments.split(",").map((d) => d.trim()).filter(Boolean);
 
@@ -363,7 +375,12 @@ export default function LeadsPage() {
             window.dispatchEvent(new CustomEvent("credits-updated", { detail: null }));
             fetch("/api/auth/me")
               .then((r) => r.ok ? r.json() : null)
-              .then((d) => { if (d?.user) window.dispatchEvent(new CustomEvent("credits-updated", { detail: d.user.credits })); })
+              .then((d) => {
+                if (d?.user) {
+                  window.dispatchEvent(new CustomEvent("credits-updated", { detail: d.user.credits }));
+                  setUserCredits(d.user.credits === -1 ? Infinity : d.user.credits);
+                }
+              })
               .catch(() => {});
             loadPastScans();
           } else if (status === "error") {
@@ -639,7 +656,14 @@ export default function LeadsPage() {
             placeholder={"https://linkedin.com/posts/...\nhttps://linkedin.com/posts/..."}
             className={`${inputClass} resize-none`}
           />
-          <p className="mt-1 text-[10px] text-[#adaaaa]/60">Cole uma URL por linha. Cada post sera escaneado para encontrar quem curtiu e comentou.</p>
+          <p className="mt-1 text-[10px] text-[#adaaaa]/60">
+            Cole uma URL por linha. Cada post sera escaneado para encontrar quem curtiu e comentou.
+            {userCredits !== Infinity && (
+              <span className="ml-1 text-[#ca98ff]">
+                Você pode analisar até {Math.floor(userCredits / 15)} post(s) com {userCredits} créditos (15 créditos/link).
+              </span>
+            )}
+          </p>
         </div>
 
         <button
