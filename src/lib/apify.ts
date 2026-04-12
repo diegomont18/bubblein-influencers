@@ -70,7 +70,8 @@ export async function searchLinkedInProfiles(params: {
 }
 
 export async function fetchProfilePosts(
-  targetUrl: string
+  targetUrl: string,
+  maxPosts = 3
 ): Promise<Array<Record<string, unknown>>> {
   const token = process.env.APIFY_API_TOKEN;
   if (!token) {
@@ -83,7 +84,7 @@ export async function fetchProfilePosts(
     includeQuotePosts: true,
     includeReposts: false,
     maxComments: 0,
-    maxPosts: 3,
+    maxPosts,
     maxReactions: 0,
     scrapeComments: false,
     scrapeReactions: false,

@@ -12,6 +12,15 @@ interface User {
   last_sign_in_at: string | null;
 }
 
+interface PendingCredit {
+  id: string;
+  email: string;
+  extra_credits: number;
+  claimed: boolean;
+  claimed_at: string | null;
+  created_at: string;
+}
+
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "—";
   try {
@@ -36,7 +45,14 @@ export default function UsersPage() {
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState("user");
+  const [newExtraCredits, setNewExtraCredits] = useState(0);
   const [creating, setCreating] = useState(false);
+
+  // Pending credits
+  const [pendingCredits, setPendingCredits] = useState<PendingCredit[]>([]);
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [pendingExtra, setPendingExtra] = useState(0);
+  const [pendingCreating, setPendingCreating] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -54,9 +70,18 @@ export default function UsersPage() {
     }
   }, []);
 
+  const fetchPendingCredits = useCallback(async () => {
+    try {
+      const res = await fetch("/api/pending-credits");
+      const data = await res.json();
+      if (res.ok) setPendingCredits(data.pendingCredits ?? []);
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     fetchUsers();
-  }, [fetchUsers]);
+    fetchPendingCredits();
+  }, [fetchUsers, fetchPendingCredits]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -71,6 +96,7 @@ export default function UsersPage() {
           email: newEmail,
           password: newPassword,
           role: newRole,
+          extraCredits: newExtraCredits,
         }),
       });
       const data = await res.json();
@@ -81,8 +107,10 @@ export default function UsersPage() {
       setNewEmail("");
       setNewPassword("");
       setNewRole("user");
+      setNewExtraCredits(0);
       setShowCreate(false);
       fetchUsers();
+      fetchPendingCredits();
     } catch {
       setError("Failed to create user");
     } finally {
@@ -166,6 +194,38 @@ export default function UsersPage() {
     }
   }
 
+  async function handleCreatePending(e: React.FormEvent) {
+    e.preventDefault();
+    setPendingCreating(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/pending-credits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: pendingEmail, extraCredits: pendingExtra }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error); return; }
+      setPendingEmail("");
+      setPendingExtra(0);
+      fetchPendingCredits();
+    } catch { setError("Failed to create pending credits"); }
+    finally { setPendingCreating(false); }
+  }
+
+  async function handleDeletePending(id: string) {
+    setError(null);
+    try {
+      const res = await fetch("/api/pending-credits", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) setPendingCredits((prev) => prev.filter((p) => p.id !== id));
+      else { const data = await res.json(); setError(data.error); }
+    } catch { setError("Failed to delete"); }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -234,6 +294,17 @@ export default function UsersPage() {
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Extra Credits</label>
+              <input
+                type="number"
+                value={newExtraCredits}
+                onChange={(e) => setNewExtraCredits(Number(e.target.value))}
+                min={0}
+                placeholder="0"
+                className="w-24 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
             </div>
             <button
               type="submit"
@@ -360,6 +431,96 @@ export default function UsersPage() {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Pending Credits Section */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-bold text-gray-900">Pre-registration Credits</h2>
+        <p className="text-sm text-gray-500">
+          Allocate extra credits to emails before they sign up. When they register, these credits are added on top of the default 5.
+        </p>
+
+        <div className="rounded-lg border border-gray-200 bg-white p-5">
+          <form onSubmit={handleCreatePending} className="flex items-end gap-3">
+            <div className="flex-1">
+              <label className="block text-xs text-gray-500 mb-1">Email</label>
+              <input
+                type="email"
+                value={pendingEmail}
+                onChange={(e) => setPendingEmail(e.target.value)}
+                required
+                placeholder="user@example.com"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Extra Credits</label>
+              <input
+                type="number"
+                value={pendingExtra}
+                onChange={(e) => setPendingExtra(Number(e.target.value))}
+                required
+                min={1}
+                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={pendingCreating}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {pendingCreating ? "Adding..." : "Add Credits"}
+            </button>
+          </form>
+        </div>
+
+        {pendingCredits.length > 0 && (
+          <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left px-4 py-3 font-medium text-gray-700">Email</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-700">Extra Credits</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-700">Status</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-700">Created</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-700">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingCredits.map((pc) => (
+                  <tr key={pc.id} className="border-b border-gray-100 last:border-0">
+                    <td className="px-4 py-3 text-gray-900">{pc.email}</td>
+                    <td className="px-4 py-3 text-gray-700 font-medium">+{pc.extra_credits}</td>
+                    <td className="px-4 py-3">
+                      {pc.claimed ? (
+                        <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                          Claimed {pc.claimed_at ? formatDate(pc.claimed_at) : ""}
+                        </span>
+                      ) : (
+                        <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          Pending
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                      {formatDate(pc.created_at)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {!pc.claimed && (
+                        <button
+                          onClick={() => handleDeletePending(pc.id)}
+                          className="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

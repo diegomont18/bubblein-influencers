@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { email, password, role } = body;
+  const { email, password, role, extraCredits } = body;
 
   if (!email || !password) {
     return NextResponse.json(
@@ -74,10 +74,30 @@ export async function POST(request: Request) {
 
   if (user) {
     const userRole = role ?? "user";
-    const userCredits = userRole === "admin" ? -1 : 3;
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Check for pre-registered extra credits
+    const { data: pending } = await service
+      .from("pending_credits")
+      .select("id, extra_credits")
+      .eq("email", normalizedEmail)
+      .eq("claimed", false);
+
+    const pendingExtra = (pending ?? []).reduce((sum: number, p: { extra_credits: number }) => sum + p.extra_credits, 0);
+    const extra = (Number(extraCredits) || 0) + pendingExtra;
+    const userCredits = userRole === "admin" ? -1 : 5 + extra;
+
     await service
       .from("user_roles")
-      .insert({ user_id: user.id, role: userRole, credits: userCredits });
+      .insert({ user_id: user.id, role: userRole, credits: userCredits, credits_total: userCredits === -1 ? 0 : userCredits });
+
+    // Claim pending credits
+    if (pending && pending.length > 0) {
+      await service
+        .from("pending_credits")
+        .update({ claimed: true, claimed_at: new Date().toISOString() })
+        .in("id", pending.map((p: { id: string }) => p.id));
+    }
   }
 
   return NextResponse.json({ user: { id: user?.id, email, role: role ?? "user" } });

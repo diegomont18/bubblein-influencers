@@ -50,12 +50,15 @@ function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort }:
   );
 }
 
+const ITEMS_PER_PAGE = 20;
+
 export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: CastingResultsDarkProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [stageMap, setStageMap] = useState<Record<string, string>>({});
   const [showDetails, setShowDetails] = useState(false);
+  const [page, setPage] = useState(1);
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -87,7 +90,8 @@ export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: Casti
     });
   }, [profiles, sortKey, sortDir]);
 
-  useEffect(() => { setSelected(new Set()); }, [profiles]);
+  useEffect(() => { setSelected(new Set()); setPage(1); }, [profiles]);
+  useEffect(() => { setPage(1); }, [sortKey, sortDir]);
 
   function toggleSelect(slug: string) {
     setSelected((prev) => {
@@ -195,9 +199,10 @@ export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: Casti
               </tr>
             </thead>
             <tbody>
-              {sortedProfiles.map((p, idx) => {
+              {sortedProfiles.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((p, idx) => {
                 const score = p.final_score ?? p.creator_score;
                 const isHighlighted = highlightSlugs?.has(p.slug);
+                const globalIdx = (page - 1) * ITEMS_PER_PAGE + idx;
                 const stage = stageMap[p.slug] ?? "";
                 return (
                   <tr
@@ -215,7 +220,7 @@ export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: Casti
                         className="rounded bg-[#20201f] border-[#484847] text-[#ca98ff] focus:ring-[#ca98ff]"
                       />
                     </td>
-                    <td className="px-4 py-3 text-[#adaaaa] text-xs">#{idx + 1}</td>
+                    <td className="px-4 py-3 text-[#adaaaa] text-xs">#{globalIdx + 1}</td>
                     <td className="px-2 py-3">
                       {p.profile_photo ? (
                         <div className="relative w-8 h-8">
@@ -317,6 +322,34 @@ export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: Casti
           </table>
         </div>
       </div>
+
+      {/* Pagination */}
+      {sortedProfiles.length > ITEMS_PER_PAGE && (() => {
+        const totalPages = Math.ceil(sortedProfiles.length / ITEMS_PER_PAGE);
+        return (
+          <div className="flex items-center justify-center py-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] disabled:opacity-50 transition-colors font-[family-name:var(--font-lexend)]"
+              >
+                Anterior
+              </button>
+              <span className="px-4 py-2 text-xs font-medium text-[#adaaaa] font-[family-name:var(--font-lexend)]">
+                Página {page} de {totalPages}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] disabled:opacity-50 transition-colors font-[family-name:var(--font-lexend)]"
+              >
+                Próxima
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

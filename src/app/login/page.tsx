@@ -34,7 +34,7 @@ function LoginForm() {
         return;
       }
 
-      router.push("/home");
+      router.push("/casting");
       router.refresh();
     } catch {
       setError("Algo deu errado. Tente novamente.");

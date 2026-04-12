@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 
 interface Lead {
   slug: string;
@@ -18,6 +18,16 @@ interface Lead {
   company_size_match: boolean;
   engagement_type: "reaction" | "comment" | "both";
   source_post_url: string;
+  role_level?: "decisor" | "influenciador" | "observador";
+}
+
+interface ProfilePost {
+  id: number;
+  url: string;
+  text: string;
+  reactions: number;
+  comments: number;
+  date: string;
 }
 
 interface IcpProfile {
@@ -65,6 +75,16 @@ export default function LeadsPage() {
   // URL form
   const [postUrls, setPostUrls] = useState("");
   const [userCredits, setUserCredits] = useState<number>(5);
+  const [inputMode, setInputMode] = useState<"posts" | "profile">("posts");
+  const [profileUrl, setProfileUrl] = useState("");
+  const [profilePosts, setProfilePosts] = useState<ProfilePost[]>([]);
+  const [selectedProfilePosts, setSelectedProfilePosts] = useState<Set<number>>(new Set());
+  const [loadingProfilePosts, setLoadingProfilePosts] = useState(false);
+
+  // Post-centric view
+  const [selectedPostUrl, setSelectedPostUrl] = useState<string>("__all__");
+  const [filterRoleLevel, setFilterRoleLevel] = useState<string>("all");
+  const [postTextMap, setPostTextMap] = useState<Record<string, string>>({});
 
   // Page loading state
   const [pageLoading, setPageLoading] = useState(true);
@@ -287,6 +307,8 @@ export default function LeadsPage() {
       setFilterIcpLevel("all");
       setFilterEngagement("all");
       setFilterPostUrl("all");
+      setFilterRoleLevel("all");
+      setSelectedPostUrl("__all__");
       setExpandedSourceRow(null);
     }
   }
@@ -315,6 +337,7 @@ export default function LeadsPage() {
     setScanning(true);
     setScanStep(0);
     setLeads([]);
+    setSelectedPostUrl("__all__");
     stepIntervalRef.current = setInterval(() => {
       setScanStep((prev) => Math.min(prev + 1, SCAN_STEPS.length - 1));
     }, 8000);
@@ -440,11 +463,34 @@ export default function LeadsPage() {
     }
     if (filterEngagement !== "all" && l.engagement_type !== filterEngagement) return false;
     if (filterPostUrl !== "all" && l.source_post_url !== filterPostUrl) return false;
+    if (filterRoleLevel !== "all" && l.role_level !== filterRoleLevel) return false;
+    if (selectedPostUrl && selectedPostUrl !== "__all__" && l.source_post_url !== selectedPostUrl) return false;
     return true;
   });
 
   // Unique post URLs for filter dropdown
   const uniquePostUrls = Array.from(new Set(leads.map((l) => l.source_post_url).filter(Boolean)));
+
+  // Post stats with RER
+  const postStats = useMemo(() => {
+    const validLeads = leads.filter((l) => l.name && l.name !== "Unknown" && l.name.length >= 2);
+    const stats = new Map<string, { total: number; decisor: number; influenciador: number; observador: number; rer: number }>();
+    for (const lead of validLeads) {
+      const url = lead.source_post_url;
+      if (!url) continue;
+      const s = stats.get(url) || { total: 0, decisor: 0, influenciador: 0, observador: 0, rer: 0 };
+      s.total++;
+      if (lead.role_level === "decisor") s.decisor++;
+      else if (lead.role_level === "influenciador") s.influenciador++;
+      else s.observador++;
+      stats.set(url, s);
+    }
+    Array.from(stats.entries()).forEach(([url, s]) => {
+      s.rer = s.total > 0 ? Math.round((s.decisor / s.total) * 100) : 0;
+      stats.set(url, s);
+    });
+    return stats;
+  }, [leads]);
 
   // Extract short label from post URL (username or slug)
   function shortPostLabel(url: string): string {
@@ -459,6 +505,47 @@ export default function LeadsPage() {
     const inMatch = url.match(/\/in\/([^/?#]+)/);
     if (inMatch) return `@${inMatch[1]}`;
     return url.slice(-30);
+  }
+
+  async function handleFetchProfilePosts() {
+    if (!profileUrl.trim()) return;
+    setLoadingProfilePosts(true);
+    setProfilePosts([]);
+    setSelectedProfilePosts(new Set());
+    try {
+      const res = await fetch("/api/leads/profile-posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileUrl: profileUrl.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfilePosts(data.posts ?? []);
+      }
+    } catch { /* ignore */ }
+    finally { setLoadingProfilePosts(false); }
+  }
+
+  function handleScanSelectedPosts() {
+    const selected = profilePosts.filter((p) => selectedProfilePosts.has(p.id));
+    if (selected.length === 0) return;
+    const urls = selected.map((p) => p.url);
+    // Save post text for display in post cards
+    const textMap: Record<string, string> = {};
+    for (const p of selected) {
+      textMap[p.url] = p.text;
+    }
+    setPostTextMap((prev) => ({ ...prev, ...textMap }));
+    setPostUrls(urls.join("\n"));
+    setInputMode("posts");
+    setProfilePosts([]);
+    setSelectedProfilePosts(new Set());
+  }
+
+  function roleLevelLabel(level?: string) {
+    if (level === "decisor") return { text: "Decisor", cls: "bg-[#ca98ff]/10 text-[#ca98ff]" };
+    if (level === "influenciador") return { text: "Influenciador", cls: "bg-[#5b9bff]/10 text-[#5b9bff]" };
+    return { text: "Observador", cls: "bg-white/5 text-[#adaaaa]" };
   }
 
   if (pageLoading) {
@@ -606,82 +693,167 @@ export default function LeadsPage() {
 
       {/* URL Profiles Section */}
       <div className="rounded-2xl bg-[#131313] p-6 space-y-5">
-        {/* URL profile selector */}
+        {/* Mode toggle + URL profile selector */}
         <div className="flex items-center gap-3 flex-wrap">
-          <h3 className="text-sm font-semibold text-white font-[family-name:var(--font-lexend)]">URLs dos Posts do LinkedIn</h3>
-          <div className="flex items-center gap-2 ml-auto">
-            <select
-              value={activeUrlId ?? ""}
-              onChange={(e) => handleSelectUrl(e.target.value)}
-              className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] transition-colors font-[family-name:var(--font-lexend)]"
-            >
-              {urlProfiles.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+          <div className="flex rounded-full bg-[#20201f] p-0.5 mr-2">
             <button
-              onClick={handleCreateUrl}
-              className="rounded-lg bg-[#20201f] px-2.5 py-1.5 text-xs text-[#ca98ff] hover:bg-[#262626] transition-colors font-bold"
-              title="Criar novo perfil de URLs"
+              onClick={() => setInputMode("posts")}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-all font-[family-name:var(--font-lexend)] ${inputMode === "posts" ? "bg-[#ca98ff] text-[#46007d]" : "text-[#adaaaa] hover:text-white"}`}
             >
-              +
+              Posts
             </button>
-            {activeUrl && (
-              editingUrlName !== null ? (
-                <input
-                  autoFocus
-                  defaultValue={activeUrl.name}
-                  className="rounded-lg bg-[#20201f] px-2 py-1 text-xs text-white outline-none border border-[#ca98ff] w-24"
-                  onBlur={(e) => handleRenameUrl(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleRenameUrl((e.target as HTMLInputElement).value); if (e.key === "Escape") setEditingUrlName(null); }}
-                />
-              ) : (
-                <button
-                  onClick={() => setEditingUrlName(activeUrl.name)}
-                  className="text-[10px] text-[#adaaaa] hover:text-[#ca98ff] transition-colors"
-                  title="Renomear"
-                >
-                  Renomear
-                </button>
-              )
-            )}
+            <button
+              onClick={() => setInputMode("profile")}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-all font-[family-name:var(--font-lexend)] ${inputMode === "profile" ? "bg-[#ca98ff] text-[#46007d]" : "text-[#adaaaa] hover:text-white"}`}
+            >
+              Perfil
+            </button>
           </div>
+          <h3 className="text-sm font-semibold text-white font-[family-name:var(--font-lexend)]">
+            {inputMode === "posts" ? "URLs dos Posts do LinkedIn" : "Perfil do LinkedIn"}
+          </h3>
+          {inputMode === "posts" && (
+            <div className="flex items-center gap-2 ml-auto">
+              <select
+                value={activeUrlId ?? ""}
+                onChange={(e) => handleSelectUrl(e.target.value)}
+                className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] transition-colors font-[family-name:var(--font-lexend)]"
+              >
+                {urlProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={handleCreateUrl}
+                className="rounded-lg bg-[#20201f] px-2.5 py-1.5 text-xs text-[#ca98ff] hover:bg-[#262626] transition-colors font-bold"
+                title="Criar novo perfil de URLs"
+              >
+                +
+              </button>
+              {activeUrl && (
+                editingUrlName !== null ? (
+                  <input
+                    autoFocus
+                    defaultValue={activeUrl.name}
+                    className="rounded-lg bg-[#20201f] px-2 py-1 text-xs text-white outline-none border border-[#ca98ff] w-24"
+                    onBlur={(e) => handleRenameUrl(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleRenameUrl((e.target as HTMLInputElement).value); if (e.key === "Escape") setEditingUrlName(null); }}
+                  />
+                ) : (
+                  <button
+                    onClick={() => setEditingUrlName(activeUrl.name)}
+                    className="text-[10px] text-[#adaaaa] hover:text-[#ca98ff] transition-colors"
+                    title="Renomear"
+                  >
+                    Renomear
+                  </button>
+                )
+              )}
+            </div>
+          )}
         </div>
 
-        <div>
-          <textarea
-            rows={4}
-            value={postUrls}
-            onChange={(e) => setPostUrls(e.target.value)}
-            placeholder={"https://linkedin.com/posts/...\nhttps://linkedin.com/posts/..."}
-            className={`${inputClass} resize-none`}
-          />
-          <p className="mt-1 text-[10px] text-[#adaaaa]/60">
-            Cole uma URL por linha. Cada post sera escaneado para encontrar quem curtiu e comentou.
-            {userCredits !== Infinity && (
-              <span className="ml-1 text-[#ca98ff]">
-                Você pode analisar até {Math.floor(userCredits / 15)} post(s) com {userCredits} créditos (15 créditos/link).
-              </span>
+        {inputMode === "posts" ? (
+          <>
+            <div>
+              <textarea
+                rows={4}
+                value={postUrls}
+                onChange={(e) => setPostUrls(e.target.value)}
+                placeholder={"https://linkedin.com/posts/...\nhttps://linkedin.com/posts/..."}
+                className={`${inputClass} resize-none`}
+              />
+              <p className="mt-1 text-[10px] text-[#adaaaa]/60">
+                Cole uma URL por linha. Cada post sera escaneado para encontrar quem curtiu e comentou.
+                {userCredits !== Infinity && (
+                  <span className="ml-1 text-[#ca98ff]">
+                    Você pode analisar até {Math.floor(userCredits / 15)} post(s) com {userCredits} créditos (15 créditos/link).
+                  </span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={handleSaveUrl}
+              className="rounded-full bg-[#20201f] px-5 py-2 text-xs font-semibold text-[#ca98ff] hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)]"
+            >
+              Salvar URLs
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={profileUrl}
+                onChange={(e) => setProfileUrl(e.target.value)}
+                placeholder="https://linkedin.com/in/nome-do-perfil"
+                className={`${inputClass} flex-1`}
+              />
+              <button
+                onClick={handleFetchProfilePosts}
+                disabled={loadingProfilePosts || !profileUrl.trim()}
+                className="rounded-full bg-gradient-to-r from-[#ca98ff] to-[#9c42f4] px-5 py-2 text-xs font-semibold text-[#46007d] hover:opacity-90 disabled:opacity-50 transition-all font-[family-name:var(--font-lexend)] whitespace-nowrap"
+              >
+                {loadingProfilePosts ? "Buscando..." : "Buscar posts"}
+              </button>
+            </div>
+            <p className="text-[10px] text-[#adaaaa]/60">Cole o link do perfil do LinkedIn para ver seus posts recentes.</p>
+
+            {profilePosts.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-[#adaaaa] font-[family-name:var(--font-lexend)]">{profilePosts.length} posts encontrados</span>
+                  <button
+                    onClick={handleScanSelectedPosts}
+                    disabled={selectedProfilePosts.size === 0}
+                    className="rounded-full bg-[#ca98ff]/10 px-3 py-1.5 text-xs font-medium text-[#ca98ff] hover:bg-[#ca98ff]/20 disabled:opacity-50 transition-colors font-[family-name:var(--font-lexend)]"
+                  >
+                    Escanear {selectedProfilePosts.size} post(s) selecionado(s)
+                  </button>
+                </div>
+                {profilePosts.map((p) => (
+                  <label
+                    key={p.id}
+                    className={`flex items-start gap-3 rounded-xl p-3 cursor-pointer transition-colors ${selectedProfilePosts.has(p.id) ? "bg-[#ca98ff]/5 border border-[#ca98ff]/30" : "bg-[#1a1a1a] border border-[#262626] hover:border-[#333]"}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedProfilePosts.has(p.id)}
+                      onChange={() => {
+                        setSelectedProfilePosts((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(p.id)) next.delete(p.id); else next.add(p.id);
+                          return next;
+                        });
+                      }}
+                      className="mt-1 rounded bg-[#20201f] border-[#484847] text-[#ca98ff] focus:ring-[#ca98ff]"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-white line-clamp-2">{p.text || "Post sem texto"}</p>
+                      <div className="flex gap-3 mt-1 text-[10px] text-[#adaaaa]">
+                        <span>{p.reactions} reactions</span>
+                        <span>{p.comments} comments</span>
+                        {p.date && <span>{p.date}</span>}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
             )}
-          </p>
-        </div>
-
-        <button
-          onClick={handleSaveUrl}
-          className="rounded-full bg-[#20201f] px-5 py-2 text-xs font-semibold text-[#ca98ff] hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)]"
-        >
-          Salvar URLs
-        </button>
+          </>
+        )}
       </div>
 
-      {/* Scan button */}
-      <button
-        onClick={handleScan}
-        disabled={scanning}
-        className="w-full rounded-full bg-gradient-to-r from-[#ca98ff] to-[#9c42f4] px-6 py-3.5 text-sm font-semibold text-[#46007d] hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 transition-all font-[family-name:var(--font-lexend)]"
-      >
-        {scanning ? "Escaneando..." : "Escanear Posts"}
-      </button>
+      {/* Scan button — only show in posts mode or when scanning */}
+      {(inputMode === "posts" || scanning) && (
+        <button
+          onClick={handleScan}
+          disabled={scanning}
+          className="w-full rounded-full bg-gradient-to-r from-[#ca98ff] to-[#9c42f4] px-6 py-3.5 text-sm font-semibold text-[#46007d] hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 transition-all font-[family-name:var(--font-lexend)]"
+        >
+          {scanning ? "Escaneando..." : "Escanear Posts"}
+        </button>
+      )}
 
       {/* Error */}
       {error && (
@@ -768,6 +940,67 @@ export default function LeadsPage() {
             </button>
           </div>
 
+          {/* Post cards — horizontal scrollable, always visible */}
+          {uniquePostUrls.length > 0 && (
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {/* Ver todos card */}
+              {(() => {
+                const allTotal = Array.from(postStats.values()).reduce((a, s) => a + s.total, 0);
+                const allDecisor = Array.from(postStats.values()).reduce((a, s) => a + s.decisor, 0);
+                const allInfluen = Array.from(postStats.values()).reduce((a, s) => a + s.influenciador, 0);
+                const allObserv = Array.from(postStats.values()).reduce((a, s) => a + s.observador, 0);
+                const allRer = allTotal > 0 ? Math.round((allDecisor / allTotal) * 100) : 0;
+                const isActive = selectedPostUrl === "__all__";
+                return (
+                  <button
+                    onClick={() => setSelectedPostUrl("__all__")}
+                    className={`min-w-[200px] shrink-0 rounded-xl p-4 text-left transition-colors ${isActive ? "bg-[#ca98ff]/10 border-2 border-[#ca98ff]" : "bg-[#131313] border border-[#262626] hover:border-[#ca98ff]/30"}`}
+                  >
+                    <p className="text-xs text-[#ca98ff] font-medium mb-1">Todos</p>
+                    <div className="flex items-baseline gap-2 mb-2">
+                      <span className="text-xl font-bold text-white">{allRer}%</span>
+                      <span className="text-[10px] text-[#adaaaa] uppercase tracking-wider">RER</span>
+                    </div>
+                    <div className="flex gap-1.5 text-[10px] flex-wrap">
+                      <span className="rounded-full bg-[#ca98ff]/10 text-[#ca98ff] px-1.5 py-0.5">{allDecisor} dec.</span>
+                      <span className="rounded-full bg-[#5b9bff]/10 text-[#5b9bff] px-1.5 py-0.5">{allInfluen} inf.</span>
+                      <span className="rounded-full bg-white/5 text-[#adaaaa] px-1.5 py-0.5">{allObserv} obs.</span>
+                    </div>
+                    <p className="text-[10px] text-[#adaaaa] mt-1.5">{allTotal} engajamentos</p>
+                  </button>
+                );
+              })()}
+              {/* Individual post cards */}
+              {uniquePostUrls.map((url) => {
+                const s = postStats.get(url);
+                if (!s) return null;
+                const isActive = selectedPostUrl === url;
+                return (
+                  <button
+                    key={url}
+                    onClick={() => setSelectedPostUrl(url)}
+                    className={`min-w-[200px] shrink-0 rounded-xl p-4 text-left transition-colors ${isActive ? "bg-[#ca98ff]/10 border-2 border-[#ca98ff]" : "bg-[#131313] border border-[#262626] hover:border-[#ca98ff]/30"}`}
+                  >
+                    <p className="text-xs text-[#ca98ff] font-medium mb-1">{shortPostLabel(url)}</p>
+                    {postTextMap[url] && (
+                      <p className="text-[10px] text-[#adaaaa] truncate mb-1">{postTextMap[url].slice(0, 40)}{postTextMap[url].length > 40 ? "..." : ""}</p>
+                    )}
+                    <div className="flex items-baseline gap-2 mb-2">
+                      <span className="text-xl font-bold text-white">{s.rer}%</span>
+                      <span className="text-[10px] text-[#adaaaa] uppercase tracking-wider">RER</span>
+                    </div>
+                    <div className="flex gap-1.5 text-[10px] flex-wrap">
+                      <span className="rounded-full bg-[#ca98ff]/10 text-[#ca98ff] px-1.5 py-0.5">{s.decisor} dec.</span>
+                      <span className="rounded-full bg-[#5b9bff]/10 text-[#5b9bff] px-1.5 py-0.5">{s.influenciador} inf.</span>
+                      <span className="rounded-full bg-white/5 text-[#adaaaa] px-1.5 py-0.5">{s.observador} obs.</span>
+                    </div>
+                    <p className="text-[10px] text-[#adaaaa] mt-1.5">{s.total} engajamentos</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Filters */}
           <div className="flex gap-3 flex-wrap">
             <select value={filterIcpLevel} onChange={(e) => setFilterIcpLevel(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff]">
@@ -776,18 +1009,26 @@ export default function LeadsPage() {
               <option value="Medio">ICP: Medio</option>
               <option value="Baixo">ICP: Baixo</option>
             </select>
+            <select value={filterRoleLevel} onChange={(e) => setFilterRoleLevel(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff]">
+              <option value="all">Decisor: Todos</option>
+              <option value="decisor">Decisor</option>
+              <option value="influenciador">Influenciador</option>
+              <option value="observador">Observador</option>
+            </select>
             <select value={filterEngagement} onChange={(e) => setFilterEngagement(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff]">
               <option value="all">Engajamento: Todos</option>
               <option value="both">Curtiu + Comentou</option>
               <option value="comment">Comentou</option>
               <option value="reaction">Curtiu</option>
             </select>
-            <select value={filterPostUrl} onChange={(e) => setFilterPostUrl(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] max-w-[300px] truncate">
-              <option value="all">Fonte: Todas ({uniquePostUrls.length})</option>
-              {uniquePostUrls.map((url) => (
-                <option key={url} value={url}>{shortPostLabel(url)}</option>
-              ))}
-            </select>
+            {selectedPostUrl === "__all__" && (
+              <select value={filterPostUrl} onChange={(e) => setFilterPostUrl(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] max-w-[300px] truncate">
+                <option value="all">Fonte: Todas ({uniquePostUrls.length})</option>
+                {uniquePostUrls.map((url) => (
+                  <option key={url} value={url}>{postTextMap[url] ? postTextMap[url].slice(0, 30) + "..." : shortPostLabel(url)}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="rounded-2xl bg-[#131313] overflow-hidden">
@@ -802,6 +1043,7 @@ export default function LeadsPage() {
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Especialidades</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Empresa</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">ICP Score</th>
+                    <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Decisor</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Engajamento</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Fonte</th>
                   </tr>
@@ -853,6 +1095,13 @@ export default function LeadsPage() {
                             <span className={`inline-flex items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold ${label.cls}`}>
                               {label.text}
                             </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {(() => { const rl = roleLevelLabel(lead.role_level); return (
+                              <span className={`inline-flex items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold ${rl.cls}`}>
+                                {rl.text}
+                              </span>
+                            ); })()}
                           </td>
                           <td className="px-4 py-3">
                             <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${

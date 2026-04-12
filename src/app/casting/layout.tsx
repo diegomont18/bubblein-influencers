@@ -51,7 +51,7 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
       <nav className="bg-[#131313]">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <Link href="/home">
+            <Link href="/casting">
               <img src="/logo.png" alt="BubbleIn" width={120} height={43} />
             </Link>
             {isAdmin && (
@@ -79,7 +79,7 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
                 >
                   Comprar Créditos
                 </a>
-                <Link href="/home/account" className="text-sm text-[#adaaaa] hover:text-white transition-colors">{user.email}</Link>
+                <Link href="/casting/account" className="text-sm text-[#adaaaa] hover:text-white transition-colors">{user.email}</Link>
               </>
             )}
             <button
@@ -98,17 +98,25 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
         <aside className="w-44 shrink-0 hidden md:block">
           <nav className="space-y-1 sticky top-24">
             <Link
-              href="/home"
+              href="/casting/leads-generation"
               className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-lexend)] ${
-                pathname === "/home" ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
+                pathname.startsWith("/casting/leads-generation") ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
+              }`}
+            >
+              Leads Generation
+            </Link>
+            <Link
+              href="/casting"
+              className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-lexend)] ${
+                pathname === "/casting" ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
               }`}
             >
               Casting
             </Link>
             <Link
-              href="/home/leads"
+              href="/casting/leads"
               className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-lexend)] ${
-                pathname === "/home/leads" ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
+                pathname === "/casting/leads" || pathname.startsWith("/casting/leads/") ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
               }`}
             >
               Leads

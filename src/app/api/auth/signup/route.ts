@@ -36,9 +36,29 @@ export async function POST(request: Request) {
   }
 
   if (user) {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Check for pre-registered extra credits
+    const { data: pending } = await service
+      .from("pending_credits")
+      .select("id, extra_credits")
+      .eq("email", normalizedEmail)
+      .eq("claimed", false);
+
+    const totalExtra = (pending ?? []).reduce((sum: number, p: { extra_credits: number }) => sum + p.extra_credits, 0);
+    const initialCredits = 5 + totalExtra;
+
     await service
       .from("user_roles")
-      .insert({ user_id: user.id, role: "user", credits: 5 });
+      .insert({ user_id: user.id, role: "user", credits: initialCredits, credits_total: initialCredits });
+
+    // Mark pending credits as claimed
+    if (pending && pending.length > 0) {
+      await service
+        .from("pending_credits")
+        .update({ claimed: true, claimed_at: new Date().toISOString() })
+        .in("id", pending.map((p: { id: string }) => p.id));
+    }
   }
 
   return NextResponse.json({

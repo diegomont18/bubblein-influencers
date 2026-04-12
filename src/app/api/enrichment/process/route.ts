@@ -13,6 +13,7 @@ import {
   calculateCreatorScore,
 } from "@/lib/normalize";
 import { classifyTopics, generateEmbedding } from "@/lib/ai";
+import { logApiCost, API_COSTS } from "@/lib/api-costs";
 
 export async function POST(request: Request) {
   // Auth: either logged-in user or CRON_SECRET header
@@ -291,8 +292,27 @@ export async function POST(request: Request) {
     totalProcessed += jobs.length;
   }
 
+  const doneCount = allResults.filter((r) => r.status === "done").length;
   const errorCount = allResults.filter((r) => r.status === "failed" || r.error).length;
-  console.log(`[enrichment] All batches complete: processed=${totalProcessed} done=${allResults.filter((r) => r.status === "done").length} retry=${allResults.filter((r) => r.status === "retry").length} errors=${errorCount}`);
+  console.log(`[enrichment] All batches complete: processed=${totalProcessed} done=${doneCount} retry=${allResults.filter((r) => r.status === "retry").length} errors=${errorCount}`);
+
+  // Log estimated API costs for enrichment batch
+  if (doneCount > 0) {
+    logApiCost({
+      source: "enrichment",
+      provider: "scrapingdog",
+      operation: "fetchLinkedInProfile",
+      estimatedCost: totalProcessed * API_COSTS.scrapingdog.fetchLinkedInProfile,
+      metadata: { profilesProcessed: totalProcessed, done: doneCount },
+    });
+    logApiCost({
+      source: "enrichment",
+      provider: "openrouter",
+      operation: "classifyTopics+embedding",
+      estimatedCost: doneCount * (API_COSTS.openrouter.classifyTopics + API_COSTS.openrouter.generateEmbedding),
+      metadata: { profilesEnriched: doneCount },
+    });
+  }
 
   return NextResponse.json({ processed: totalProcessed, results: allResults, errors: errorCount });
 }

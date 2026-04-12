@@ -362,8 +362,8 @@ export async function batchScoreIcpMatch(
   leads: Array<{ index: number; name: string; headline: string }>,
   icpJobTitles: string[],
   icpDepartments: string[],
-): Promise<Map<number, { score: number; matchedTitles: string[]; matchedDepartments: string[]; company: string; jobTitle: string }>> {
-  const results = new Map<number, { score: number; matchedTitles: string[]; matchedDepartments: string[]; company: string; jobTitle: string }>();
+): Promise<Map<number, { score: number; matchedTitles: string[]; matchedDepartments: string[]; company: string; jobTitle: string; roleLevel: "decisor" | "influenciador" | "observador" }>> {
+  const results = new Map<number, { score: number; matchedTitles: string[]; matchedDepartments: string[]; company: string; jobTitle: string; roleLevel: "decisor" | "influenciador" | "observador" }>();
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -392,13 +392,17 @@ For each lead, determine:
 3. matchedDepartments: which ICP departments match
 4. company: extract the company name from the headline if present (look for "at Company", "em Empresa", "@ Company", or company names after role descriptions)
 5. jobTitle: the primary job title/role (first role mentioned, not the full headline)
+6. roleLevel: classify the person's decision-making power:
+   - "decisor": C-level, VP, Director, Head, Partner, Owner, Founder, Managing Director, General Manager, Country Manager, Sócio, Presidente, Diretor
+   - "influenciador": Manager, Senior, Lead, Coordinator, Specialist, Principal, Consultant, Advisor, Gerente, Coordenador, Especialista Sênior
+   - "observador": Junior, Trainee, Intern, Student, Assistant, Associate, entry-level Analyst, Estagiário, Assistente, Aprendiz
 
 IMPORTANT: Match semantically! "VP Marketing" matches "Vice Presidente de Marketing". "Sales" matches "Vendas" or "Comercial". "CEO" matches "Chief Executive Officer" or "Diretor Executivo".
 
 Respond ONLY with a JSON array, one object per lead:
-[{"i":0,"s":85,"mt":["Marketing"],"md":["Sales"],"c":"Acme Corp","jt":"VP Marketing"}, ...]
+[{"i":0,"s":85,"mt":["Marketing"],"md":["Sales"],"c":"Acme Corp","jt":"VP Marketing","rl":"decisor"}, ...]
 
-Where: i=index, s=score, mt=matchedTitles, md=matchedDepartments, c=company, jt=jobTitle`;
+Where: i=index, s=score, mt=matchedTitles, md=matchedDepartments, c=company, jt=jobTitle, rl=roleLevel`;
 
   try {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -434,16 +438,18 @@ Where: i=index, s=score, mt=matchedTitles, md=matchedDepartments, c=company, jt=
     }
 
     const parsed = JSON.parse(jsonMatch[0]) as Array<{
-      i: number; s: number; mt?: string[]; md?: string[]; c?: string; jt?: string;
+      i: number; s: number; mt?: string[]; md?: string[]; c?: string; jt?: string; rl?: string;
     }>;
 
     for (const item of parsed) {
+      const rl = item.rl as "decisor" | "influenciador" | "observador";
       results.set(item.i, {
         score: Math.max(0, Math.min(100, item.s ?? 0)),
         matchedTitles: item.mt ?? [],
         matchedDepartments: item.md ?? [],
         company: item.c ?? "",
         jobTitle: item.jt ?? "",
+        roleLevel: ["decisor", "influenciador", "observador"].includes(rl) ? rl : "observador",
       });
     }
 
@@ -453,4 +459,83 @@ Where: i=index, s=score, mt=matchedTitles, md=matchedDepartments, c=company, jt=
   }
 
   return results;
+}
+
+export async function analyzeProfileForLeads(
+  profileName: string,
+  profileHeadline: string,
+  postTexts: string[],
+): Promise<{ market_context: string; job_titles: string[]; departments: string[]; company_sizes: string[] } | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set");
+    return null;
+  }
+
+  const postsPreview = postTexts.slice(0, 10).map((t, i) => `Post ${i + 1}: "${t.slice(0, 300)}"`).join("\n");
+
+  const prompt = `Analyze this LinkedIn profile and their recent posts to determine their market niche and suggest ideal target audience for B2B lead generation.
+
+PROFILE:
+Name: ${profileName}
+Headline: ${profileHeadline}
+
+RECENT POSTS:
+${postsPreview}
+
+Based on this profile's content and positioning, determine:
+
+1. market_context: List the specific TOPICS and THEMES this person posts about, as comma-separated keywords in Portuguese (e.g., "Métricas de Marketing, Analytics de Marketing, Growth Marketing, Performance de Campanhas"). NOT a description of what the company does — instead list the actual content themes/topics they write about. Be specific with 5-8 topic keywords.
+
+2. job_titles: Suggest 4-6 job titles (in Portuguese and English mix) of decision-makers who would be interested in this person's content/services. These are the people who engage with their posts and could become leads.
+
+3. departments: Suggest 3-5 departments where these decision-makers work.
+
+4. company_sizes: Suggest 2-3 company size ranges from these options: "1-10", "11-50", "51-200", "201-500", "501-1000", "1001+"
+
+Respond ONLY with a JSON object:
+{"market_context":"...","job_titles":["..."],"departments":["..."],"company_sizes":["..."]}`;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.0-flash-lite-001",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        max_tokens: 1000,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!res.ok) {
+      console.error(`[ai] analyzeProfileForLeads failed: status=${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? "";
+    console.log(`[ai] analyzeProfileForLeads response: ${content.slice(0, 500)}`);
+
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("[ai] analyzeProfileForLeads: no JSON found");
+      return null;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      market_context: parsed.market_context ?? "",
+      job_titles: Array.isArray(parsed.job_titles) ? parsed.job_titles : [],
+      departments: Array.isArray(parsed.departments) ? parsed.departments : [],
+      company_sizes: Array.isArray(parsed.company_sizes) ? parsed.company_sizes : [],
+    };
+  } catch (err) {
+    console.error("[ai] analyzeProfileForLeads exception:", err);
+    return null;
+  }
 }

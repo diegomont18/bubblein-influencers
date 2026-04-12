@@ -2,6 +2,7 @@ import type { Handler, HandlerEvent } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { fetchPostEngagers } from "../../src/lib/apify";
 import { batchScoreIcpMatch } from "../../src/lib/ai";
+import { logApiCost, API_COSTS } from "../../src/lib/api-costs";
 
 interface ScanParams {
   scanId: string;
@@ -118,8 +119,9 @@ const handler: Handler = async (event: HandlerEvent) => {
         const score = aiResult?.score ?? 0;
         const jobTitle = aiResult?.jobTitle ?? (headline.includes("|") ? headline.split("|")[0].trim() : headline);
         const company = aiResult?.company ?? "";
+        const roleLevel = aiResult?.roleLevel ?? "observador";
 
-        console.log(`[leads] Lead: ${engager.name} | cargo="${jobTitle}" | empresa="${company}" | ICP=${score}`);
+        console.log(`[leads] Lead: ${engager.name} | cargo="${jobTitle}" | empresa="${company}" | ICP=${score} | role=${roleLevel}`);
 
         const lead = {
           slug: slug || engager.id, name: engager.name, headline, job_title: jobTitle, company,
@@ -128,6 +130,7 @@ const handler: Handler = async (event: HandlerEvent) => {
           profile_photo: engager.pictureUrl, icp_score: score,
           matched_titles: aiResult?.matchedTitles ?? [], matched_departments: aiResult?.matchedDepartments ?? [],
           company_size_match: false, engagement_type: engager.type, source_post_url: engager.postUrl,
+          role_level: roleLevel,
         };
 
         try {
@@ -150,6 +153,27 @@ const handler: Handler = async (event: HandlerEvent) => {
         console.log(`[leads] Credits deducted: ${creditsToDeduct} (${leadCount} leads / 10), ${cur.credits} -> ${newCredits}`);
       }
     }
+
+    // Log estimated API costs
+    const aiBatches = Math.ceil(allEngagers.length / 10);
+    logApiCost({
+      userId,
+      source: "leads",
+      searchId: scanId,
+      provider: "apify",
+      operation: "fetchPostEngagers",
+      estimatedCost: postUrls.length * API_COSTS.apify.fetchPostEngagers,
+      metadata: { posts: postUrls.length, engagers: totalEngagers },
+    });
+    logApiCost({
+      userId,
+      source: "leads",
+      searchId: scanId,
+      provider: "openrouter",
+      operation: "batchScoreIcpMatch",
+      estimatedCost: aiBatches * API_COSTS.openrouter.batchScoreIcpMatch,
+      metadata: { batches: aiBatches, leads: leadCount },
+    });
 
     await service.from("leads_scans").update({ total_engagers: totalEngagers, matched_leads: leadCount, status: "complete" }).eq("id", scanId);
     console.log(`[leads] Scan complete. ${leadCount} leads from ${totalEngagers} engagers`);

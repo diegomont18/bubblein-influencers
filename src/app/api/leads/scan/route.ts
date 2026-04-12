@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { fetchPostEngagers } from "@/lib/apify";
 import { batchScoreIcpMatch } from "@/lib/ai";
+import { logApiCost, API_COSTS } from "@/lib/api-costs";
 
 interface ScanBody {
   postUrls: string[];
@@ -137,8 +138,9 @@ async function runScanInline(
         const matchedDepartments = aiResult?.matchedDepartments ?? [];
         const company = aiResult?.company ?? "";
         const jobTitle = aiResult?.jobTitle ?? (headline.includes("|") ? headline.split("|")[0].trim() : headline);
+        const roleLevel = aiResult?.roleLevel ?? "observador";
 
-        console.log(`[leads] Lead: ${engager.name} | cargo="${jobTitle}" | empresa="${company}" | ICP=${score} | type=${engager.type}`);
+        console.log(`[leads] Lead: ${engager.name} | cargo="${jobTitle}" | empresa="${company}" | ICP=${score} | role=${roleLevel} | type=${engager.type}`);
 
         const lead = {
           slug: slug || engager.id,
@@ -156,6 +158,7 @@ async function runScanInline(
           company_size_match: false,
           engagement_type: engager.type,
           source_post_url: engager.postUrl,
+          role_level: roleLevel,
         };
 
         try {
@@ -178,6 +181,27 @@ async function runScanInline(
         console.log(`[leads] Credits deducted: ${creditsToDeduct} (${leadCount} leads / 10), ${cur.credits} -> ${newCredits}`);
       }
     }
+
+    // Log estimated API costs
+    const aiBatches = Math.ceil(allEngagers.length / 10);
+    logApiCost({
+      userId,
+      source: "leads",
+      searchId: scanId,
+      provider: "apify",
+      operation: "fetchPostEngagers",
+      estimatedCost: postUrls.length * API_COSTS.apify.fetchPostEngagers,
+      metadata: { posts: postUrls.length, engagers: totalEngagers },
+    });
+    logApiCost({
+      userId,
+      source: "leads",
+      searchId: scanId,
+      provider: "openrouter",
+      operation: "batchScoreIcpMatch",
+      estimatedCost: aiBatches * API_COSTS.openrouter.batchScoreIcpMatch,
+      metadata: { batches: aiBatches, leads: leadCount },
+    });
 
     await service.from("leads_scans").update({ total_engagers: totalEngagers, matched_leads: leadCount, status: "complete" }).eq("id", scanId);
     console.log(`[leads] Scan complete. ${leadCount} leads from ${totalEngagers} engagers`);

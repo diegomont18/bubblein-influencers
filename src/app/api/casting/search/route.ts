@@ -140,7 +140,7 @@ export async function POST(request: Request) {
   }
 
   // Trigger background function (await the 202 response before returning)
-  const siteUrl = process.env.URL || process.env.NEXT_PUBLIC_SITE_URL || "";
+  const siteUrl = process.env.URL || process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3021}`;
   const bgUrl = `${siteUrl}/.netlify/functions/casting-search-background`;
 
   console.log(`[casting] Triggering background function at ${bgUrl} for list ${listId}`);

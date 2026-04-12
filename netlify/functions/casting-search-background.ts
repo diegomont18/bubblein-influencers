@@ -4,6 +4,7 @@ import { searchGoogle, fetchLinkedInProfile, extractActivityId } from "../../src
 import { fetchProfilePosts, fetchProfilePostsBatch, searchLinkedInProfiles, searchLinkedInPosts } from "../../src/lib/apify";
 import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculatePostingFrequencyFromApifyPosts, calculateEngagementMetrics, computeEngagementFromPosts, calculateCreatorScore } from "../../src/lib/normalize";
 import { checkPublishLanguage, classifyTopics } from "../../src/lib/ai";
+import { logApiCost, API_COSTS } from "../../src/lib/api-costs";
 
 interface SearchParams {
   themes: string[];
@@ -1073,6 +1074,42 @@ const handler: Handler = async (event: HandlerEvent) => {
         console.log(`[casting] Credits deducted: ${creditsUsed} used, ${userRole.credits} -> ${newCredits}`);
       }
     }
+
+    // Log estimated API costs
+    const candidatesCount = totalCandidatesProcessed;
+    const estimatedCost =
+      candidatesCount * API_COSTS.scrapingdog.fetchLinkedInProfile +
+      candidatesCount * API_COSTS.openrouter.checkPublishLanguage +
+      candidatesCount * API_COSTS.openrouter.classifyTopics +
+      themes.length * API_COSTS.apify.searchLinkedInProfiles;
+    logApiCost({
+      userId,
+      source: "casting",
+      searchId: listId,
+      provider: "apify",
+      operation: "castingSearch",
+      estimatedCost: themes.length * API_COSTS.apify.searchLinkedInProfiles,
+      metadata: { themes: themes.length, candidates: candidatesCount },
+    });
+    logApiCost({
+      userId,
+      source: "casting",
+      searchId: listId,
+      provider: "scrapingdog",
+      operation: "castingSearch",
+      estimatedCost: candidatesCount * API_COSTS.scrapingdog.fetchLinkedInProfile,
+      metadata: { profilesFetched: candidatesCount },
+    });
+    logApiCost({
+      userId,
+      source: "casting",
+      searchId: listId,
+      provider: "openrouter",
+      operation: "castingSearch",
+      estimatedCost: candidatesCount * (API_COSTS.openrouter.checkPublishLanguage + API_COSTS.openrouter.classifyTopics),
+      metadata: { aiCalls: candidatesCount * 2 },
+    });
+    console.log(`[casting] Estimated API cost: $${estimatedCost.toFixed(4)}`);
 
     // Update list status to complete
     await service.from("casting_lists").update({
