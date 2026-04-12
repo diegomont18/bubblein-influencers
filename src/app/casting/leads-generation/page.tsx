@@ -9,6 +9,7 @@ interface AnalyzedProfile {
   headline: string;
   linkedin_url: string;
   created_at: string;
+  leads_count: number;
 }
 
 export default function LeadsGenerationPage() {
@@ -17,12 +18,14 @@ export default function LeadsGenerationPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<AnalyzedProfile[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/leads-generation/profiles")
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.profiles) setHistory(d.profiles); })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false));
   }, []);
 
   async function handleAnalyze() {
@@ -119,28 +122,66 @@ export default function LeadsGenerationPage() {
       </div>
 
       {/* History */}
-      {history.length > 0 && (
-        <div className="max-w-2xl mx-auto pt-4">
-          <h3 className="text-xs font-black tracking-[0.2em] text-white/20 uppercase mb-3">Perfis analisados</h3>
+      <div className="max-w-2xl mx-auto pt-4">
+        <h3 className="text-xs font-black tracking-[0.2em] text-white/20 uppercase mb-3">Perfis analisados</h3>
+
+        {historyLoading ? (
           <div className="space-y-2">
-            {history.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => router.push(`/casting/leads-generation/${p.id}`)}
-                className="w-full flex items-center gap-3 bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3 text-left hover:border-[#ca98ff]/20 hover:bg-[#ca98ff]/[0.02] transition-all"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white font-medium truncate">{p.name || "Perfil"}</p>
-                  {p.headline && <p className="text-[10px] text-white/40 truncate">{p.headline}</p>}
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <div className="h-4 bg-white/5 rounded w-40 mb-2" />
+                    <div className="h-3 bg-white/5 rounded w-60" />
+                  </div>
+                  <div className="h-3 bg-white/5 rounded w-16" />
                 </div>
-                <span className="text-[10px] text-white/20 shrink-0">
-                  {new Date(p.created_at).toLocaleDateString("pt-BR")}
-                </span>
-              </button>
+              </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : history.length > 0 ? (
+          <div className="space-y-2">
+            {history.map((p) => (
+              <div
+                key={p.id}
+                className="w-full flex items-center gap-3 bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3 hover:border-[#ca98ff]/20 hover:bg-[#ca98ff]/[0.02] transition-all"
+              >
+                <button
+                  onClick={() => router.push(`/casting/leads-generation/${p.id}`)}
+                  className="flex-1 min-w-0 text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-white font-medium truncate">{p.name || "Perfil"}</p>
+                    <a
+                      href={p.linkedin_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[#ca98ff] hover:text-[#e197fc] transition-colors shrink-0"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                    </a>
+                  </div>
+                  {p.headline && <p className="text-[10px] text-white/40 truncate">{p.headline}</p>}
+                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-medium text-[#ca98ff] bg-[#ca98ff]/10 px-2 py-0.5 rounded-full">
+                    {p.leads_count} leads
+                  </span>
+                  <span className="text-[10px] font-medium text-[#adaaaa] bg-white/5 px-2 py-0.5 rounded-full">
+                    0 influencers
+                  </span>
+                  <span className="text-[10px] text-white/20">
+                    {new Date(p.created_at).toLocaleDateString("pt-BR")}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-white/20">Nenhum perfil analisado ainda.</p>
+        )}
+      </div>
     </div>
   );
 }

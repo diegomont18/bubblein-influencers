@@ -38,6 +38,7 @@ interface LogParams {
   provider: Provider;
   operation: string;
   estimatedCost: number;
+  creditsUsed?: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -53,6 +54,7 @@ export function logApiCost(params: LogParams): void {
       provider: params.provider,
       operation: params.operation,
       estimated_cost: params.estimatedCost,
+      credits_used: params.creditsUsed || 0,
       metadata: params.metadata || null,
     })
     .then(({ error }) => {

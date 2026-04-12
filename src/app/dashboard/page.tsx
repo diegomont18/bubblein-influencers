@@ -119,6 +119,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Row 3: API costs */}
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-gray-700">API Costs</h3>
+            <a href="/dashboard/api-costs" className="text-xs text-blue-600 hover:underline">Ver detalhes →</a>
+          </div>
           <div className="grid grid-cols-3 gap-4">
             <CostCard label="Today" cost={stats.costs.today} />
             <CostCard label="This Week" cost={stats.costs.week} />

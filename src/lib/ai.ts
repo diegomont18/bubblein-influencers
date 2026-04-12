@@ -539,3 +539,55 @@ Respond ONLY with a JSON object:
     return null;
   }
 }
+
+export async function rankPostsForLeadGeneration(
+  posts: Array<{ id: string; text: string }>,
+): Promise<Map<string, number>> {
+  const results = new Map<string, number>();
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey || posts.length === 0) return results;
+
+  const postsText = posts.map((p) => `[${p.id}] "${p.text.slice(0, 200)}"`).join("\n");
+
+  const prompt = `Score each LinkedIn post for B2B lead generation relevance (0-100).
+
+HIGH SCORE (70-100): Posts about business topics, industry insights, product/service expertise, market opinions, professional knowledge, case studies, results.
+MEDIUM SCORE (30-69): General professional content, industry news sharing, thought leadership.
+LOW SCORE (0-29): Job postings, hiring announcements, motivational quotes, team celebrations, birthdays, personal stories unrelated to business, "we are a family" type posts.
+
+POSTS:
+${postsText}
+
+Respond ONLY with a JSON array: [{"id":"...","s":85}, ...]
+Where id=post id, s=relevance score 0-100.`;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "google/gemini-2.0-flash-lite-001",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 1000,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!res.ok) return results;
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? "";
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return results;
+
+    const parsed = JSON.parse(jsonMatch[0]) as Array<{ id: string; s: number }>;
+    for (const item of parsed) {
+      results.set(String(item.id), Math.max(0, Math.min(100, item.s ?? 50)));
+    }
+    console.log(`[ai] rankPostsForLeadGeneration: scored ${results.size}/${posts.length} posts`);
+  } catch (err) {
+    console.error("[ai] rankPostsForLeadGeneration exception:", err);
+  }
+
+  return results;
+}

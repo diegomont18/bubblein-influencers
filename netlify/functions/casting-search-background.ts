@@ -1072,6 +1072,7 @@ const handler: Handler = async (event: HandlerEvent) => {
           .update({ credits: newCredits })
           .eq("user_id", userId);
         console.log(`[casting] Credits deducted: ${creditsUsed} used, ${userRole.credits} -> ${newCredits}`);
+        logApiCost({ userId, source: "casting", searchId: listId, provider: "apify", operation: "credits_deducted", estimatedCost: 0, creditsUsed, metadata: { profilesMatched: matchedProfiles.length } });
       }
     }
 

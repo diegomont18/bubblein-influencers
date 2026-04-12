@@ -179,6 +179,7 @@ async function runScanInline(
         const newCredits = Math.max(0, cur.credits - creditsToDeduct);
         await service.from("user_roles").update({ credits: newCredits }).eq("user_id", userId);
         console.log(`[leads] Credits deducted: ${creditsToDeduct} (${leadCount} leads / 10), ${cur.credits} -> ${newCredits}`);
+        logApiCost({ userId, source: "leads", searchId: scanId, provider: "apify", operation: "credits_deducted", estimatedCost: 0, creditsUsed: creditsToDeduct, metadata: { leadsFound: leadCount } });
       }
     }
 
