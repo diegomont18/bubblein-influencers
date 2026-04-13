@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { createClient } from "@supabase/supabase-js";
 
 const ADMIN_EMAIL = "diego@aihubstudio.com";
 
@@ -21,16 +22,21 @@ export function notifyError(
   const errorMessage = error instanceof Error ? error.message : String(error);
   const errorStack = error instanceof Error ? error.stack ?? "" : "";
 
-  const metadataStr = metadata ? JSON.stringify(metadata, null, 2) : "N/A";
+  // Resolve user email if userId is in metadata
+  const userId = metadata?.userId as string | undefined;
 
-  const subject = `[BubbleIn Error] ${dateStr} ${timeStr} — ${context}`;
-  const body = `Erro na plataforma BubbleIn
+  const sendEmail = (userEmail: string) => {
+    const metadataStr = metadata ? JSON.stringify(metadata, null, 2) : "N/A";
 
+    const subject = `[BubbleIn] ${dateStr} ${timeStr} — ${context}`;
+    const body = `Notificação BubbleIn
+
+Usuário: ${userEmail}
 Contexto: ${context}
 Data: ${dateStr}
 Hora: ${timeStr}
 
-Erro: ${errorMessage}
+Mensagem: ${errorMessage}
 
 Stack Trace:
 ${errorStack}
@@ -41,16 +47,28 @@ ${metadataStr}
 ---
 Enviado automaticamente pelo sistema de monitoramento BubbleIn.`;
 
-  const resend = new Resend(apiKey);
-  resend.emails.send({
-    from: "BubbleIn Alerts <noreply@bubblein.com.br>",
-    to: [ADMIN_EMAIL],
-    subject,
-    text: body,
-  }).then(({ error: sendError }) => {
-    if (sendError) console.error("[error-notifier] Failed to send:", sendError.message);
-    else console.log(`[error-notifier] Error notification sent for: ${context}`);
-  }).catch((err) => {
-    console.error("[error-notifier] Exception:", err);
-  });
+    const resend = new Resend(apiKey);
+    resend.emails.send({
+      from: "BubbleIn Alerts <noreply@bubblein.com.br>",
+      to: [ADMIN_EMAIL],
+      subject,
+      text: body,
+    }).then(({ error: sendError }) => {
+      if (sendError) console.error("[error-notifier] Failed to send:", sendError.message);
+      else console.log(`[error-notifier] Notification sent for: ${context}`);
+    }).catch((err) => {
+      console.error("[error-notifier] Exception:", err);
+    });
+  };
+
+  if (userId && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    supabase.auth.admin.getUserById(userId).then(({ data }) => {
+      sendEmail(data?.user?.email ?? `ID: ${userId}`);
+    }).catch(() => {
+      sendEmail(`ID: ${userId}`);
+    });
+  } else {
+    sendEmail(userId ? `ID: ${userId}` : "Sistema (sem usuário)");
+  }
 }
