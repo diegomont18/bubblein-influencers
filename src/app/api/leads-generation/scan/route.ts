@@ -74,7 +74,6 @@ export async function POST(request: Request) {
 
   // Fetch engagers from all posts, tracking per-person across posts
   const engagerMap = new Map<string, EngagerInfo>();
-  const seenIds = new Set<string>();
 
   for (const post of postsToScan) {
     const { reactions, comments } = await fetchPostEngagers(post.post_url!);
@@ -169,14 +168,6 @@ export async function POST(request: Request) {
       const aiResult = aiScores.get(globalIdx);
 
       const sourcePostUrls = Array.from(engager.interactions.keys());
-      let interactionCount = 0;
-      for (const [, type] of Array.from(engager.interactions.entries())) {
-        interactionCount += type === "comment" ? 2 : 1; // comment counts as more engagement
-      }
-      // Actually: count each interaction as 1 (like=1, comment=1 per post)
-      interactionCount = engager.interactions.size; // one interaction per post they engaged with
-      // But if they both liked AND commented on same post, count 2
-      // For simplicity: count total interactions across all posts
       let totalInteractions = 0;
       for (const post of postsToScan) {
         const url = post.post_url!;

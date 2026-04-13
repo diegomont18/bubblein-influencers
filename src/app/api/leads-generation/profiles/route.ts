@@ -16,7 +16,7 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Try to fetch leads counts (lg_results may not exist yet)
-  let leadsCountMap = new Map<string, number>();
+  const leadsCountMap = new Map<string, number>();
   try {
     const profileIds = (data ?? []).map((p) => p.id);
     if (profileIds.length > 0) {

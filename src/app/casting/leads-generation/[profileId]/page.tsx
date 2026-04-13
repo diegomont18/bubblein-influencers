@@ -93,7 +93,6 @@ export default function LeadsGenerationOptionsPage() {
   const [influencerStep, setInfluencerStep] = useState(0);
   const influencerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [influencerCredits, setInfluencerCredits] = useState(3);
-  const [influencerSearchId, setInfluencerSearchId] = useState<string | null>(null);
   const [influencerSuccess, setInfluencerSuccess] = useState<string | null>(null);
 
   // Profile history for dropdown
@@ -242,7 +241,7 @@ export default function LeadsGenerationOptionsPage() {
         return;
       }
       const { searchId } = await res.json();
-      setInfluencerSearchId(searchId);
+      // searchId used for polling below
 
       // Poll for status every 5 seconds (same pattern as /casting page)
       let searchComplete = false;
