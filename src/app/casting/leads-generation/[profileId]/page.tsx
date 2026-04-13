@@ -7,7 +7,7 @@ import { CastingResultsDark } from "@/components/casting/casting-results-dark";
 import { CastingProfile } from "@/components/casting/casting-results";
 
 const COMPANY_SIZES = ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001+"];
-const ITEMS_PER_PAGE = 20;
+const ITEMS_PER_PAGE = 10;
 
 const SCAN_STEPS = [
   "Analisando relevância dos posts...",
@@ -833,8 +833,30 @@ export default function LeadsGenerationOptionsPage() {
             </div>
           </div>
 
-          {/* Table */}
-          <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.05] rounded-xl shadow-2xl overflow-x-auto">
+          {/* Table with dual scroll (top + bottom) */}
+          <div
+            className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.05] rounded-xl shadow-2xl overflow-x-auto"
+            ref={(el) => {
+              if (!el) return;
+              // Create synced top scrollbar
+              const id = "table-top-scroll";
+              let topScroll = el.parentElement?.querySelector(`#${id}`) as HTMLDivElement | null;
+              if (!topScroll) {
+                topScroll = document.createElement("div");
+                topScroll.id = id;
+                topScroll.style.overflowX = "auto";
+                topScroll.style.marginBottom = "4px";
+                const inner = document.createElement("div");
+                inner.style.height = "1px";
+                topScroll.appendChild(inner);
+                el.parentElement?.insertBefore(topScroll, el);
+                topScroll.addEventListener("scroll", () => { el.scrollLeft = topScroll!.scrollLeft; });
+                el.addEventListener("scroll", () => { topScroll!.scrollLeft = el.scrollLeft; });
+              }
+              const inner = topScroll.firstChild as HTMLDivElement;
+              if (inner) inner.style.width = `${el.scrollWidth}px`;
+            }}
+          >
             <table className="w-full text-left min-w-[900px]">
               <thead>
                 <tr className="bg-[#131313]/50">

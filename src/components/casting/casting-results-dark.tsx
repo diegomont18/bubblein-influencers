@@ -50,7 +50,7 @@ function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort }:
   );
 }
 
-const ITEMS_PER_PAGE = 20;
+const ITEMS_PER_PAGE = 10;
 
 export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: CastingResultsDarkProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
