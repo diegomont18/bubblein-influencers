@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { rankPostsForLeadGeneration } from "@/lib/ai";
+import { fetchProfilePosts } from "@/lib/apify";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
 
@@ -43,11 +44,53 @@ export async function POST(request: Request) {
       }
     }
 
-    // Sort by relevance and take top posts
+    // Sort by relevance and filter to unscanned posts only
     const sortedPosts = [...posts].sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
-    const postsToScan = sortedPosts.filter((p) => (p.relevance_score ?? 0) >= 20 && p.post_url);
+    let postsToScan = sortedPosts.filter((p) => (p.relevance_score ?? 0) >= 20 && p.post_url && !p.scanned);
 
-    if (postsToScan.length === 0) return NextResponse.json({ error: "No relevant posts found" }, { status: 400 });
+    // If all posts already scanned, fetch more from LinkedIn
+    if (postsToScan.length === 0) {
+      const { data: lgProfile } = await service.from("lg_profiles").select("linkedin_url").eq("id", profileId).single();
+      if (lgProfile?.linkedin_url) {
+        console.log(`[lg-scan] All posts scanned, fetching more from ${lgProfile.linkedin_url}...`);
+        const rawPosts = await fetchProfilePosts(lgProfile.linkedin_url, 20);
+        logApiCost({ userId: user.id, source: "leads", searchId: profileId, provider: "apify", operation: "fetchProfilePosts", estimatedCost: API_COSTS.apify.fetchProfilePosts, metadata: { postsFound: rawPosts.length } });
+
+        const existingUrls = new Set(posts.map((p) => p.post_url).filter(Boolean));
+        const newPosts = rawPosts.map((p) => {
+          const url = String(p.postUrl ?? p.permalink ?? p.shareUrl ?? "");
+          const shareUrn = String(p.shareUrn ?? p.entityId ?? "");
+          const postUrl = url.includes("linkedin.com") ? url : shareUrn.includes("urn:li:") ? `https://www.linkedin.com/feed/update/${shareUrn}` : "";
+          return {
+            profile_id: profileId,
+            post_url: postUrl,
+            text_content: String(p.content ?? p.text ?? p.postText ?? ""),
+            reactions: 0,
+            comments: 0,
+            posted_at: String(p.postedAt ?? p.publishedAt ?? ""),
+            raw_data: p,
+          };
+        }).filter((p) => p.post_url && !existingUrls.has(p.post_url));
+
+        if (newPosts.length > 0) {
+          await service.from("lg_posts").insert(newPosts);
+          // Rank the new posts
+          const postsForRanking = newPosts.map((p, i) => ({ id: `new-${i}`, text: p.text_content }));
+          const scores = await rankPostsForLeadGeneration(postsForRanking);
+          // Re-fetch all posts to get the IDs
+          const { data: allPosts } = await service.from("lg_posts").select("*").eq("profile_id", profileId);
+          const unranked = (allPosts ?? []).filter((p) => p.relevance_score == null);
+          for (const p of unranked) {
+            const score = scores.get(p.id) ?? 50;
+            await service.from("lg_posts").update({ relevance_score: score }).eq("id", p.id);
+          }
+          const freshSorted = (allPosts ?? []).sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
+          postsToScan = freshSorted.filter((p) => (p.relevance_score ?? 0) >= 20 && p.post_url && !p.scanned);
+        }
+      }
+    }
+
+    if (postsToScan.length === 0) return NextResponse.json({ error: "Não há mais posts para analisar neste perfil" }, { status: 400 });
 
     // Fetch options
     const { data: options } = await service.from("lg_options").select("*").eq("profile_id", profileId).single();
@@ -58,7 +101,7 @@ export async function POST(request: Request) {
     const scanParams = {
       userId: user.id,
       profileId,
-      postsToScan: postsToScan.map((p) => ({ post_url: p.post_url, relevance_score: p.relevance_score })),
+      postsToScan: postsToScan.map((p) => ({ id: p.id, post_url: p.post_url, relevance_score: p.relevance_score })),
       jobTitles,
       departments,
       maxLeads,

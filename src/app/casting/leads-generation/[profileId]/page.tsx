@@ -79,6 +79,7 @@ export default function LeadsGenerationOptionsPage() {
   const [posts, setPosts] = useState<PostInfo[]>([]);
   const [scanning, setScanning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [scanSuccess, setScanSuccess] = useState<string | null>(null);
   const [scanStep, setScanStep] = useState(0);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [userCredits, setUserCredits] = useState<number>(-1);
@@ -205,6 +206,7 @@ export default function LeadsGenerationOptionsPage() {
       const pollStart = Date.now();
       const MAX_POLL = 10 * 60 * 1000;
       let lastSeenCount = 0;
+      const prevResultsCount = results.length; // capture before polling starts
 
       while (!scanDone && Date.now() - pollStart < MAX_POLL) {
         await new Promise((r) => setTimeout(r, 5000));
@@ -239,6 +241,15 @@ export default function LeadsGenerationOptionsPage() {
         const finalData = await finalRes.json();
         setResults(finalData.results ?? []);
         setPosts(finalData.posts ?? []);
+
+        const newLeadsFound = (finalData.results ?? []).length - prevResultsCount;
+        if (newLeadsFound > 0) {
+          setScanSuccess(`${newLeadsFound} novo${newLeadsFound !== 1 ? "s" : ""} lead${newLeadsFound !== 1 ? "s" : ""} encontrado${newLeadsFound !== 1 ? "s" : ""}!`);
+          setTimeout(() => setScanSuccess(null), 8000);
+        } else if (scanDone) {
+          setScanSuccess("Busca concluída.");
+          setTimeout(() => setScanSuccess(null), 5000);
+        }
       }
 
       setScanStep(SCAN_STEPS.length - 1);
@@ -506,6 +517,14 @@ export default function LeadsGenerationOptionsPage() {
         </div>
       )}
 
+      {/* Success message */}
+      {scanSuccess && (
+        <div className="rounded-xl bg-[#a2f31f]/10 px-4 py-3 text-sm text-[#a2f31f] font-medium flex items-center justify-between">
+          <div className="flex items-center gap-2"><span>&#10003;</span> {scanSuccess}</div>
+          <button onClick={() => setScanSuccess(null)} className="text-[#a2f31f]/60 hover:text-[#a2f31f] ml-3 text-lg leading-none">&times;</button>
+        </div>
+      )}
+
       {/* Two paths — card selection */}
       <section className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
         {/* Leads Card */}
@@ -742,7 +761,7 @@ export default function LeadsGenerationOptionsPage() {
           {/* Table header */}
           <div className="flex justify-between items-end">
             <div>
-              <h2 className="text-2xl font-extrabold font-[family-name:var(--font-lexend)]">Análise de Decisores</h2>
+              <h2 className="text-2xl font-extrabold text-white font-[family-name:var(--font-lexend)]">Lista de Leads ({filteredResults.length})</h2>
               <p className="text-[#adaaaa] text-sm mt-1">Ordenado por <span className="text-[#ca98ff] font-semibold">Status + Score ICP</span></p>
             </div>
             <div className="flex gap-3">

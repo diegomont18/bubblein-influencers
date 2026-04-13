@@ -8,7 +8,7 @@ import { notifyError } from "../../src/lib/error-notifier";
 interface ScanParams {
   userId: string;
   profileId: string;
-  postsToScan: Array<{ post_url: string | null; relevance_score: number | null }>;
+  postsToScan: Array<{ id?: string; post_url: string | null; relevance_score: number | null }>;
   jobTitles: string[];
   departments: string[];
   maxLeads: number;
@@ -48,6 +48,11 @@ const handler: Handler = async (event: HandlerEvent) => {
       console.log(`[lg-scan] Processing post: ${post.post_url}`);
       const { reactions, comments } = await fetchPostEngagers(post.post_url);
       logApiCost({ userId, source: "leads", searchId: profileId, provider: "apify", operation: "fetchPostEngagers", estimatedCost: API_COSTS.apify.fetchPostEngagers, metadata: { postUrl: post.post_url } });
+
+      // Mark post as scanned
+      if (post.id) {
+        await service.from("lg_posts").update({ scanned: true }).eq("id", post.id);
+      }
 
       for (const r of reactions) {
         const actor = (r.actor && typeof r.actor === "object" ? r.actor : null) as Record<string, unknown> | null;
