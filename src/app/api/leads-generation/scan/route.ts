@@ -27,93 +27,92 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Créditos insuficientes" }, { status: 403 });
     }
 
-    // Fetch posts
-    const { data: posts } = await service.from("lg_posts").select("*").eq("profile_id", profileId);
-    if (!posts || posts.length === 0) return NextResponse.json({ error: "No posts found" }, { status: 400 });
+    // Fetch existing posts
+    const { data: existingPosts } = await service.from("lg_posts").select("*").eq("profile_id", profileId);
 
-    // Rank posts by relevance if not already ranked
-    const unrankedPosts = posts.filter((p) => p.relevance_score == null);
-    if (unrankedPosts.length > 0) {
-      const postsForRanking = unrankedPosts.map((p) => ({ id: p.id, text: p.text_content ?? "" }));
-      const scores = await rankPostsForLeadGeneration(postsForRanking);
-      logApiCost({ userId: user.id, source: "leads", searchId: profileId, provider: "openrouter", operation: "rankPostsForLeadGeneration", estimatedCost: API_COSTS.openrouter.classifyTopics, metadata: { postsRanked: postsForRanking.length } });
-      for (const p of unrankedPosts) {
-        const score = scores.get(p.id) ?? 50;
-        await service.from("lg_posts").update({ relevance_score: score }).eq("id", p.id);
-        p.relevance_score = score;
+    // Check if we already have leads (meaning this is a repeat scan)
+    const { count: existingLeadsCount } = await service.from("lg_results").select("id", { count: "exact", head: true }).eq("profile_id", profileId);
+    const isRepeatScan = (existingLeadsCount ?? 0) > 0;
+
+    // For repeat scans, ALWAYS fetch more posts from LinkedIn to go deeper
+    let postsToScan: typeof existingPosts = [];
+
+    if (isRepeatScan) {
+      console.log(`[lg-scan] Repeat scan — fetching more posts from LinkedIn`);
+      const existingCount = (existingPosts ?? []).length;
+      const fetchCount = existingCount + 10;
+
+      const rawPosts = await fetchProfilePosts(profile.linkedin_url, fetchCount);
+      logApiCost({ userId: user.id, source: "leads", searchId: profileId, provider: "apify", operation: "fetchProfilePosts", estimatedCost: API_COSTS.apify.fetchProfilePosts, metadata: { existingCount, fetchCount, fetched: rawPosts.length } });
+      console.log(`[lg-scan] Fetched ${rawPosts.length} posts (had ${existingCount} stored)`);
+
+      // Build dedup set from existing posts using URN IDs
+      const existingUrnIds = new Set<string>();
+      for (const p of existingPosts ?? []) {
+        const match = (p.post_url ?? "").match(/(\d{10,})/);
+        if (match) existingUrnIds.add(match[1]);
       }
-    }
 
-    // Sort by relevance
-    const sortedPosts = [...posts].sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
-    let postsToScan = sortedPosts.filter((p) => (p.relevance_score ?? 0) >= 20 && p.post_url && p.scanned !== true);
+      // Find NEW posts not already stored
+      const newPosts = rawPosts.map((p) => {
+        const shareUrn = String(p.shareUrn ?? p.entityId ?? "");
+        const postUrl = shareUrn.includes("urn:li:") ? `https://www.linkedin.com/feed/update/${shareUrn}` : "";
+        const urnId = shareUrn.match(/(\d+)$/)?.[1] ?? "";
+        return { profile_id: profileId, post_url: postUrl, text_content: String(p.content ?? p.text ?? p.postText ?? ""), reactions: 0, comments: 0, posted_at: String(p.postedAt ?? p.publishedAt ?? ""), raw_data: p, urnId };
+      }).filter((p) => p.post_url && p.urnId && !existingUrnIds.has(p.urnId));
 
-    // If all posts already scanned, try fetching older posts from LinkedIn
-    if (postsToScan.length === 0) {
-      const { data: lgProfile } = await service.from("lg_profiles").select("linkedin_url").eq("id", profileId).single();
-      if (lgProfile?.linkedin_url) {
-        const existingCount = posts.length;
-        const fetchCount = Math.max(existingCount + 10, 30);
-        console.log(`[lg-scan] All ${existingCount} posts scanned, fetching ${fetchCount} older posts...`);
-        const rawPosts = await fetchProfilePosts(lgProfile.linkedin_url, fetchCount);
-        logApiCost({ userId: user.id, source: "leads", searchId: profileId, provider: "apify", operation: "fetchProfilePosts", estimatedCost: API_COSTS.apify.fetchProfilePosts, metadata: { postsFound: rawPosts.length } });
+      console.log(`[lg-scan] Found ${newPosts.length} new posts not yet stored`);
 
-        // Match by multiple URL patterns to avoid duplicates
-        const existingUrls = new Set(posts.map((p) => p.post_url).filter(Boolean));
-        const existingShareUrns = new Set<string>();
-        for (const p of posts) {
-          const urnMatch = (p.post_url ?? "").match(/urn:li:(?:share|ugcPost|activity):(\d+)/);
-          if (urnMatch) existingShareUrns.add(urnMatch[1]);
+      if (newPosts.length > 0) {
+        const toInsert = newPosts.map(({ urnId: _, ...rest }) => rest);
+        await service.from("lg_posts").insert(toInsert);
+
+        // Rank new posts
+        const postsForRanking = newPosts.map((p, i) => ({ id: `new-${i}`, text: p.text_content }));
+        const scores = await rankPostsForLeadGeneration(postsForRanking);
+        logApiCost({ userId: user.id, source: "leads", searchId: profileId, provider: "openrouter", operation: "rankPostsForLeadGeneration", estimatedCost: API_COSTS.openrouter.classifyTopics });
+
+        // Re-fetch all posts to get inserted IDs
+        const { data: allPosts } = await service.from("lg_posts").select("*").eq("profile_id", profileId);
+        for (const p of (allPosts ?? []).filter((p) => p.relevance_score == null)) {
+          await service.from("lg_posts").update({ relevance_score: scores.get(p.id) ?? 50 }).eq("id", p.id);
         }
 
-        const newPosts = rawPosts.map((p) => {
-          const shareUrn = String(p.shareUrn ?? p.entityId ?? "");
-          const postUrl = shareUrn.includes("urn:li:") ? `https://www.linkedin.com/feed/update/${shareUrn}` : "";
-          return {
-            profile_id: profileId,
-            post_url: postUrl,
-            text_content: String(p.content ?? p.text ?? p.postText ?? ""),
-            reactions: 0,
-            comments: 0,
-            posted_at: String(p.postedAt ?? p.publishedAt ?? ""),
-            raw_data: p,
-            shareUrn,
-          };
-        }).filter((p) => {
-          if (!p.post_url) return false;
-          if (existingUrls.has(p.post_url)) return false;
-          const urnMatch = p.shareUrn.match(/(\d+)$/);
-          if (urnMatch && existingShareUrns.has(urnMatch[1])) return false;
-          return true;
-        });
+        // Use ONLY new (unscanned) posts
+        postsToScan = (allPosts ?? []).filter((p) => p.post_url && p.scanned !== true).sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
+      }
 
-        if (newPosts.length > 0) {
-          console.log(`[lg-scan] Found ${newPosts.length} new older posts`);
-          const toInsert = newPosts.map(({ shareUrn: _s, ...rest }) => rest);
-          await service.from("lg_posts").insert(toInsert);
-          const postsForRanking = newPosts.map((p, i) => ({ id: `new-${i}`, text: p.text_content }));
-          const scores = await rankPostsForLeadGeneration(postsForRanking);
-          logApiCost({ userId: user.id, source: "leads", searchId: profileId, provider: "openrouter", operation: "rankPostsForLeadGeneration", estimatedCost: API_COSTS.openrouter.classifyTopics });
+      // If no new posts found, scan all posts (dedup in bg function handles duplicates)
+      if (!postsToScan || postsToScan.length === 0) {
+        const { data: allPosts } = await service.from("lg_posts").select("*").eq("profile_id", profileId);
+        postsToScan = (allPosts ?? []).filter((p) => p.post_url).sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
+        console.log(`[lg-scan] No new posts, rescanning all ${postsToScan?.length ?? 0} posts`);
+      }
+    } else {
+      // First scan: use existing posts, rank if needed
+      const posts = existingPosts ?? [];
+      if (posts.length === 0) return NextResponse.json({ error: "No posts found" }, { status: 400 });
 
-          const { data: allPosts } = await service.from("lg_posts").select("*").eq("profile_id", profileId);
-          for (const p of (allPosts ?? []).filter((p) => p.relevance_score == null)) {
-            await service.from("lg_posts").update({ relevance_score: scores.get(p.id) ?? 50 }).eq("id", p.id);
-          }
-          const freshSorted = (allPosts ?? []).sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
-          postsToScan = freshSorted.filter((p) => (p.relevance_score ?? 0) >= 20 && p.post_url && p.scanned !== true);
+      const unrankedPosts = posts.filter((p) => p.relevance_score == null);
+      if (unrankedPosts.length > 0) {
+        const postsForRanking = unrankedPosts.map((p) => ({ id: p.id, text: p.text_content ?? "" }));
+        const scores = await rankPostsForLeadGeneration(postsForRanking);
+        logApiCost({ userId: user.id, source: "leads", searchId: profileId, provider: "openrouter", operation: "rankPostsForLeadGeneration", estimatedCost: API_COSTS.openrouter.classifyTopics, metadata: { postsRanked: postsForRanking.length } });
+        for (const p of unrankedPosts) {
+          const score = scores.get(p.id) ?? 50;
+          await service.from("lg_posts").update({ relevance_score: score }).eq("id", p.id);
+          p.relevance_score = score;
         }
       }
+      postsToScan = posts.filter((p) => (p.relevance_score ?? 0) >= 20 && p.post_url).sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
     }
 
-    // Final fallback: rescan all posts (bg function deduplicates by slug)
-    if (postsToScan.length === 0) {
-      postsToScan = sortedPosts.filter((p) => p.post_url);
-      console.log(`[lg-scan] No new posts available, rescanning ${postsToScan.length} existing posts for new engagers`);
-      if (postsToScan.length === 0) {
-        notifyError("lg-scan no posts", new Error("No posts available to scan"), { profileId, userId: user.id });
-        return NextResponse.json({ error: "Não há posts para analisar neste perfil" }, { status: 400 });
-      }
+    if (!postsToScan || postsToScan.length === 0) {
+      notifyError("lg-scan no posts", new Error("No posts available"), { profileId, userId: user.id, isRepeatScan });
+      return NextResponse.json({ error: "Não há posts para analisar neste perfil" }, { status: 400 });
     }
+
+    console.log(`[lg-scan] Will scan ${postsToScan.length} posts`);
 
     // Fetch options
     const { data: options } = await service.from("lg_options").select("*").eq("profile_id", profileId).single();
