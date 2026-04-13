@@ -243,15 +243,15 @@ export default function LeadsGenerationOptionsPage() {
         setResults(finalData.results ?? []);
         setPosts(finalData.posts ?? []);
 
-        const newLeadsFound = (finalData.results ?? []).length - prevResultsCount;
+        const finalCount = (finalData.results ?? []).length;
+        const newLeadsFound = finalCount - prevResultsCount;
+        console.log(`[lg-scan] Final: ${finalCount} total, ${newLeadsFound} new (prev: ${prevResultsCount})`);
         if (newLeadsFound > 0) {
           setScanSuccess(`Foram adicionados ${newLeadsFound} lead${newLeadsFound !== 1 ? "s" : ""} à sua lista!`);
         } else {
-          setScanSuccess("Busca concluída. Nenhum lead novo encontrado nesta busca.");
+          setScanSuccess(`Busca concluída com ${finalCount} leads. Nenhum lead novo encontrado nesta busca.`);
         }
-        setTimeout(() => setScanSuccess(null), 15000);
-        // Scroll to top to show success message
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        setTimeout(() => setScanSuccess(null), 30000);
       }
 
       setScanStep(SCAN_STEPS.length - 1);
@@ -627,6 +627,11 @@ export default function LeadsGenerationOptionsPage() {
                 {results.length > 0 ? "GERAR MAIS LEADS" : "VER DECISORES INTERESSADOS"}
               </button>
             )}
+          {scanSuccess && (
+            <div className="rounded-xl bg-[#a2f31f]/10 px-4 py-3 text-sm text-[#a2f31f] font-medium flex items-center gap-2 mt-3">
+              <span>&#10003;</span> {scanSuccess}
+            </div>
+          )}
           </div>
           </>)}
         </div>
