@@ -1,6 +1,6 @@
 import type { Handler, HandlerEvent } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { fetchPostEngagers } from "../../src/lib/apify";
+import { fetchPostEngagers, fetchProfilePosts } from "../../src/lib/apify";
 import { batchScoreIcpMatch } from "../../src/lib/ai";
 import { logApiCost, API_COSTS } from "../../src/lib/api-costs";
 import { notifyError } from "../../src/lib/error-notifier";
@@ -50,7 +50,6 @@ const handler: Handler = async (event: HandlerEvent) => {
       const fetchCount = existingCount + 10;
       console.log(`[lg-scan] Fetching ${fetchCount} posts from ${linkedinUrl} (had ${existingCount})...`);
 
-      const { fetchProfilePosts } = await import("../../src/lib/apify");
       const morePosts = await fetchProfilePosts(linkedinUrl, fetchCount);
       logApiCost({ userId, source: "leads", searchId: profileId, provider: "apify", operation: "fetchProfilePosts", estimatedCost: API_COSTS.apify.fetchProfilePosts, metadata: { fetchCount, fetched: morePosts.length } });
       console.log(`[lg-scan] Apify returned ${morePosts.length} posts`);
