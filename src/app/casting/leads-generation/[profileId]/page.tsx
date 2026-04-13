@@ -196,8 +196,10 @@ export default function LeadsGenerationOptionsPage() {
         body: JSON.stringify({ profileId, credits: scanCredits }),
       });
 
+      const scanResponse = await res.json().catch(() => ({}));
+      console.log("[lg-scan] Scan API response:", scanResponse);
+
       if (!res.ok) {
-        await res.json().catch(() => ({}));
         setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde.");
         return;
       }

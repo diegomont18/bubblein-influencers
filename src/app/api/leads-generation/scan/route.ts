@@ -37,14 +37,19 @@ export async function POST(request: Request) {
     // For repeat scans, ALWAYS fetch more posts from LinkedIn to go deeper
     let postsToScan: typeof existingPosts = [];
 
+    const debugLog: string[] = [`isRepeatScan=${isRepeatScan}, existingPosts=${(existingPosts??[]).length}, existingLeads=${existingLeadsCount}`];
+    console.log(`[lg-scan] ${debugLog[0]}`);
+
     if (isRepeatScan) {
-      console.log(`[lg-scan] Repeat scan — fetching more posts from LinkedIn`);
       const existingCount = (existingPosts ?? []).length;
       const fetchCount = existingCount + 10;
+      debugLog.push(`Repeat scan: ${existingCount} stored posts, ${existingLeadsCount} leads. Fetching ${fetchCount} from LinkedIn...`);
+      console.log(`[lg-scan] ${debugLog[debugLog.length - 1]}`);
 
       const rawPosts = await fetchProfilePosts(profile.linkedin_url, fetchCount);
       logApiCost({ userId: user.id, source: "leads", searchId: profileId, provider: "apify", operation: "fetchProfilePosts", estimatedCost: API_COSTS.apify.fetchProfilePosts, metadata: { existingCount, fetchCount, fetched: rawPosts.length } });
-      console.log(`[lg-scan] Fetched ${rawPosts.length} posts (had ${existingCount} stored)`);
+      debugLog.push(`Apify returned ${rawPosts.length} posts`);
+      console.log(`[lg-scan] ${debugLog[debugLog.length - 1]}`);
 
       // Build dedup set from existing posts using URN IDs
       const existingUrnIds = new Set<string>();
@@ -52,16 +57,24 @@ export async function POST(request: Request) {
         const match = (p.post_url ?? "").match(/(\d{10,})/);
         if (match) existingUrnIds.add(match[1]);
       }
+      debugLog.push(`Existing URN IDs for dedup: ${existingUrnIds.size} (${Array.from(existingUrnIds).slice(0, 3).join(", ")}...)`);
+      console.log(`[lg-scan] ${debugLog[debugLog.length - 1]}`);
 
       // Find NEW posts not already stored
-      const newPosts = rawPosts.map((p) => {
+      const allMapped = rawPosts.map((p) => {
         const shareUrn = String(p.shareUrn ?? p.entityId ?? "");
         const postUrl = shareUrn.includes("urn:li:") ? `https://www.linkedin.com/feed/update/${shareUrn}` : "";
         const urnId = shareUrn.match(/(\d+)$/)?.[1] ?? "";
         return { profile_id: profileId, post_url: postUrl, text_content: String(p.content ?? p.text ?? p.postText ?? ""), reactions: 0, comments: 0, posted_at: String(p.postedAt ?? p.publishedAt ?? ""), raw_data: p, urnId };
-      }).filter((p) => p.post_url && p.urnId && !existingUrnIds.has(p.urnId));
+      });
 
-      console.log(`[lg-scan] Found ${newPosts.length} new posts not yet stored`);
+      const fetchedUrnIds = allMapped.map((p) => p.urnId).filter(Boolean);
+      debugLog.push(`Fetched URN IDs: ${fetchedUrnIds.length} (${fetchedUrnIds.slice(0, 3).join(", ")}...)`);
+      console.log(`[lg-scan] ${debugLog[debugLog.length - 1]}`);
+
+      const newPosts = allMapped.filter((p) => p.post_url && p.urnId && !existingUrnIds.has(p.urnId));
+      debugLog.push(`New posts after dedup: ${newPosts.length}`);
+      console.log(`[lg-scan] ${debugLog[debugLog.length - 1]}`);
 
       if (newPosts.length > 0) {
         const toInsert = newPosts.map(({ urnId: _, ...rest }) => rest);
@@ -160,7 +173,9 @@ export async function POST(request: Request) {
       notifyError("lg-scan trigger", err, { profileId, userId: user.id });
     }
 
-    return NextResponse.json({ status: "started", postsToScan: postsToScan.length });
+    debugLog.push(`Sending ${postsToScan?.length ?? 0} posts to bg function`);
+    console.log(`[lg-scan] ${debugLog[debugLog.length - 1]}`);
+    return NextResponse.json({ status: "started", postsToScan: postsToScan?.length ?? 0, debug: debugLog });
   } catch (err) {
     console.error("[lg-scan] Error:", err);
     notifyError("lg-scan", err, { profileId, userId: user.id });
