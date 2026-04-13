@@ -44,6 +44,9 @@ const handler: Handler = async (event: HandlerEvent) => {
   );
 
   try {
+    let morePostsFetched = 0;
+    let newPostsFound = 0;
+
     // If repeat scan, fetch more posts from LinkedIn first
     if (fetchMorePosts && linkedinUrl) {
       const existingCount = postsToScan.length;
@@ -52,6 +55,7 @@ const handler: Handler = async (event: HandlerEvent) => {
 
       const morePosts = await fetchProfilePosts(linkedinUrl, fetchCount);
       logApiCost({ userId, source: "leads", searchId: profileId, provider: "apify", operation: "fetchProfilePosts", estimatedCost: API_COSTS.apify.fetchProfilePosts, metadata: { fetchCount, fetched: morePosts.length } });
+      morePostsFetched = morePosts.length;
       console.log(`[lg-scan] Apify returned ${morePosts.length} posts`);
 
       const existingUrns = new Set(existingPostUrns ?? []);
@@ -62,6 +66,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         return { post_url: postUrl, text_content: String(p.content ?? p.text ?? p.postText ?? ""), urnId };
       }).filter((p) => p.post_url && p.urnId && !existingUrns.has(p.urnId));
 
+      newPostsFound = newPosts.length;
       console.log(`[lg-scan] Found ${newPosts.length} new posts not yet stored`);
 
       if (newPosts.length > 0) {
@@ -196,6 +201,22 @@ const handler: Handler = async (event: HandlerEvent) => {
     }
 
     console.log(`[lg-scan] Complete: ${leadCount} leads from ${postsToScan.length} posts`);
+
+    // Send diagnostic email
+    notifyError("lg-scan-diagnostic (not an error)", new Error(`Scan completed: ${leadCount} new leads`), {
+      userId, profileId,
+      fetchMorePosts: !!fetchMorePosts,
+      linkedinUrl: linkedinUrl ?? "none",
+      existingPostUrnsCount: (existingPostUrns ?? []).length,
+      postsToScanCount: postsToScan.length,
+      totalEngagers: engagerMap.size,
+      existingLeadSlugs: existingSlugs.size,
+      newEngagersAfterDedup: allEngagers.length,
+      leadsInserted: leadCount,
+      morePostsFetched,
+      newPostsFound,
+    });
+
     await service.from("lg_profiles").update({ scan_status: "complete" }).eq("id", profileId);
   } catch (e) {
     console.error("[lg-scan] Background scan error:", e);
