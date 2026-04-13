@@ -12,6 +12,9 @@ interface ScanParams {
   jobTitles: string[];
   departments: string[];
   maxLeads: number;
+  fetchMorePosts?: boolean;
+  linkedinUrl?: string;
+  existingPostUrns?: string[];
 }
 
 interface EngagerInfo {
@@ -32,7 +35,8 @@ const handler: Handler = async (event: HandlerEvent) => {
   if (!event.body) return { statusCode: 400, body: "Missing body" };
 
   const params: ScanParams = JSON.parse(event.body);
-  const { userId, profileId, postsToScan, jobTitles, departments, maxLeads } = params;
+  const { userId, profileId, jobTitles, departments, maxLeads, fetchMorePosts, linkedinUrl, existingPostUrns } = params;
+  let { postsToScan } = params;
 
   const service = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,6 +44,46 @@ const handler: Handler = async (event: HandlerEvent) => {
   );
 
   try {
+    // If repeat scan, fetch more posts from LinkedIn first
+    if (fetchMorePosts && linkedinUrl) {
+      const existingCount = postsToScan.length;
+      const fetchCount = existingCount + 10;
+      console.log(`[lg-scan] Fetching ${fetchCount} posts from ${linkedinUrl} (had ${existingCount})...`);
+
+      const { fetchProfilePosts } = await import("../../src/lib/apify");
+      const morePosts = await fetchProfilePosts(linkedinUrl, fetchCount);
+      logApiCost({ userId, source: "leads", searchId: profileId, provider: "apify", operation: "fetchProfilePosts", estimatedCost: API_COSTS.apify.fetchProfilePosts, metadata: { fetchCount, fetched: morePosts.length } });
+      console.log(`[lg-scan] Apify returned ${morePosts.length} posts`);
+
+      const existingUrns = new Set(existingPostUrns ?? []);
+      const newPosts = morePosts.map((p) => {
+        const shareUrn = String(p.shareUrn ?? p.entityId ?? "");
+        const postUrl = shareUrn.includes("urn:li:") ? `https://www.linkedin.com/feed/update/${shareUrn}` : "";
+        const urnId = shareUrn.match(/(\d+)$/)?.[1] ?? "";
+        return { post_url: postUrl, text_content: String(p.content ?? p.text ?? p.postText ?? ""), urnId };
+      }).filter((p) => p.post_url && p.urnId && !existingUrns.has(p.urnId));
+
+      console.log(`[lg-scan] Found ${newPosts.length} new posts not yet stored`);
+
+      if (newPosts.length > 0) {
+        // Save new posts to DB
+        const toInsert = newPosts.map((p) => ({
+          profile_id: profileId,
+          post_url: p.post_url,
+          text_content: p.text_content,
+          reactions: 0,
+          comments: 0,
+          posted_at: "",
+        }));
+        await service.from("lg_posts").insert(toInsert);
+
+        // Add new posts to postsToScan
+        const newPostEntries = newPosts.map((p) => ({ post_url: p.post_url, relevance_score: 50 }));
+        postsToScan = [...postsToScan, ...newPostEntries];
+        console.log(`[lg-scan] Total posts to scan: ${postsToScan.length} (${newPosts.length} new)`);
+      }
+    }
+
     const totalPossibleInteractions = postsToScan.length * 2;
     const engagerMap = new Map<string, EngagerInfo>();
 
