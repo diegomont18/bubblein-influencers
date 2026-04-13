@@ -339,7 +339,7 @@ export default function LeadsPage() {
     setLeads([]);
     setSelectedPostUrl("__all__");
     stepIntervalRef.current = setInterval(() => {
-      setScanStep((prev) => Math.min(prev + 1, SCAN_STEPS.length - 1));
+      setScanStep((prev) => Math.min(prev + 1, SCAN_STEPS.length - 2)); // Stop at 80%, only go to 100% on actual completion
     }, 8000);
 
     const controller = new AbortController();

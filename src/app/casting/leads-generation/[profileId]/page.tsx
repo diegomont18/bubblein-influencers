@@ -185,8 +185,8 @@ export default function LeadsGenerationOptionsPage() {
     setScanning(true);
     setScanStep(0);
     scanIntervalRef.current = setInterval(() => {
-      setScanStep((prev) => Math.min(prev + 1, SCAN_STEPS.length - 1));
-    }, 6000);
+      setScanStep((prev) => Math.min(prev + 1, SCAN_STEPS.length - 2)); // Stop at 80%, only go to 100% on actual completion
+    }, 8000);
 
     try {
       // Trigger scan (returns immediately, processing runs async in background)
@@ -253,7 +253,7 @@ export default function LeadsGenerationOptionsPage() {
         } else {
           setScanSuccess(`Busca concluída com ${finalCount} leads. Nenhum lead novo encontrado nesta busca.`);
         }
-        setTimeout(() => setScanSuccess(null), 30000);
+        // Message stays until user dismisses it
       }
 
       setScanStep(SCAN_STEPS.length - 1);
@@ -287,7 +287,7 @@ export default function LeadsGenerationOptionsPage() {
     setInfluencerSearching(true);
     setInfluencerStep(0);
     influencerIntervalRef.current = setInterval(() => {
-      setInfluencerStep((prev) => Math.min(prev + 1, INFLUENCER_STEPS.length - 1));
+      setInfluencerStep((prev) => Math.min(prev + 1, INFLUENCER_STEPS.length - 2)); // Stop at 80%, only go to 100% on actual completion
     }, 8000);
 
     try {
@@ -327,7 +327,7 @@ export default function LeadsGenerationOptionsPage() {
             searchComplete = true;
             const totalFound = statusData.found ?? 0;
             setInfluencerSuccess(`${totalFound} influenciador${totalFound !== 1 ? "es" : ""} encontrado${totalFound !== 1 ? "s" : ""}!`);
-            setTimeout(() => setInfluencerSuccess(null), 8000);
+            // Message stays until user dismisses it
           } else if (statusData.status === "error") {
             searchComplete = true;
             setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde.");

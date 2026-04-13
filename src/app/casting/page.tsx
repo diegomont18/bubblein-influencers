@@ -282,7 +282,7 @@ export default function HomePage() {
     setSearching(true);
     setSearchStep(0);
     stepIntervalRef.current = setInterval(() => {
-      setSearchStep((prev) => Math.min(prev + 1, SEARCH_STEPS.length - 1));
+      setSearchStep((prev) => Math.min(prev + 1, SEARCH_STEPS.length - 2)); // Stop at 80%, only go to 100% on actual completion
     }, 8000);
 
     const tempId = `temp-${Date.now()}`;
