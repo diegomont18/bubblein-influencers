@@ -195,7 +195,7 @@ export default function LeadsGenerationOptionsPage() {
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+        await res.json().catch(() => ({}));
         setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde.");
         return;
       }
@@ -276,7 +276,7 @@ export default function LeadsGenerationOptionsPage() {
         body: JSON.stringify({ profileId, credits: influencerCredits }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+        await res.json().catch(() => ({}));
         setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde.");
         return;
       }

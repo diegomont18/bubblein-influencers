@@ -3,7 +3,6 @@ import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { fetchProfilePosts } from "@/lib/apify";
 import { analyzeProfileForLeads } from "@/lib/ai";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
-import { notifyError } from "@/lib/error-notifier";
 
 function extractPostUrl(post: Record<string, unknown>): string {
   for (const key of ["postUrl", "permalink", "shareUrl"]) {

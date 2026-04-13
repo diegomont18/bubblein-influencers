@@ -14,7 +14,6 @@ import {
 } from "@/lib/normalize";
 import { classifyTopics, generateEmbedding } from "@/lib/ai";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
-import { notifyError } from "@/lib/error-notifier";
 
 export async function POST(request: Request) {
   // Auth: either logged-in user or CRON_SECRET header
