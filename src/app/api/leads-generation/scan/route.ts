@@ -52,8 +52,11 @@ export async function POST(request: Request) {
     if (postsToScan.length === 0) {
       const { data: lgProfile } = await service.from("lg_profiles").select("linkedin_url").eq("id", profileId).single();
       if (lgProfile?.linkedin_url) {
-        console.log(`[lg-scan] All posts scanned, fetching more from ${lgProfile.linkedin_url}...`);
-        const rawPosts = await fetchProfilePosts(lgProfile.linkedin_url, 20);
+        // Fetch more posts than we already have to get older ones
+        const existingCount = posts.length;
+        const fetchCount = Math.max(existingCount + 10, 30);
+        console.log(`[lg-scan] All ${existingCount} posts scanned, fetching ${fetchCount} from ${lgProfile.linkedin_url}...`);
+        const rawPosts = await fetchProfilePosts(lgProfile.linkedin_url, fetchCount);
         logApiCost({ userId: user.id, source: "leads", searchId: profileId, provider: "apify", operation: "fetchProfilePosts", estimatedCost: API_COSTS.apify.fetchProfilePosts, metadata: { postsFound: rawPosts.length } });
 
         const existingUrls = new Set(posts.map((p) => p.post_url).filter(Boolean));
@@ -90,14 +93,15 @@ export async function POST(request: Request) {
       }
     }
 
-    // If still no unscanned posts after fetching more, rescan existing posts
-    // (bg function deduplicates — only new engagers will be added)
+    // If still no unscanned posts, keep trying with even more posts from LinkedIn
     if (postsToScan.length === 0) {
-      postsToScan = sortedPosts.filter((p) => (p.relevance_score ?? 0) >= 20 && p.post_url);
-      console.log(`[lg-scan] No unscanned posts, rescanning ${postsToScan.length} existing posts for new engagers`);
+      // Re-fetch all posts and try again (new posts may have been inserted above)
+      const { data: refreshedPosts } = await service.from("lg_posts").select("*").eq("profile_id", profileId);
+      const refreshedSorted = (refreshedPosts ?? []).sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
+      postsToScan = refreshedSorted.filter((p) => (p.relevance_score ?? 0) >= 20 && p.post_url && p.scanned !== true);
     }
 
-    if (postsToScan.length === 0) return NextResponse.json({ error: "Não há posts para analisar neste perfil" }, { status: 400 });
+    if (postsToScan.length === 0) return NextResponse.json({ error: "Não há mais posts novos para analisar neste perfil. Todos os posts disponíveis já foram escaneados." }, { status: 400 });
 
     // Fetch options
     const { data: options } = await service.from("lg_options").select("*").eq("profile_id", profileId).single();
