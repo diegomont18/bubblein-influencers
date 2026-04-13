@@ -67,6 +67,26 @@ logApiCost({
 
 Estimated costs are defined in `API_COSTS` constant in `src/lib/api-costs.ts`. Update them if pricing changes.
 
+## Error Notifications
+
+ALL catch blocks in API routes and background functions MUST call `notifyError()` from `src/lib/error-notifier.ts`. This sends an email to the admin with error details.
+
+```typescript
+import { notifyError } from "@/lib/error-notifier";
+
+try {
+  // ... operation
+} catch (err) {
+  console.error("[context] Error:", err);
+  notifyError("context-name", err, { userId, profileId }); // always include relevant IDs
+}
+```
+
+For background functions (netlify/functions/), use the relative import:
+```typescript
+import { notifyError } from "../../src/lib/error-notifier";
+```
+
 ## Verification Steps
 
 After every implementation, always provide the user with a simple, concise checklist of steps to verify the changes work correctly. Keep it short and actionable — the user should be able to follow it quickly.

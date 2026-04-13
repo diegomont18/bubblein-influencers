@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
+import { notifyError } from "@/lib/error-notifier";
 
 interface SearchBody {
   themes: string[];
@@ -189,6 +190,7 @@ export async function POST(request: Request) {
     }
   } catch (err) {
     console.error("[casting] Failed to trigger background function:", err);
+    notifyError("casting-search", err, { listId });
     // Mark list as error so polling doesn't hang forever
     await service.from("casting_lists").update({
       status: "error",

@@ -1,3 +1,4 @@
+import { notifyError } from "@/lib/error-notifier";
 // This route runs the casting search inline (for local dev where Netlify functions aren't available)
 // It imports the same logic as the background function
 
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error("[casting-inline] Error:", err);
+    notifyError("casting-search-inline", err);
     return new Response(JSON.stringify({ error: "Inline search failed" }), { status: 500 });
   }
 }

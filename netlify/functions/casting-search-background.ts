@@ -5,6 +5,7 @@ import { fetchProfilePosts, fetchProfilePostsBatch, searchLinkedInProfiles, sear
 import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculatePostingFrequencyFromApifyPosts, calculateEngagementMetrics, computeEngagementFromPosts, calculateCreatorScore } from "../../src/lib/normalize";
 import { checkPublishLanguage, classifyTopics } from "../../src/lib/ai";
 import { logApiCost, API_COSTS } from "../../src/lib/api-costs";
+import { notifyError } from "../../src/lib/error-notifier";
 
 interface SearchParams {
   themes: string[];
@@ -1121,6 +1122,7 @@ const handler: Handler = async (event: HandlerEvent) => {
 
   } catch (e) {
     console.error("[casting] Background function error:", e);
+    notifyError("casting-search-background", e, { listId, userId });
     await service.from("casting_lists").update({
       status: "error",
       error_message: String(e),

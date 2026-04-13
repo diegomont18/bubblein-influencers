@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { fetchPostEngagers } from "../../src/lib/apify";
 import { batchScoreIcpMatch } from "../../src/lib/ai";
 import { logApiCost, API_COSTS } from "../../src/lib/api-costs";
+import { notifyError } from "../../src/lib/error-notifier";
 
 interface ScanParams {
   scanId: string;
@@ -180,6 +181,7 @@ const handler: Handler = async (event: HandlerEvent) => {
     console.log(`[leads] Scan complete. ${leadCount} leads from ${totalEngagers} engagers`);
   } catch (e) {
     console.error("[leads] Background scan error:", e);
+    notifyError("leads-scan-background", e, { scanId, userId });
     await service.from("leads_scans").update({ status: "error", error_message: String(e) }).eq("id", scanId);
   }
 

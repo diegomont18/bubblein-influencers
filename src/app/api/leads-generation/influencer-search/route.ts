@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { logApiCost } from "@/lib/api-costs";
+import { notifyError } from "@/lib/error-notifier";
 
 export async function POST(request: Request) {
   const supabase = createServerClient();
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ searchId });
   } catch (err) {
     console.error("[lg-influencers] Failed to call casting search:", err);
+    notifyError("lg-influencer-search", err, { profileId });
     return NextResponse.json({ error: "Failed to start search" }, { status: 500 });
   }
 }

@@ -78,6 +78,7 @@ export default function LeadsGenerationOptionsPage() {
   const [results, setResults] = useState<LeadResult[]>([]);
   const [posts, setPosts] = useState<PostInfo[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scanStep, setScanStep] = useState(0);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [userCredits, setUserCredits] = useState<number>(-1);
@@ -186,28 +187,67 @@ export default function LeadsGenerationOptionsPage() {
     }, 6000);
 
     try {
+      // Trigger scan (returns immediately, processing runs async in background)
       const res = await fetch("/api/leads-generation/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId, credits: scanCredits }),
       });
-      if (res.ok) {
-        setScanStep(SCAN_STEPS.length - 1);
-        const resultsRes = await fetch(`/api/leads-generation/results?profileId=${profileId}`);
-        if (resultsRes.ok) {
-          const data = await resultsRes.json();
-          setResults(data.results ?? []);
-          setPosts(data.posts ?? []);
-        }
-        window.dispatchEvent(new CustomEvent("credits-updated", { detail: null }));
-        fetch("/api/auth/me").then((r) => r.ok ? r.json() : null)
-          .then((d) => { if (d?.user) window.dispatchEvent(new CustomEvent("credits-updated", { detail: d.user.credits })); })
-          .catch(() => {});
-      } else {
+
+      if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        alert(data.error ?? "Erro ao escanear");
+        setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde.");
+        return;
       }
-    } catch { alert("Erro de conexão"); }
+
+      // Poll for results every 5s until stable (same pattern as influencer/casting)
+      const prevCount = results.length;
+      let lastCount = prevCount;
+      let stableTime = 0;
+
+      while (stableTime < 30000) {
+        await new Promise((r) => setTimeout(r, 5000));
+        try {
+          const resultsRes = await fetch(`/api/leads-generation/results?profileId=${profileId}`);
+          if (!resultsRes.ok) continue;
+          const data = await resultsRes.json();
+          const newResults = data.results ?? [];
+
+          if (newResults.length > results.length) {
+            setResults(newResults);
+            setPosts(data.posts ?? []);
+          }
+
+          if (newResults.length === lastCount) {
+            stableTime += 5000;
+          } else {
+            stableTime = 0;
+            lastCount = newResults.length;
+          }
+        } catch { /* retry */ }
+      }
+
+      // Final reload
+      const finalRes = await fetch(`/api/leads-generation/results?profileId=${profileId}`);
+      if (finalRes.ok) {
+        const data = await finalRes.json();
+        setResults(data.results ?? []);
+        setPosts(data.posts ?? []);
+      }
+
+      setScanStep(SCAN_STEPS.length - 1);
+
+      // Refresh credits
+      window.dispatchEvent(new CustomEvent("credits-updated", { detail: null }));
+      fetch("/api/auth/me").then((r) => r.ok ? r.json() : null)
+        .then((d) => {
+          if (d?.user) {
+            window.dispatchEvent(new CustomEvent("credits-updated", { detail: d.user.credits }));
+            setUserCredits(d.user.credits);
+          }
+        })
+        .catch(() => {});
+    } catch { setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde."); }
     finally {
       if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
       setScanning(false);
@@ -237,7 +277,7 @@ export default function LeadsGenerationOptionsPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        alert(data.error ?? "Erro ao buscar influenciadores");
+        setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde.");
         return;
       }
       const { searchId } = await res.json();
@@ -269,7 +309,7 @@ export default function LeadsGenerationOptionsPage() {
             setTimeout(() => setInfluencerSuccess(null), 8000);
           } else if (statusData.status === "error") {
             searchComplete = true;
-            alert(statusData.errorMessage ?? "Erro na busca de influenciadores.");
+            setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde.");
           }
         } catch { /* retry on next poll */ }
       }
@@ -293,7 +333,7 @@ export default function LeadsGenerationOptionsPage() {
           }
         })
         .catch(() => {});
-    } catch { alert("Erro de conexão"); }
+    } catch { setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde."); }
     finally {
       if (influencerIntervalRef.current) { clearInterval(influencerIntervalRef.current); influencerIntervalRef.current = null; }
       setInfluencerSearching(false);
@@ -451,6 +491,14 @@ export default function LeadsGenerationOptionsPage() {
           )}
         </div>
       </header>
+
+      {/* Error message */}
+      {errorMessage && (
+        <div className="rounded-xl bg-[#ff946e]/10 px-4 py-3 text-sm text-[#ff946e] flex items-center justify-between">
+          <span>{errorMessage}</span>
+          <button onClick={() => setErrorMessage(null)} className="text-[#ff946e]/60 hover:text-[#ff946e] ml-3 text-lg leading-none">&times;</button>
+        </div>
+      )}
 
       {/* Two paths — card selection */}
       <section className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
