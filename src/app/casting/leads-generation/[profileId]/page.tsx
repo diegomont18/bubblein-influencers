@@ -834,8 +834,8 @@ export default function LeadsGenerationOptionsPage() {
           </div>
 
           {/* Table */}
-          <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.05] rounded-xl overflow-hidden shadow-2xl">
-            <table className="w-full text-left">
+          <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.05] rounded-xl shadow-2xl overflow-x-auto">
+            <table className="w-full text-left min-w-[900px]">
               <thead>
                 <tr className="bg-[#131313]/50">
                   <th className="px-6 py-4 text-[0.65rem] font-bold tracking-widest text-[#adaaaa] uppercase">Lead</th>
