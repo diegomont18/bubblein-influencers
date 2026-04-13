@@ -245,12 +245,13 @@ export default function LeadsGenerationOptionsPage() {
 
         const newLeadsFound = (finalData.results ?? []).length - prevResultsCount;
         if (newLeadsFound > 0) {
-          setScanSuccess(`${newLeadsFound} novo${newLeadsFound !== 1 ? "s" : ""} lead${newLeadsFound !== 1 ? "s" : ""} encontrado${newLeadsFound !== 1 ? "s" : ""}!`);
-          setTimeout(() => setScanSuccess(null), 8000);
-        } else if (scanDone) {
-          setScanSuccess("Busca concluída.");
-          setTimeout(() => setScanSuccess(null), 5000);
+          setScanSuccess(`Foram adicionados ${newLeadsFound} lead${newLeadsFound !== 1 ? "s" : ""} à sua lista!`);
+        } else {
+          setScanSuccess("Busca concluída. Nenhum lead novo encontrado nesta busca.");
         }
+        setTimeout(() => setScanSuccess(null), 15000);
+        // Scroll to top to show success message
+        window.scrollTo({ top: 0, behavior: "smooth" });
       }
 
       setScanStep(SCAN_STEPS.length - 1);
