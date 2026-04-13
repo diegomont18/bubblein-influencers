@@ -200,29 +200,33 @@ export default function LeadsGenerationOptionsPage() {
         return;
       }
 
-      // Poll for results every 5s until stable (same pattern as influencer/casting)
-      const prevCount = results.length;
-      let lastCount = prevCount;
-      let stableTime = 0;
+      // Poll for results until scan_status changes to "complete" or "error" (max 10 min)
+      let scanDone = false;
+      const pollStart = Date.now();
+      const MAX_POLL = 10 * 60 * 1000;
 
-      while (stableTime < 30000) {
+      while (!scanDone && Date.now() - pollStart < MAX_POLL) {
         await new Promise((r) => setTimeout(r, 5000));
         try {
           const resultsRes = await fetch(`/api/leads-generation/results?profileId=${profileId}`);
           if (!resultsRes.ok) continue;
-          const data = await resultsRes.json();
-          const newResults = data.results ?? [];
+          const pollData = await resultsRes.json();
+          const newResults = pollData.results ?? [];
+          const scanStatus = pollData.scanStatus ?? "idle";
 
+          // Update results progressively
           if (newResults.length > results.length) {
             setResults(newResults);
-            setPosts(data.posts ?? []);
+            setPosts(pollData.posts ?? []);
           }
 
-          if (newResults.length === lastCount) {
-            stableTime += 5000;
-          } else {
-            stableTime = 0;
-            lastCount = newResults.length;
+          if (scanStatus === "complete") {
+            scanDone = true;
+            setResults(newResults);
+            setPosts(pollData.posts ?? []);
+          } else if (scanStatus === "error") {
+            scanDone = true;
+            setErrorMessage("Não foi possível realizar a operação! Tente novamente mais tarde.");
           }
         } catch { /* retry */ }
       }
@@ -230,9 +234,9 @@ export default function LeadsGenerationOptionsPage() {
       // Final reload
       const finalRes = await fetch(`/api/leads-generation/results?profileId=${profileId}`);
       if (finalRes.ok) {
-        const data = await finalRes.json();
-        setResults(data.results ?? []);
-        setPosts(data.posts ?? []);
+        const finalData = await finalRes.json();
+        setResults(finalData.results ?? []);
+        setPosts(finalData.posts ?? []);
       }
 
       setScanStep(SCAN_STEPS.length - 1);

@@ -64,6 +64,9 @@ export async function POST(request: Request) {
       maxLeads,
     };
 
+    // Mark profile as scanning
+    await service.from("lg_profiles").update({ scan_status: "scanning" }).eq("id", profileId);
+
     // Trigger Netlify background function (production) or inline (local dev)
     const siteUrl = process.env.URL || process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3021}`;
     const bgUrl = `${siteUrl}/.netlify/functions/lg-scan-background`;

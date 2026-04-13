@@ -148,9 +148,11 @@ const handler: Handler = async (event: HandlerEvent) => {
     }
 
     console.log(`[lg-scan] Complete: ${leadCount} leads from ${postsToScan.length} posts`);
+    await service.from("lg_profiles").update({ scan_status: "complete" }).eq("id", profileId);
   } catch (e) {
     console.error("[lg-scan] Background scan error:", e);
     notifyError("lg-scan-background", e, { userId, profileId, postsCount: postsToScan.length });
+    await service.from("lg_profiles").update({ scan_status: "error" }).eq("id", profileId);
   }
 
   return { statusCode: 202, body: "OK" };

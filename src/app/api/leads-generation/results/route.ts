@@ -34,5 +34,6 @@ export async function GET(request: Request) {
     results: results ?? [],
     posts: posts ?? [],
     profile,
+    scanStatus: profile?.scan_status ?? "idle",
   });
 }
