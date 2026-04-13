@@ -553,7 +553,7 @@ export default function LeadsGenerationOptionsPage() {
           {/* Scan button with credits control */}
           <div className="mt-6 relative z-10 space-y-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between text-xs text-[#adaaaa]">
-              <span>~{scanCredits * 15} leads ({scanCredits} créditos)</span>
+              <span>~{scanCredits * 12} leads ({scanCredits} créditos) · 12 leads para cada 1 crédito</span>
               <div className="flex items-center gap-2">
                 <button onClick={() => setScanCredits((c) => Math.max(1, c - 1))} className="w-6 h-6 rounded-full bg-white/5 text-white/60 hover:bg-white/10 flex items-center justify-center text-sm">-</button>
                 <span className="text-white font-bold w-4 text-center">{scanCredits}</span>
@@ -627,7 +627,7 @@ export default function LeadsGenerationOptionsPage() {
                 </div>
               </div>
               <div className="flex items-center justify-between text-xs text-[#adaaaa]">
-                <span>~{influencerCredits * 3} influenciadores ({influencerCredits} créditos)</span>
+                <span>~{influencerCredits * 3} influenciadores ({influencerCredits} créditos) · 3 influenciadores para cada 1 crédito</span>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setInfluencerCredits((c) => Math.max(1, c - 1))} className="w-6 h-6 rounded-full bg-white/5 text-white/60 hover:bg-white/10 flex items-center justify-center text-sm">-</button>
                   <span className="text-white font-bold w-4 text-center">{influencerCredits}</span>

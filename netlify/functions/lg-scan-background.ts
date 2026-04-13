@@ -140,7 +140,7 @@ const handler: Handler = async (event: HandlerEvent) => {
     // Deduct credits
     const { data: userRole } = await service.from("user_roles").select("credits").eq("user_id", userId).single();
     if (userRole && userRole.credits !== -1 && leadCount > 0) {
-      const creditsToDeduct = Math.ceil(leadCount / 15);
+      const creditsToDeduct = Math.ceil(leadCount / 12);
       const newCredits = Math.max(0, userRole.credits - creditsToDeduct);
       await service.from("user_roles").update({ credits: newCredits }).eq("user_id", userId);
       console.log(`[lg-scan] Credits: ${creditsToDeduct} deducted (${leadCount} leads), ${userRole.credits} -> ${newCredits}`);

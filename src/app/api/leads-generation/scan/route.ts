@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     const { data: options } = await service.from("lg_options").select("*").eq("profile_id", profileId).single();
     const jobTitles = options?.job_titles ?? [];
     const departments = options?.departments ?? [];
-    const maxLeads = credits * 15;
+    const maxLeads = credits * 12;
 
     const scanParams = {
       userId: user.id,
