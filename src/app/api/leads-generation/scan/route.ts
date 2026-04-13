@@ -90,7 +90,14 @@ export async function POST(request: Request) {
       }
     }
 
-    if (postsToScan.length === 0) return NextResponse.json({ error: "Não há mais posts para analisar neste perfil" }, { status: 400 });
+    // If still no unscanned posts after fetching more, rescan existing posts
+    // (bg function deduplicates — only new engagers will be added)
+    if (postsToScan.length === 0) {
+      postsToScan = sortedPosts.filter((p) => (p.relevance_score ?? 0) >= 20 && p.post_url);
+      console.log(`[lg-scan] No unscanned posts, rescanning ${postsToScan.length} existing posts for new engagers`);
+    }
+
+    if (postsToScan.length === 0) return NextResponse.json({ error: "Não há posts para analisar neste perfil" }, { status: 400 });
 
     // Fetch options
     const { data: options } = await service.from("lg_options").select("*").eq("profile_id", profileId).single();
