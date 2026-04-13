@@ -1,17 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
-export default function SignUpPage() {
+function SignUpForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectUrl = searchParams.get("redirectUrl") || "/casting";
   const supabase = createClient();
 
   async function handleSubmit(e: React.FormEvent) {
@@ -56,7 +58,7 @@ export default function SignUpPage() {
         return;
       }
 
-      router.push("/casting");
+      router.push(redirectUrl);
       router.refresh();
     } catch {
       setError("Something went wrong. Please try again.");
@@ -163,5 +165,13 @@ export default function SignUpPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0e0e0e]" />}>
+      <SignUpForm />
+    </Suspense>
   );
 }

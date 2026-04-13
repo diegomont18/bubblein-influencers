@@ -19,7 +19,26 @@ export async function GET(request: Request) {
   const { data: options } = await service.from("lg_options").select("*").eq("profile_id", profileId).single();
   const { data: profileData } = await service.from("lg_profiles").select("*").eq("id", profileId).single();
 
-  return NextResponse.json({ options, profile: profileData });
+  // Count influencers from ALL casting_lists for this profile
+  let influencerCount = 0;
+  try {
+    const { data: castingLists } = await service
+      .from("casting_lists")
+      .select("id")
+      .eq("created_by", user.id)
+      .filter("filters_applied->>lgProfileId", "eq", profileId);
+
+    if (castingLists && castingLists.length > 0) {
+      const listIds = castingLists.map((l) => l.id);
+      const { count } = await service
+        .from("casting_list_profiles")
+        .select("id", { count: "exact", head: true })
+        .in("list_id", listIds);
+      influencerCount = count ?? 0;
+    }
+  } catch { /* ignore */ }
+
+  return NextResponse.json({ options, profile: profileData, influencerCount });
 }
 
 export async function PATCH(request: Request) {

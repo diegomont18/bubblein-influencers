@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { CastingResultsDark } from "@/components/casting/casting-results-dark";
+import { CastingProfile } from "@/components/casting/casting-results";
 
 const COMPANY_SIZES = ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001+"];
 const ITEMS_PER_PAGE = 20;
@@ -69,31 +71,52 @@ export default function LeadsGenerationOptionsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [options, setOptions] = useState<Options | null>(null);
   const [loading, setLoading] = useState(true);
-  const [influencerExpanded, setInfluencerExpanded] = useState(false);
+  const [activeCard, setActiveCard] = useState<"leads" | "influencers">("leads");
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Results state
+  // Leads results state
   const [results, setResults] = useState<LeadResult[]>([]);
   const [posts, setPosts] = useState<PostInfo[]>([]);
   const [scanning, setScanning] = useState(false);
   const [scanStep, setScanStep] = useState(0);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [userCredits, setUserCredits] = useState<number>(-1);
   const [scanCredits, setScanCredits] = useState(3);
   const [resultsPage, setResultsPage] = useState(1);
   const [filterPostUrl, setFilterPostUrl] = useState("all");
   const [filterRoleLevel, setFilterRoleLevel] = useState("all");
   const [searchText, setSearchText] = useState("");
 
+  // Influencer state
+  const [influencerProfiles, setInfluencerProfiles] = useState<CastingProfile[]>([]);
+  const [influencerSearching, setInfluencerSearching] = useState(false);
+  const [influencerStep, setInfluencerStep] = useState(0);
+  const influencerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [influencerCredits, setInfluencerCredits] = useState(3);
+  const [influencerSearchId, setInfluencerSearchId] = useState<string | null>(null);
+  const [influencerSuccess, setInfluencerSuccess] = useState<string | null>(null);
+
   // Profile history for dropdown
   const [profileHistory, setProfileHistory] = useState<AnalyzedProfile[]>([]);
 
   const loadData = useCallback(async () => {
     try {
-      const [optRes, resultsRes, historyRes] = await Promise.all([
+      const [optRes, resultsRes, historyRes, meRes] = await Promise.all([
         fetch(`/api/leads-generation/options?profileId=${profileId}`),
         fetch(`/api/leads-generation/results?profileId=${profileId}`),
         fetch("/api/leads-generation/profiles"),
+        fetch("/api/auth/me"),
       ]);
+
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        const credits = meData.user?.credits ?? 5;
+        setUserCredits(credits);
+        if (credits !== -1) {
+          setScanCredits((c) => Math.min(c, credits));
+          setInfluencerCredits((c) => Math.min(c, credits));
+        }
+      }
 
       if (optRes.ok) {
         const data = await optRes.json();
@@ -104,6 +127,15 @@ export default function LeadsGenerationOptionsPage() {
           departments: data.options.departments ?? [],
           company_sizes: data.options.company_sizes ?? [],
         } : null);
+
+        // Load ALL influencer results for this profile
+        try {
+          const infRes = await fetch(`/api/leads-generation/influencer-results?profileId=${profileId}`);
+          if (infRes.ok) {
+            const infData = await infRes.json();
+            setInfluencerProfiles(infData.profiles ?? []);
+          }
+        } catch { /* ignore */ }
       }
 
       if (resultsRes.ok) {
@@ -180,6 +212,92 @@ export default function LeadsGenerationOptionsPage() {
     finally {
       if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
       setScanning(false);
+    }
+  }
+
+  const INFLUENCER_STEPS = [
+    "Analisando temas de mercado...",
+    "Buscando influenciadores no LinkedIn...",
+    "Avaliando relevância e engajamento...",
+    "Calculando score dos creators...",
+    "Finalizando resultados...",
+  ];
+
+  async function handleInfluencerSearch() {
+    setInfluencerSearching(true);
+    setInfluencerStep(0);
+    influencerIntervalRef.current = setInterval(() => {
+      setInfluencerStep((prev) => Math.min(prev + 1, INFLUENCER_STEPS.length - 1));
+    }, 8000);
+
+    try {
+      const res = await fetch("/api/leads-generation/influencer-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId, credits: influencerCredits }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error ?? "Erro ao buscar influenciadores");
+        return;
+      }
+      const { searchId } = await res.json();
+      setInfluencerSearchId(searchId);
+
+      // Poll for status every 5 seconds (same pattern as /casting page)
+      let searchComplete = false;
+      while (!searchComplete) {
+        await new Promise((r) => setTimeout(r, 5000));
+        try {
+          const statusRes = await fetch(`/api/casting/search/${searchId}/status`);
+          if (!statusRes.ok) continue;
+
+          const statusData = await statusRes.json();
+
+          // Update displayed profiles progressively
+          if (statusData.profiles?.length > 0) {
+            setInfluencerProfiles((prev) => {
+              const existing = new Set(prev.map((p) => p.slug));
+              const newOnes = (statusData.profiles as CastingProfile[]).filter((p: CastingProfile) => !existing.has(p.slug));
+              return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
+            });
+          }
+
+          if (statusData.status === "complete") {
+            searchComplete = true;
+            const totalFound = statusData.found ?? 0;
+            setInfluencerSuccess(`${totalFound} influenciador${totalFound !== 1 ? "es" : ""} encontrado${totalFound !== 1 ? "s" : ""}!`);
+            setTimeout(() => setInfluencerSuccess(null), 8000);
+          } else if (statusData.status === "error") {
+            searchComplete = true;
+            alert(statusData.errorMessage ?? "Erro na busca de influenciadores.");
+          }
+        } catch { /* retry on next poll */ }
+      }
+
+      // Reload ALL results for this profile (includes previous + new)
+      try {
+        const allRes = await fetch(`/api/leads-generation/influencer-results?profileId=${profileId}`);
+        if (allRes.ok) {
+          const allData = await allRes.json();
+          setInfluencerProfiles(allData.profiles ?? []);
+        }
+      } catch { /* ignore */ }
+
+      // Refresh credits
+      window.dispatchEvent(new CustomEvent("credits-updated", { detail: null }));
+      fetch("/api/auth/me").then((r) => r.ok ? r.json() : null)
+        .then((d) => {
+          if (d?.user) {
+            window.dispatchEvent(new CustomEvent("credits-updated", { detail: d.user.credits }));
+            setUserCredits(d.user.credits);
+          }
+        })
+        .catch(() => {});
+    } catch { alert("Erro de conexão"); }
+    finally {
+      if (influencerIntervalRef.current) { clearInterval(influencerIntervalRef.current); influencerIntervalRef.current = null; }
+      setInfluencerSearching(false);
     }
   }
 
@@ -335,22 +453,26 @@ export default function LeadsGenerationOptionsPage() {
         </div>
       </header>
 
-      {/* Two paths */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-        {/* Decisores — LEFT, EXPANDED */}
-        <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-[2rem] p-8 shadow-[0_8px_32px_rgba(0,0,0,0.37)] relative overflow-hidden">
+      {/* Two paths — card selection */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        {/* Leads Card */}
+        <div
+          className={`bg-white/[0.03] backdrop-blur-xl border rounded-[2rem] p-8 shadow-[0_8px_32px_rgba(0,0,0,0.37)] relative overflow-hidden cursor-pointer transition-all ${activeCard === "leads" ? "border-[#ca98ff]/40" : "border-white/[0.08] opacity-70 hover:opacity-90"}`}
+          onClick={() => setActiveCard("leads")}
+        >
           <div className="absolute -top-20 -right-20 w-40 h-40 bg-[#ca98ff]/20 blur-[60px] rounded-full pointer-events-none" />
           <div className="flex items-center gap-4 mb-6 relative z-10">
             <div className="w-12 h-12 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 flex items-center justify-center shrink-0">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" /></svg>
             </div>
             <div>
-              <h4 className="text-xl font-bold font-[family-name:var(--font-lexend)]">Prospecção de Decisores</h4>
+              <h2 className="text-xl font-bold text-white font-[family-name:var(--font-lexend)]">Leads ({results.length})</h2>
               <p className="text-[#adaaaa] text-xs mt-1">Identifique decisores que já demonstraram interesse.</p>
             </div>
           </div>
 
-          <div className="space-y-5 relative z-10">
+          {activeCard === "leads" && (<>
+          <div className="space-y-5 relative z-10 mt-4" onClick={(e) => e.stopPropagation()}>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-[0.65rem] font-black tracking-[0.2em] text-white/30 uppercase block">Cargos</label>
@@ -382,15 +504,27 @@ export default function LeadsGenerationOptionsPage() {
           </div>
 
           {/* Scan button with credits control */}
-          <div className="mt-6 relative z-10 space-y-3">
+          <div className="mt-6 relative z-10 space-y-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between text-xs text-[#adaaaa]">
               <span>~{scanCredits * 15} leads ({scanCredits} créditos)</span>
               <div className="flex items-center gap-2">
                 <button onClick={() => setScanCredits((c) => Math.max(1, c - 1))} className="w-6 h-6 rounded-full bg-white/5 text-white/60 hover:bg-white/10 flex items-center justify-center text-sm">-</button>
                 <span className="text-white font-bold w-4 text-center">{scanCredits}</span>
-                <button onClick={() => setScanCredits((c) => c + 1)} className="w-6 h-6 rounded-full bg-white/5 text-white/60 hover:bg-white/10 flex items-center justify-center text-sm">+</button>
+                <button onClick={() => setScanCredits((c) => userCredits === -1 ? c + 1 : Math.min(c + 1, userCredits))} disabled={userCredits !== -1 && scanCredits >= userCredits} className="w-6 h-6 rounded-full bg-white/5 text-white/60 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-sm">+</button>
               </div>
             </div>
+            {userCredits !== -1 && scanCredits >= userCredits && userCredits > 0 && (
+              <p className="text-[10px] text-[#ff946e]">
+                Limite de créditos atingido.{" "}
+                <a href="https://wa.me/5511941238555?text=Ola!%20Quero%20comprar%20mais%20creditos" target="_blank" rel="noopener noreferrer" className="text-[#a2f31f] font-semibold hover:underline">Comprar mais créditos</a>
+              </p>
+            )}
+            {userCredits === 0 && (
+              <p className="text-[10px] text-[#ff946e]">
+                Sem créditos disponíveis.{" "}
+                <a href="https://wa.me/5511941238555?text=Ola!%20Quero%20comprar%20creditos" target="_blank" rel="noopener noreferrer" className="text-[#a2f31f] font-semibold hover:underline">Comprar créditos</a>
+              </p>
+            )}
             {scanning ? (
               <div className="space-y-3 py-2">
                 {SCAN_STEPS.map((step, i) => (
@@ -413,45 +547,97 @@ export default function LeadsGenerationOptionsPage() {
             ) : (
               <button
                 onClick={handleScan}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide"
+                disabled={userCredits === 0}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {results.length > 0 ? "GERAR MAIS LEADS" : "VER DECISORES INTERESSADOS"}
               </button>
             )}
           </div>
+          </>)}
         </div>
 
-        {/* Influenciadores — RIGHT, COLLAPSED */}
-        <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-[2rem] p-8 shadow-[0_8px_32px_rgba(0,0,0,0.37)] transition-all">
-          <button onClick={() => setInfluencerExpanded(!influencerExpanded)} className="w-full flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-60"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-              </div>
-              <div className="text-left">
-                <h4 className="text-lg font-bold font-[family-name:var(--font-lexend)]">Prospecção de Influenciadores</h4>
-                <p className="text-[#adaaaa] text-xs mt-1">Crie conexões e autoridade interagindo com grandes players do seu nicho.</p>
-              </div>
+        {/* Influenciadores Card */}
+        <div
+          className={`bg-white/[0.03] backdrop-blur-xl border rounded-[2rem] p-8 shadow-[0_8px_32px_rgba(0,0,0,0.37)] cursor-pointer transition-all ${activeCard === "influencers" ? "border-[#ca98ff]/40" : "border-white/[0.08] opacity-70 hover:opacity-90"}`}
+          onClick={() => setActiveCard("influencers")}
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-60"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
             </div>
-            <span className={`text-white/30 text-xl transition-transform shrink-0 ${influencerExpanded ? "rotate-180" : ""}`}>▾</span>
-          </button>
-          {influencerExpanded && (
-            <div className="mt-6 space-y-4">
+            <div>
+              <h2 className="text-xl font-bold text-white font-[family-name:var(--font-lexend)]">Influenciadores ({influencerProfiles.length})</h2>
+              <p className="text-[#adaaaa] text-xs mt-1">Crie conexões e autoridade interagindo com grandes players do seu nicho.</p>
+            </div>
+          </div>
+          {activeCard === "influencers" && (
+            <div className="mt-6 space-y-4" onClick={(e) => e.stopPropagation()}>
               <div className="space-y-2">
                 <label className="text-[0.65rem] font-black tracking-[0.2em] text-white/30 uppercase block">Temas de Atuação</label>
                 <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-1 focus-within:border-[#ca98ff]/40 transition-all">
                   <textarea rows={3} value={options.market_context} onChange={(e) => updateField("market_context", e.target.value)} className="w-full bg-transparent border-none focus:ring-0 px-4 py-3 text-white text-sm font-medium outline-none placeholder-white/20 resize-none" placeholder="Ex: Métricas de Marketing, Analytics, Growth..." />
                 </div>
               </div>
-              <button disabled className="w-full py-3.5 rounded-2xl border border-white/15 text-white/50 font-bold text-sm tracking-wide cursor-not-allowed">SEGUIR ESTE CAMINHO</button>
-              <p className="text-[10px] text-white/20 text-center">Em breve</p>
+              <div className="flex items-center justify-between text-xs text-[#adaaaa]">
+                <span>~{influencerCredits * 3} influenciadores ({influencerCredits} créditos)</span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setInfluencerCredits((c) => Math.max(1, c - 1))} className="w-6 h-6 rounded-full bg-white/5 text-white/60 hover:bg-white/10 flex items-center justify-center text-sm">-</button>
+                  <span className="text-white font-bold w-4 text-center">{influencerCredits}</span>
+                  <button onClick={() => setInfluencerCredits((c) => userCredits === -1 ? c + 1 : Math.min(c + 1, userCredits))} disabled={userCredits !== -1 && influencerCredits >= userCredits} className="w-6 h-6 rounded-full bg-white/5 text-white/60 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-sm">+</button>
+                </div>
+              </div>
+              {userCredits !== -1 && influencerCredits >= userCredits && userCredits > 0 && (
+                <p className="text-[10px] text-[#ff946e]">
+                  Limite de créditos atingido.{" "}
+                  <a href="https://wa.me/5511941238555?text=Ola!%20Quero%20comprar%20mais%20creditos" target="_blank" rel="noopener noreferrer" className="text-[#a2f31f] font-semibold hover:underline">Comprar mais créditos</a>
+                </p>
+              )}
+              {userCredits === 0 && (
+                <p className="text-[10px] text-[#ff946e]">
+                  Sem créditos disponíveis.{" "}
+                  <a href="https://wa.me/5511941238555?text=Ola!%20Quero%20comprar%20creditos" target="_blank" rel="noopener noreferrer" className="text-[#a2f31f] font-semibold hover:underline">Comprar créditos</a>
+                </p>
+              )}
+              {influencerSuccess && (
+                <div className="rounded-xl bg-[#a2f31f]/10 px-4 py-3 text-sm text-[#a2f31f] font-medium flex items-center gap-2">
+                  <span>&#10003;</span> {influencerSuccess}
+                </div>
+              )}
+              {influencerSearching ? (
+                <div className="space-y-3 py-2">
+                  {INFLUENCER_STEPS.map((step, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      {i < influencerStep ? (
+                        <span className="text-[#a2f31f] text-sm">&#10003;</span>
+                      ) : i === influencerStep ? (
+                        <span className="animate-pulse text-[#ca98ff] text-sm">&#9679;</span>
+                      ) : (
+                        <span className="text-white/20 text-sm">&#9675;</span>
+                      )}
+                      <span className={`text-xs ${i <= influencerStep ? "text-white" : "text-white/20"}`}>{step}</span>
+                    </div>
+                  ))}
+                  <div className="w-full bg-white/10 rounded-full h-1.5 mt-2">
+                    <div className="bg-[#ca98ff] h-1.5 rounded-full transition-all duration-500" style={{ width: `${Math.round(((influencerStep + 1) / INFLUENCER_STEPS.length) * 100)}%` }} />
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={handleInfluencerSearch}
+                  disabled={userCredits === 0}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {influencerProfiles.length > 0 ? "BUSCAR MAIS INFLUENCIADORES" : "BUSCAR INFLUENCIADORES"}
+                </button>
+              )}
             </div>
           )}
         </div>
       </section>
 
-      {/* Results section */}
-      {results.length > 0 && (
+      {/* Leads Results section */}
+      {activeCard === "leads" && results.length > 0 && (
         <section className="space-y-6 pt-4">
           {/* Top bar: post filter + RER card */}
           <div className="grid grid-cols-12 gap-6">
@@ -620,6 +806,38 @@ export default function LeadsGenerationOptionsPage() {
             Exibindo {filteredResults.length} de {results.length} leads identificados
           </p>
         </section>
+      )}
+
+      {/* Leads empty state */}
+      {activeCard === "leads" && results.length === 0 && !scanning && (
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-12 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 flex items-center justify-center mx-auto mb-4">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          </div>
+          <h3 className="text-lg font-bold text-white mb-2 font-[family-name:var(--font-lexend)]">Nenhum lead encontrado ainda</h3>
+          <p className="text-sm text-[#adaaaa] max-w-md mx-auto">Configure os cargos e departamentos acima e clique em &quot;Ver Decisores Interessados&quot; para encontrar leads qualificados.</p>
+        </div>
+      )}
+
+      {/* Influencer Results section */}
+      {activeCard === "influencers" && influencerProfiles.length > 0 && (
+        <section className="space-y-4 pt-4">
+          <CastingResultsDark
+            profiles={influencerProfiles}
+            readOnly
+          />
+        </section>
+      )}
+
+      {/* Influencer empty state */}
+      {activeCard === "influencers" && influencerProfiles.length === 0 && !influencerSearching && (
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-12 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-4">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          </div>
+          <h3 className="text-lg font-bold text-white mb-2 font-[family-name:var(--font-lexend)]">Nenhum influenciador encontrado ainda</h3>
+          <p className="text-sm text-[#adaaaa] max-w-md mx-auto">Defina os temas de atuação acima e clique em &quot;Buscar Influenciadores&quot; para encontrar criadores de conteúdo relevantes no seu mercado.</p>
+        </div>
       )}
     </div>
   );

@@ -15,6 +15,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const unauthorized = searchParams.get("error") === "unauthorized";
+  const redirectUrl = searchParams.get("redirectUrl") || "/casting";
   const supabase = createClient();
 
   async function handleSubmit(e: React.FormEvent) {
@@ -34,7 +35,7 @@ function LoginForm() {
         return;
       }
 
-      router.push("/casting");
+      router.push(redirectUrl);
       router.refresh();
     } catch {
       setError("Algo deu errado. Tente novamente.");

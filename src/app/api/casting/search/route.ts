@@ -170,7 +170,23 @@ export async function POST(request: Request) {
         excludeSlugs,
       }),
     });
-    console.log(`[casting] Background function triggered: ${bgRes.status}`);
+    console.log(`[casting] Background function response: ${bgRes.status}`);
+
+    // If bg function not available (local dev), run inline
+    if (!bgRes.ok) {
+      console.log(`[casting] Background function unavailable (${bgRes.status}), running inline...`);
+      const inlineUrl = `${siteUrl}/api/casting/search-inline`;
+      fetch(inlineUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          themes, language, country, domain, minFollowers, maxFollowers, resultsCount,
+          approvedSynonyms, coverAllKeywords, publico, searchMode, minReactions, datePosted,
+          existingListId, campaignId, listId, userId: user.id, excludeSlugs,
+        }),
+        signal: AbortSignal.timeout(600_000), // 10 min timeout for inline processing
+      }).catch(() => { /* fire-and-forget: inline route processes independently */ });
+    }
   } catch (err) {
     console.error("[casting] Failed to trigger background function:", err);
     // Mark list as error so polling doesn't hang forever

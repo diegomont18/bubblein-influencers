@@ -26,6 +26,18 @@ export default function LeadsGenerationPage() {
       .then((d) => { if (d?.profiles) setHistory(d.profiles); })
       .catch(() => {})
       .finally(() => setHistoryLoading(false));
+
+    // Auto-analyze from content-sales redirect
+    const pendingUrl = localStorage.getItem("pendingLinkedinUrl");
+    if (pendingUrl) {
+      localStorage.removeItem("pendingLinkedinUrl");
+      setUrl(pendingUrl);
+      // Trigger analysis after a short delay to let state settle
+      setTimeout(() => {
+        const analyzeBtn = document.getElementById("analyze-btn");
+        if (analyzeBtn) analyzeBtn.click();
+      }, 500);
+    }
   }, []);
 
   async function handleAnalyze() {
@@ -99,6 +111,7 @@ export default function LeadsGenerationPage() {
           {error && <p className="text-[#ff6e84] text-sm mb-4">{error}</p>}
 
           <button
+            id="analyze-btn"
             onClick={handleAnalyze}
             disabled={loading}
             className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide disabled:opacity-50 flex items-center justify-center gap-2"

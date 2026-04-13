@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Navbar from "@/components/navbar";
 
@@ -83,10 +84,13 @@ function LinkedInInput({ value, onChange, onAnalyze }: { value: string; onChange
 }
 
 export default function ContentSalesPage() {
+  const router = useRouter();
   const [linkedinUrl, setLinkedinUrl] = useState("");
 
   function handleAnalyze() {
-    // Behavior to be implemented in next steps
+    if (!linkedinUrl.trim()) return;
+    localStorage.setItem("pendingLinkedinUrl", linkedinUrl.trim());
+    router.push("/auth?redirectUrl=/casting/leads-generation");
   }
 
   return (
