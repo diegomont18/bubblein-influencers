@@ -104,12 +104,11 @@ export default function ContentSalesPage() {
 
         <div className="relative max-w-4xl mx-auto px-6 text-center">
           <h1 className="text-4xl md:text-6xl font-bold leading-tight mb-6">
-            Entenda o que realmente gera negócios no seu{" "}
+            Identifique os leads decisores que interagem nos conteúdos do seu{" "}
             <span className="text-gradient">LinkedIn</span>
           </h1>
           <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto mb-4">
-            Nossa IA revela quais conteúdos atraem decisores e como transformar isso em mais oportunidades com{" "}
-            <strong className="text-white">Content-Driven Sales</strong>.
+            Nossa IA analisa todos que comentaram e curtiram os posts de seu perfil ou de sua empresa e cria uma lista de leads decisores pronta para seu comercial usar!
           </p>
           <p className="text-sm text-gray-500 mb-10">
             Cole seu perfil do LinkedIn e clique em &quot;Analisar meu LinkedIn&quot;. Leva menos de 1 minuto.

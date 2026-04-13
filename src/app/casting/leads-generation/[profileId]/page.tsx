@@ -204,6 +204,7 @@ export default function LeadsGenerationOptionsPage() {
       let scanDone = false;
       const pollStart = Date.now();
       const MAX_POLL = 10 * 60 * 1000;
+      let lastSeenCount = 0;
 
       while (!scanDone && Date.now() - pollStart < MAX_POLL) {
         await new Promise((r) => setTimeout(r, 5000));
@@ -214,8 +215,9 @@ export default function LeadsGenerationOptionsPage() {
           const newResults = pollData.results ?? [];
           const scanStatus = pollData.scanStatus ?? "idle";
 
-          // Update results progressively
-          if (newResults.length > results.length) {
+          // Always update results when count changes
+          if (newResults.length !== lastSeenCount) {
+            lastSeenCount = newResults.length;
             setResults(newResults);
             setPosts(pollData.posts ?? []);
           }
