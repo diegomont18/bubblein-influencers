@@ -88,6 +88,7 @@ export default function LeadsGenerationOptionsPage() {
   const [filterPostUrl, setFilterPostUrl] = useState("all");
   const [filterRoleLevel, setFilterRoleLevel] = useState("all");
   const [searchText, setSearchText] = useState("");
+  const [showPostDetails, setShowPostDetails] = useState(false);
 
   // Influencer state
   const [influencerProfiles, setInfluencerProfiles] = useState<CastingProfile[]>([]);
@@ -740,25 +741,71 @@ export default function LeadsGenerationOptionsPage() {
                   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="1.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>
                 </div>
                 <div className="relative z-10">
-                  <span className="text-[0.65rem] font-bold tracking-[0.1em] text-[#ca98ff] uppercase block mb-1">Revenue Engagement Rate (RER)</span>
-                  <h3 className="text-5xl font-black text-[#ca98ff] font-[family-name:var(--font-lexend)]">{rer}%</h3>
-                  <p className="text-xs text-[#adaaaa] mt-2">Decisor Engagement / Total Engagement</p>
-                  {topPost && (
-                    <button
-                      onClick={() => { setFilterPostUrl(topPost.url); setResultsPage(1); }}
-                      className="mt-3 flex items-center gap-2 text-xs text-[#ca98ff] hover:text-[#e197fc] transition-colors"
-                    >
-                      <span className="text-[10px] text-white/40">Top Post:</span>
-                      <span className="font-semibold truncate max-w-[180px]">{topPost.text}...</span>
-                      <span className="font-bold">{topPost.rer}%</span>
-                    </button>
+                  <span className="text-[0.65rem] font-bold tracking-[0.1em] text-[#ca98ff] uppercase block mb-1">Top Post — RER</span>
+                  {topPost ? (
+                    <>
+                      <h3 className="text-5xl font-black text-[#ca98ff] font-[family-name:var(--font-lexend)]">{topPost.rer}%</h3>
+                      <p className="text-xs text-white/60 mt-1 truncate max-w-[250px]">{topPost.text}...</p>
+                    </>
+                  ) : (
+                    <h3 className="text-5xl font-black text-[#ca98ff] font-[family-name:var(--font-lexend)]">{rer}%</h3>
                   )}
+                  <p className="text-[10px] text-[#adaaaa] mt-3">Média RER: <span className="text-white/60 font-bold">{rer}%</span> · Decisor / Total Engagement</p>
+                  <button
+                    onClick={() => setShowPostDetails(true)}
+                    className="mt-3 text-xs text-[#ca98ff] hover:text-[#e197fc] font-semibold transition-colors"
+                  >
+                    Ver detalhes →
+                  </button>
                 </div>
               </div>
             </div>
           </div>
 
+          {/* Post details view */}
+          {showPostDetails && (
+            <div className="space-y-4">
+              <button
+                onClick={() => setShowPostDetails(false)}
+                className="text-xs text-[#adaaaa] hover:text-[#ca98ff] transition-colors font-[family-name:var(--font-lexend)]"
+              >
+                ← Voltar para leads
+              </button>
+              <h2 className="text-xl font-extrabold text-white font-[family-name:var(--font-lexend)]">Posts por RER</h2>
+              <div className="space-y-3">
+                {Array.from(postRerMap.entries())
+                  .sort((a, b) => b[1].rer - a[1].rer)
+                  .map(([url, stats]) => {
+                    const post = posts.find((p) => p.post_url === url);
+                    const textPreview = post?.text_content?.slice(0, 40) ?? shortPostLabel(url);
+                    const rerColor = stats.rer >= 50 ? "text-[#a2f31f]" : stats.rer >= 25 ? "text-[#ca98ff]" : "text-[#adaaaa]";
+                    const rerBg = stats.rer >= 50 ? "bg-[#a2f31f]/10 border-[#a2f31f]/20" : stats.rer >= 25 ? "bg-[#ca98ff]/10 border-[#ca98ff]/20" : "bg-white/[0.03] border-white/[0.08]";
+                    return (
+                      <button
+                        key={url}
+                        onClick={() => { setFilterPostUrl(url); setResultsPage(1); setShowPostDetails(false); }}
+                        className={`w-full ${rerBg} border rounded-xl p-5 text-left hover:opacity-90 transition-all`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`text-3xl font-black font-[family-name:var(--font-lexend)] ${rerColor}`}>{stats.rer}%</span>
+                          <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#ca98ff] hover:text-[#e197fc] transition-colors">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                          </a>
+                        </div>
+                        <p className="text-sm text-white/80 mb-3">{textPreview}{textPreview.length >= 40 ? "..." : ""}</p>
+                        <div className="flex gap-2 text-[10px]">
+                          <span className="rounded-full bg-[#ca98ff]/10 text-[#ca98ff] px-2 py-0.5">{stats.decisors} decisor</span>
+                          <span className="rounded-full bg-white/5 text-[#adaaaa] px-2 py-0.5">{stats.total} total</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
           {/* Table header */}
+          {!showPostDetails && (<>
           <div className="flex justify-between items-end">
             <div>
               <h2 className="text-2xl font-extrabold text-white font-[family-name:var(--font-lexend)]">Lista de Leads ({filteredResults.length})</h2>
@@ -877,6 +924,7 @@ export default function LeadsGenerationOptionsPage() {
           <p className="text-center text-xs text-[#adaaaa]">
             Exibindo {filteredResults.length} de {results.length} leads identificados
           </p>
+          </>)}
         </section>
       )}
 
