@@ -58,12 +58,20 @@ export async function POST(request: Request) {
       }
     }
 
-    // All relevant posts (bg function handles engager deduplication)
-    const postsToScan = posts.filter((p) => p.post_url).sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
+    // All relevant posts (bg function handles engager deduplication).
+    // Skip posts that were already successfully scanned in a previous run —
+    // we already have their engagers; re-fetching is pure waste.
+    // New posts fetched mid-flight by the bg function (when fetchMorePosts=true)
+    // bypass this filter because they're only created there.
+    const postsToScan = posts
+      .filter((p) => p.post_url && !p.scanned)
+      .sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
 
-    if (postsToScan.length === 0) {
+    if (postsToScan.length === 0 && !isRepeatScan) {
       return NextResponse.json({ error: "Não há posts para analisar" }, { status: 400 });
     }
+    // On repeat scans with no unscanned posts, still proceed — the bg function
+    // will fetchMorePosts=true and bring fresh content.
 
     // Build existing URN IDs for bg function to know which posts are already stored
     const existingUrnIds = posts.map((p) => {
@@ -82,7 +90,13 @@ export async function POST(request: Request) {
     const scanParams = {
       userId: user.id,
       profileId,
-      postsToScan: postsToScan.map((p) => ({ id: p.id, post_url: p.post_url, relevance_score: p.relevance_score })),
+      postsToScan: postsToScan.map((p) => ({
+        id: p.id,
+        post_url: p.post_url,
+        relevance_score: p.relevance_score,
+        engagers_json: p.engagers_json ?? null,
+        engagers_fetched_at: p.engagers_fetched_at ?? null,
+      })),
       fetchMorePosts: isRepeatScan,
       linkedinUrl: profile.linkedin_url,
       existingPostUrns: existingUrnIds,

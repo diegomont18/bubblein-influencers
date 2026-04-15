@@ -368,10 +368,31 @@ export async function searchLinkedInPosts(params: {
  * For share links (urn:li:share:), first resolves to permalink via
  * fetchLinkedInPostApify.
  */
+export interface FetchEngagersCostCtx {
+  userId?: string;
+  source?: "casting" | "leads" | "enrichment";
+  searchId?: string;
+}
+
+/**
+ * Public entry point for fetching a post's reactions + comments.
+ *
+ * Default implementation: supreme_coder/linkedin-post (~86% cheaper than
+ * harvestapi, returns public LinkedIn slugs instead of hashed ACoAA IDs
+ * which also fixes downstream enrichment).
+ *
+ * Rollback: set env var USE_LEGACY_APIFY_ACTORS=1 to use the old harvestapi
+ * path (higher cost, hashed slugs, but battle-tested).
+ *
+ * Both implementations return objects in the shape:
+ *   { reactions: [{ actor: {id, name, linkedinUrl, position, pictureUrl} }],
+ *     comments:  [{ actor: {...}, text?, time? }] }
+ */
 export async function fetchPostEngagers(
   postUrl: string,
   maxReactions = 100,
-  maxComments = 100
+  maxComments = 100,
+  costCtx?: FetchEngagersCostCtx
 ): Promise<{ reactions: Array<Record<string, unknown>>; comments: Array<Record<string, unknown>> }> {
   const token = process.env.APIFY_API_TOKEN;
   if (!token) {
@@ -379,11 +400,9 @@ export async function fetchPostEngagers(
     return { reactions: [], comments: [] };
   }
 
+  // Resolve non-permalink URLs first (free — uses plain fetch). Both
+  // implementations accept a canonical /posts/... permalink.
   let resolvedPostUrl = postUrl.trim();
-
-  // If URL is a non-permalink (share / activity / ugcPost URN), resolve it
-  // to a /posts/... permalink first — the engagers actor accepts only
-  // canonical permalinks reliably.
   const isNonPermalink =
     resolvedPostUrl.includes("urn:li:share:") ||
     resolvedPostUrl.includes("urn:li:activity:") ||
@@ -397,13 +416,187 @@ export async function fetchPostEngagers(
       if (activityUrl && activityUrl.includes("/posts/")) {
         resolvedPostUrl = activityUrl;
         console.log(`[apify] fetchPostEngagers: resolved to permalink: ${resolvedPostUrl.slice(0, 120)}`);
-      } else {
-        console.log(`[apify] fetchPostEngagers: no permalink found, using original URL`);
       }
     }
   }
 
-  console.log(`[apify] fetchPostEngagers: calling Apify with targetUrls=[${resolvedPostUrl}]`);
+  if (process.env.USE_LEGACY_APIFY_ACTORS === "1") {
+    return fetchPostEngagersHarvestLegacy(resolvedPostUrl, maxReactions, maxComments, costCtx);
+  }
+  return fetchPostEngagersSupreme(resolvedPostUrl, costCtx);
+}
+
+/**
+ * Build a canonical LinkedIn profile URL from a supreme_coder profile
+ * object, preferring the public slug (bruno-david-123) over the hashed
+ * ACoAA... ID which LinkedIn treats as opaque.
+ */
+function buildLinkedInUrlFromSupremeProfile(profile: Record<string, unknown>): string {
+  const publicId = String(profile.publicId ?? "").trim();
+  if (publicId) return `https://www.linkedin.com/in/${publicId}`;
+  const profileId = String(profile.profileId ?? "").trim();
+  if (profileId) return `https://www.linkedin.com/in/${profileId}`;
+  return "";
+}
+
+/**
+ * Normalize a supreme_coder reactor/commenter profile into the shape the
+ * rest of our code already consumes from the old harvestapi path:
+ *   { id, name, linkedinUrl, position, pictureUrl }
+ */
+function normalizeSupremeProfile(profile: Record<string, unknown>): Record<string, unknown> {
+  const firstName = String(profile.firstName ?? "").trim();
+  const lastName = String(profile.lastName ?? "").trim();
+  const name = [firstName, lastName].filter(Boolean).join(" ").trim();
+  return {
+    // Prefer publicId for dedup — it's stable across LinkedIn views.
+    // Fall back to profileId (ACoAA...) when publicId is absent.
+    id: String(profile.publicId ?? profile.profileId ?? profile.id ?? ""),
+    name,
+    linkedinUrl: buildLinkedInUrlFromSupremeProfile(profile),
+    position: String(profile.occupation ?? ""),
+    pictureUrl: String(profile.picture ?? ""),
+  };
+}
+
+/**
+ * Primary implementation: supreme_coder/linkedin-post. Returns the post
+ * plus an inline array of up to ~10 reactions and all comments (varies by
+ * post size). Charges per item (~$0.0012 each).
+ *
+ * Note: maxReactions/maxComments from the public signature are IGNORED —
+ * this actor has a built-in cap we can't override. The cap is usually fine
+ * because our Phase A2 dynamic caps already targeted 20-50 engagers, and
+ * the 86% cost reduction per call compensates by letting us scan more
+ * posts overall.
+ */
+async function fetchPostEngagersSupreme(
+  resolvedPostUrl: string,
+  costCtx?: FetchEngagersCostCtx
+): Promise<{ reactions: Array<Record<string, unknown>>; comments: Array<Record<string, unknown>> }> {
+  const token = process.env.APIFY_API_TOKEN!;
+  console.log(`[apify] fetchPostEngagersSupreme: calling supreme_coder with urls=[${resolvedPostUrl.slice(0, 120)}]`);
+
+  const url = `https://api.apify.com/v2/acts/supreme_coder~linkedin-post/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
+  const body = { urls: [resolvedPostUrl] };
+
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(180_000),
+      });
+
+      if (res.status === 200 || res.status === 201) {
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          console.log(`[apify] fetchPostEngagersSupreme: empty dataset`);
+          return { reactions: [], comments: [] };
+        }
+
+        const post = (data[0] ?? {}) as Record<string, unknown>;
+        const rawReactions = Array.isArray(post.reactions)
+          ? (post.reactions as Array<Record<string, unknown>>)
+          : [];
+        const rawComments = Array.isArray(post.comments)
+          ? (post.comments as Array<Record<string, unknown>>)
+          : [];
+
+        // Normalize to the internal shape the rest of the codebase expects.
+        // Each item gets { actor: {...} } at the top level.
+        const reactions = rawReactions
+          .map((r) => {
+            const profile = (r.profile && typeof r.profile === "object" ? r.profile : null) as Record<string, unknown> | null;
+            if (!profile) return null;
+            const actor = normalizeSupremeProfile(profile);
+            if (!actor.name || String(actor.name).length < 2) return null;
+            return { type: "reaction", actor };
+          })
+          .filter((x): x is { type: string; actor: Record<string, unknown> } => x !== null);
+
+        const comments: Array<Record<string, unknown>> = [];
+        for (const c of rawComments) {
+          const author = (c.author && typeof c.author === "object" ? c.author : null) as Record<string, unknown> | null;
+          if (!author) continue;
+          const actor = normalizeSupremeProfile(author);
+          if (!actor.name || String(actor.name).length < 2) continue;
+          comments.push({
+            type: "comment",
+            actor,
+            text: c.text ?? "",
+            time: c.time ?? null,
+          });
+        }
+
+        const numLikes = Number(post.numLikes ?? 0);
+        const numComments = Number(post.numComments ?? 0);
+        console.log(
+          `[apify] fetchPostEngagersSupreme: ${reactions.length} reactions, ${comments.length} comments ` +
+          `(post has ${numLikes} likes, ${numComments} comments total)`
+        );
+        if (reactions.length > 0) {
+          const a = reactions[0].actor as Record<string, unknown>;
+          console.log(`[apify] fetchPostEngagersSupreme sample: name="${a.name}" slug="${a.id}" position="${String(a.position).slice(0, 60)}"`);
+        }
+
+        // Dynamic cost: per-item pricing. +1 for the single "post" item
+        // supreme_coder also counts as an event.
+        const itemsCharged = 1 + reactions.length + comments.length;
+        const estimatedCost = itemsCharged * API_COSTS.apify.perSupremeItem;
+        logApiCost({
+          userId: costCtx?.userId,
+          source: costCtx?.source ?? "leads",
+          searchId: costCtx?.searchId,
+          provider: "apify",
+          operation: "fetchPostEngagersSupreme",
+          estimatedCost,
+          metadata: {
+            postUrl: resolvedPostUrl.slice(0, 200),
+            reactions: reactions.length,
+            comments: comments.length,
+            numLikes,
+            numComments,
+          },
+        });
+
+        return {
+          reactions: reactions as Array<Record<string, unknown>>,
+          comments,
+        };
+      }
+
+      if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
+        continue;
+      }
+      const text = await res.text().catch(() => "");
+      console.error(`[apify] fetchPostEngagersSupreme: status=${res.status} body=${text.slice(0, 300)}`);
+      return { reactions: [], comments: [] };
+    } catch (err) {
+      console.error(`[apify] fetchPostEngagersSupreme exception: ${err instanceof Error ? err.message : err}`);
+      if (attempt < MAX_RETRIES) { await new Promise((r) => setTimeout(r, (attempt + 1) * 3000)); continue; }
+      return { reactions: [], comments: [] };
+    }
+  }
+  return { reactions: [], comments: [] };
+}
+
+/**
+ * Legacy implementation: harvestapi~linkedin-profile-posts. Kept behind
+ * USE_LEGACY_APIFY_ACTORS=1 env flag for immediate rollback if supreme
+ * misbehaves in prod. Delete once stable for a couple of weeks.
+ */
+async function fetchPostEngagersHarvestLegacy(
+  resolvedPostUrl: string,
+  maxReactions: number,
+  maxComments: number,
+  costCtx?: FetchEngagersCostCtx
+): Promise<{ reactions: Array<Record<string, unknown>>; comments: Array<Record<string, unknown>> }> {
+  const token = process.env.APIFY_API_TOKEN!;
+  console.log(`[apify] fetchPostEngagersHarvestLegacy: calling with targetUrls=[${resolvedPostUrl}]`);
 
   const apifyUrl = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const body = {
@@ -430,31 +623,37 @@ export async function fetchPostEngagers(
       if (res.status === 200 || res.status === 201) {
         const data = await res.json();
         if (!Array.isArray(data) || data.length === 0) {
-          console.log(`[apify] fetchPostEngagers: Apify returned empty`);
+          console.log(`[apify] fetchPostEngagersHarvestLegacy: Apify returned empty`);
           return { reactions: [], comments: [] };
         }
 
-        // The actor returns a FLAT array of items with type "reaction" or "comment"
-        // Each item has: { type, id, actor: { name, linkedinUrl, ... }, ... }
         const reactions: Array<Record<string, unknown>> = [];
         const comments: Array<Record<string, unknown>> = [];
-
         for (const item of data as Array<Record<string, unknown>>) {
           const itemType = String(item.type ?? "");
-          if (itemType === "reaction") {
-            reactions.push(item);
-          } else if (itemType === "comment") {
-            comments.push(item);
-          }
-          // Items without a type might be post data — skip
+          if (itemType === "reaction") reactions.push(item);
+          else if (itemType === "comment") comments.push(item);
         }
 
-        console.log(`[apify] fetchPostEngagers: ${reactions.length} reactions, ${comments.length} comments from ${data.length} items`);
+        console.log(`[apify] fetchPostEngagersHarvestLegacy: ${reactions.length} reactions, ${comments.length} comments from ${data.length} items`);
 
-        if (reactions.length > 0) {
-          const actor = (reactions[0].actor ?? {}) as Record<string, unknown>;
-          console.log(`[apify] fetchPostEngagers: sample reactor: name="${actor.name}", linkedinUrl="${actor.linkedinUrl}"`);
-        }
+        const items = reactions.length + comments.length;
+        const estimatedCost = items * API_COSTS.apify.perEngagerItem + API_COSTS.apify.fetchPostEngagers;
+        logApiCost({
+          userId: costCtx?.userId,
+          source: costCtx?.source ?? "leads",
+          searchId: costCtx?.searchId,
+          provider: "apify",
+          operation: "fetchPostEngagers",
+          estimatedCost,
+          metadata: {
+            postUrl: resolvedPostUrl.slice(0, 200),
+            reactions: reactions.length,
+            comments: comments.length,
+            maxReactions,
+            maxComments,
+          },
+        });
 
         return { reactions, comments };
       }
@@ -463,10 +662,10 @@ export async function fetchPostEngagers(
         await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
         continue;
       }
-      console.error(`[apify] fetchPostEngagers: Apify error status=${res.status}`);
+      console.error(`[apify] fetchPostEngagersHarvestLegacy: Apify error status=${res.status}`);
       return { reactions: [], comments: [] };
     } catch (err) {
-      console.error(`[apify] fetchPostEngagers exception: ${err instanceof Error ? err.message : err}`);
+      console.error(`[apify] fetchPostEngagersHarvestLegacy exception: ${err instanceof Error ? err.message : err}`);
       if (attempt < MAX_RETRIES) { await new Promise((r) => setTimeout(r, (attempt + 1) * 3000)); continue; }
       return { reactions: [], comments: [] };
     }

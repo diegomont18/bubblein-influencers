@@ -47,7 +47,11 @@ async function runScanInline(
 
     for (const postUrl of postUrls) {
       console.log(`[leads] Processing post: ${postUrl}`);
-      const { reactions, comments } = await fetchPostEngagers(postUrl);
+      const { reactions, comments } = await fetchPostEngagers(
+        postUrl,
+        undefined, undefined,
+        { userId, source: "leads", searchId: scanId }
+      );
       console.log(`[leads] Apify returned ${reactions.length} reactions, ${comments.length} comments for ${postUrl}`);
 
       const engagers: EngagerInfo[] = [];

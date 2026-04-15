@@ -9,7 +9,13 @@ import { matchesCompanyBlacklist } from "../../src/lib/company-match";
 interface ScanParams {
   userId: string;
   profileId: string;
-  postsToScan: Array<{ id?: string; post_url: string | null; relevance_score: number | null }>;
+  postsToScan: Array<{
+    id?: string;
+    post_url: string | null;
+    relevance_score: number | null;
+    engagers_json?: { reactions?: Array<Record<string, unknown>>; comments?: Array<Record<string, unknown>> } | null;
+    engagers_fetched_at?: string | null;
+  }>;
   jobTitles: string[];
   departments: string[];
   maxLeads: number;
@@ -17,6 +23,10 @@ interface ScanParams {
   linkedinUrl?: string;
   existingPostUrns?: string[];
 }
+
+// 48 hours: LinkedIn engagement on a given post plateaus quickly; after 48h
+// the incremental value of re-fetching is essentially zero.
+const ENGAGERS_CACHE_TTL_MS = 48 * 60 * 60 * 1000;
 
 interface EngagerInfo {
   id: string;
@@ -92,17 +102,75 @@ const handler: Handler = async (event: HandlerEvent) => {
     const totalPossibleInteractions = postsToScan.length * 2;
     const engagerMap = new Map<string, EngagerInfo>();
 
-    for (const post of postsToScan) {
-      if (!post.post_url) continue;
-      console.log(`[lg-scan] Processing post: ${post.post_url}`);
-      const { reactions, comments } = await fetchPostEngagers(post.post_url);
-      logApiCost({ userId, source: "leads", searchId: profileId, provider: "apify", operation: "fetchPostEngagers", estimatedCost: API_COSTS.apify.fetchPostEngagers, metadata: { postUrl: post.post_url } });
+    // Dynamic caps: harvestapi charges per item extracted, so asking for
+    // 100/100 always wastes money. Scale with the user's maxLeads target —
+    // fewer leads requested ⇒ fewer engagers needed ⇒ fewer items extracted.
+    const engagersMaxReactions =
+      maxLeads <= 3  ? 20 :
+      maxLeads <= 9  ? 30 :
+      maxLeads <= 15 ? 50 :
+      80;
+    const engagersMaxComments =
+      maxLeads <= 3  ? 10 :
+      maxLeads <= 9  ? 20 :
+      maxLeads <= 15 ? 30 :
+      50;
+    // Stop fetching engagers once we have a comfortable oversampling
+    // buffer — scoring typically drops ~85% as observers, so ~8× maxLeads
+    // candidates is enough to produce maxLeads qualified leads.
+    const engagerBudget = maxLeads * 8;
+    console.log(`[lg-scan] caps: maxReactions=${engagersMaxReactions} maxComments=${engagersMaxComments} engagerBudget=${engagerBudget}`);
 
-      // Mark post as scanned
-      if (post.id) {
-        await service.from("lg_posts").update({ scanned: true }).eq("id", post.id);
+    // Highest relevance first — lets us stop early once we have enough.
+    const orderedPosts = [...postsToScan].sort(
+      (a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0)
+    );
+
+    // Fetch engagers for one post (cache or API). Pure — returns data,
+    // doesn't mutate engagerMap so we can run it concurrently.
+    const fetchPostEngagersCached = async (
+      post: ScanParams["postsToScan"][number]
+    ): Promise<{ reactions: Array<Record<string, unknown>>; comments: Array<Record<string, unknown>> }> => {
+      if (!post.post_url) return { reactions: [], comments: [] };
+      const cachedAt = post.engagers_fetched_at
+        ? new Date(post.engagers_fetched_at).getTime()
+        : 0;
+      if (
+        cachedAt > 0 &&
+        Date.now() - cachedAt < ENGAGERS_CACHE_TTL_MS &&
+        post.engagers_json
+      ) {
+        const reactions = (post.engagers_json.reactions ?? []) as Array<Record<string, unknown>>;
+        const comments = (post.engagers_json.comments ?? []) as Array<Record<string, unknown>>;
+        console.log(`[lg-scan] engagers cache hit for post=${post.id} (${reactions.length}r/${comments.length}c)`);
+        return { reactions, comments };
       }
+      console.log(`[lg-scan] Processing post: ${post.post_url}`);
+      const fetched = await fetchPostEngagers(
+        post.post_url,
+        engagersMaxReactions,
+        engagersMaxComments,
+        { userId, source: "leads", searchId: profileId }
+      );
+      // Persist so next run is free.
+      if (post.id) {
+        await service
+          .from("lg_posts")
+          .update({
+            scanned: true,
+            engagers_json: { reactions: fetched.reactions, comments: fetched.comments },
+            engagers_fetched_at: new Date().toISOString(),
+          })
+          .eq("id", post.id);
+      }
+      return fetched;
+    };
 
+    const mergeIntoEngagerMap = (
+      postUrl: string,
+      reactions: Array<Record<string, unknown>>,
+      comments: Array<Record<string, unknown>>
+    ) => {
       for (const r of reactions) {
         const actor = (r.actor && typeof r.actor === "object" ? r.actor : null) as Record<string, unknown> | null;
         if (!actor) continue;
@@ -111,14 +179,13 @@ const handler: Handler = async (event: HandlerEvent) => {
         if (!actorName || actorName.length < 2) continue;
         const existing = engagerMap.get(actorId);
         if (existing) {
-          existing.interactions.set(post.post_url!, "reaction");
+          existing.interactions.set(postUrl, "reaction");
         } else {
           const interactions = new Map<string, "reaction" | "comment">();
-          interactions.set(post.post_url!, "reaction");
+          interactions.set(postUrl, "reaction");
           engagerMap.set(actorId, { id: actorId, name: actorName, position: String(actor.position ?? ""), linkedinUrl: String(actor.linkedinUrl ?? ""), pictureUrl: String(actor.pictureUrl ?? ""), interactions });
         }
       }
-
       for (const c of comments) {
         const actor = (c.actor && typeof c.actor === "object" ? c.actor : null) as Record<string, unknown> | null;
         if (!actor || actor.author === true) continue;
@@ -127,14 +194,33 @@ const handler: Handler = async (event: HandlerEvent) => {
         if (!actorName || actorName.length < 2) continue;
         const existing = engagerMap.get(actorId);
         if (existing) {
-          existing.interactions.set(post.post_url!, "comment");
+          existing.interactions.set(postUrl, "comment");
         } else {
           const interactions = new Map<string, "reaction" | "comment">();
-          interactions.set(post.post_url!, "comment");
+          interactions.set(postUrl, "comment");
           engagerMap.set(actorId, { id: actorId, name: actorName, position: String(actor.position ?? ""), linkedinUrl: String(actor.linkedinUrl ?? ""), pictureUrl: String(actor.pictureUrl ?? ""), interactions });
         }
       }
+    };
+
+    // Process posts in parallel batches. Budget check between batches.
+    const POST_CONCURRENCY = 3;
+    let earlyExitReason = "";
+    for (let batchStart = 0; batchStart < orderedPosts.length; batchStart += POST_CONCURRENCY) {
+      if (engagerMap.size >= engagerBudget) {
+        earlyExitReason = `engagerBudget reached (${engagerMap.size}/${engagerBudget})`;
+        break;
+      }
+      const batchPosts = orderedPosts.slice(batchStart, batchStart + POST_CONCURRENCY).filter((p) => p.post_url);
+      if (batchPosts.length === 0) continue;
+      const batchResults = await Promise.all(batchPosts.map((p) => fetchPostEngagersCached(p)));
+      for (let i = 0; i < batchPosts.length; i++) {
+        const post = batchPosts[i];
+        const { reactions, comments } = batchResults[i];
+        mergeIntoEngagerMap(post.post_url!, reactions, comments);
+      }
     }
+    if (earlyExitReason) console.log(`[lg-scan] early exit: ${earlyExitReason}`);
 
     console.log(`[lg-scan] Total engagers: ${engagerMap.size}`);
 
@@ -227,20 +313,30 @@ const handler: Handler = async (event: HandlerEvent) => {
         // Enriched profile context we'll reuse for stage 3 (LLM second pass)
         const enrichedContext = new Map<string, string>(); // slug → headline + about
 
-        // Stage 1: profiles cache lookup
+        // Stage 1: profiles cache lookup, with a 30-day TTL — older data
+        // is considered stale (people change jobs) and forces re-enrichment.
+        const PROFILE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
         if (slugs.length > 0) {
           const { data: cachedProfiles } = await service
             .from("profiles")
-            .select("slug, company_current, headline")
+            .select("slug, company_current, headline, last_enriched_at")
             .in("slug", slugs);
-          for (const p of (cachedProfiles ?? []) as Array<{ slug: string | null; company_current: string | null; headline: string | null }>) {
+          const now = Date.now();
+          let staleCount = 0;
+          for (const p of (cachedProfiles ?? []) as Array<{ slug: string | null; company_current: string | null; headline: string | null; last_enriched_at: string | null }>) {
             if (!p.slug) continue;
+            const enrichedAt = p.last_enriched_at ? new Date(p.last_enriched_at).getTime() : 0;
+            const fresh = enrichedAt > 0 && now - enrichedAt < PROFILE_CACHE_TTL_MS;
+            if (!fresh) {
+              staleCount++;
+              continue;
+            }
             if (p.company_current && p.company_current.trim()) {
               resolved.set(p.slug, p.company_current.trim());
             }
             if (p.headline) enrichedContext.set(p.slug, p.headline);
           }
-          console.log(`[lg-scan] Company cache: ${resolved.size}/${slugs.length} resolved from profiles table`);
+          console.log(`[lg-scan] Company cache: ${resolved.size}/${slugs.length} resolved (${staleCount} stale >30d, re-enriching)`);
         }
 
         // Stage 2: Apify profile-scraper (case-preserving URL) with

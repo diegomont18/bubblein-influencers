@@ -46,7 +46,11 @@ const handler: Handler = async (event: HandlerEvent) => {
 
     for (const postUrl of postUrls) {
       console.log(`[leads] Processing post: ${postUrl}`);
-      const { reactions, comments } = await fetchPostEngagers(postUrl);
+      const { reactions, comments } = await fetchPostEngagers(
+        postUrl,
+        undefined, undefined,
+        { userId, source: "leads", searchId: scanId }
+      );
       console.log(`[leads] Apify returned ${reactions.length} reactions, ${comments.length} comments`);
 
       interface EngagerInfo {

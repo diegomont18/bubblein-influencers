@@ -10,7 +10,16 @@ export const API_COSTS = {
     fetchProfilePosts: 0.02,
     fetchProfilePostsBatch: 0.02, // per profile in batch
     searchLinkedInPosts: 0.05,
-    fetchPostEngagers: 0.03,
+    // fetchPostEngagers is NOT a fixed cost — harvestapi charges per
+    // reaction/comment extracted. The real cost is computed dynamically
+    // inside fetchPostEngagers() based on items returned. This constant
+    // is kept only as a fallback / actor-start floor.
+    fetchPostEngagers: 0.0001,
+    // harvestapi per-item price for reactions/comments (confirmed from
+    // Apify billing report). Used for dynamic cost calc.
+    perEngagerItem: 0.002,
+    // supreme_coder/linkedin-post per-item price — ~40% cheaper.
+    perSupremeItem: 0.0012,
     fetchLinkedInProfileApify: 0.004,
     searchGoogleApify: 0.0035,
   },
