@@ -181,9 +181,6 @@ export default function LeadsGenerationPage() {
                   <span className="text-[10px] font-medium text-[#ca98ff] bg-[#ca98ff]/10 px-2 py-0.5 rounded-full">
                     {p.leads_count} leads
                   </span>
-                  <span className="text-[10px] font-medium text-[#adaaaa] bg-white/5 px-2 py-0.5 rounded-full">
-                    0 influencers
-                  </span>
                   <span className="text-[10px] text-white/20">
                     {new Date(p.created_at).toLocaleDateString("pt-BR")}
                   </span>

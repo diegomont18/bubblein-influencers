@@ -149,6 +149,16 @@ export default function LeadsGenerationOptionsPage() {
   const [filterRoleLevel, setFilterRoleLevel] = useState("all");
   const [searchText, setSearchText] = useState("");
   const [showPostDetails, setShowPostDetails] = useState(false);
+  // Config form collapse: collapsed by default once leads exist; clicking
+  // "+ Adicionar mais leads" expands it. The effect only force-opens the
+  // form AFTER the initial data fetch has finished and there are still
+  // no results — otherwise the form would flash open during the first
+  // render (when `results` is still []) even though there ARE leads in
+  // the DB that just haven't loaded yet.
+  const [configExpanded, setConfigExpanded] = useState(false);
+  useEffect(() => {
+    if (!loading && results.length === 0) setConfigExpanded(true);
+  }, [loading, results.length]);
 
   // Profile history for dropdown
   const [profileHistory, setProfileHistory] = useState<AnalyzedProfile[]>([]);
@@ -508,16 +518,88 @@ export default function LeadsGenerationOptionsPage() {
         </div>
       )}
 
-      {/* Leads configuration — full width */}
+      {/* Dashboard KPIs — only visible once we have leads */}
+      {results.length > 0 && (() => {
+        const decisorsCount = results.filter((r) => r.role_level === "decisor").length;
+        return (
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Total leads */}
+            <div className="bg-white/[0.03] backdrop-blur-xl border border-[#ca98ff]/20 rounded-2xl p-5 relative overflow-hidden">
+              <div className="absolute -top-10 -right-10 w-24 h-24 bg-[#ca98ff]/10 blur-[40px] rounded-full pointer-events-none" />
+              <div className="flex items-start justify-between relative z-10">
+                <div>
+                  <p className="text-[0.65rem] font-bold tracking-[0.2em] text-white/40 uppercase">Total de leads</p>
+                  <p className="text-4xl font-black text-[#ca98ff] font-[family-name:var(--font-lexend)] mt-2">{results.length}</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 flex items-center justify-center">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                </div>
+              </div>
+            </div>
+            {/* Decisores */}
+            <div className="bg-white/[0.03] backdrop-blur-xl border border-[#a2f31f]/20 rounded-2xl p-5 relative overflow-hidden">
+              <div className="absolute -top-10 -right-10 w-24 h-24 bg-[#a2f31f]/10 blur-[40px] rounded-full pointer-events-none" />
+              <div className="flex items-start justify-between relative z-10">
+                <div>
+                  <p className="text-[0.65rem] font-bold tracking-[0.2em] text-white/40 uppercase">Decisores</p>
+                  <p className="text-4xl font-black text-[#a2f31f] font-[family-name:var(--font-lexend)] mt-2">{decisorsCount}</p>
+                  <p className="text-[10px] text-white/40 mt-1">
+                    {results.length > 0 ? Math.round((decisorsCount / results.length) * 100) : 0}% do total
+                  </p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-[#a2f31f]/10 border border-[#a2f31f]/20 flex items-center justify-center">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a2f31f" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                </div>
+              </div>
+            </div>
+            {/* Posts mapeados */}
+            <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-2xl p-5 relative overflow-hidden">
+              <div className="absolute -top-10 -right-10 w-24 h-24 bg-white/5 blur-[40px] rounded-full pointer-events-none" />
+              <div className="flex items-start justify-between relative z-10">
+                <div>
+                  <p className="text-[0.65rem] font-bold tracking-[0.2em] text-white/40 uppercase">Posts mapeados</p>
+                  <p className="text-4xl font-black text-white font-[family-name:var(--font-lexend)] mt-2">{totalTrackedPosts}</p>
+                  <p className="text-[10px] text-white/40 mt-1">até {totalPossibleInteractions} interações por lead</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="opacity-70"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
+                </div>
+              </div>
+            </div>
+          </section>
+        );
+      })()}
+
+      {/* Leads configuration — collapsed when results exist, expanded otherwise */}
+      {results.length > 0 && !configExpanded ? (
+        <button
+          onClick={() => setConfigExpanded(true)}
+          className="w-full group rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-[#ca98ff]/20 hover:border-[#ca98ff]/50 hover:bg-[#ca98ff]/[0.06] transition-all py-4 px-6 flex items-center justify-center gap-3 font-[family-name:var(--font-lexend)]"
+        >
+          <span className="w-8 h-8 rounded-full bg-[#ca98ff]/10 border border-[#ca98ff]/30 flex items-center justify-center text-[#ca98ff] text-lg font-bold group-hover:scale-110 transition-transform">+</span>
+          <span className="text-sm font-bold text-[#ca98ff] uppercase tracking-wider">Adicionar mais leads</span>
+        </button>
+      ) : (
       <section>
         <div className="bg-white/[0.03] backdrop-blur-xl border border-[#ca98ff]/40 rounded-[2rem] p-8 md:p-10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] relative overflow-hidden">
           <div className="absolute -top-20 -right-20 w-60 h-60 bg-[#ca98ff]/20 blur-[80px] rounded-full pointer-events-none" />
+          {results.length > 0 && (
+            <button
+              onClick={() => setConfigExpanded(false)}
+              aria-label="Fechar configuração"
+              className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 flex items-center justify-center text-white/60 hover:text-white transition-all text-lg leading-none"
+            >
+              &times;
+            </button>
+          )}
           <div className="flex items-center gap-4 mb-8 relative z-10">
             <div className="w-12 h-12 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 flex items-center justify-center shrink-0">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" /></svg>
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-white font-[family-name:var(--font-lexend)]">Leads ({results.length})</h2>
+              <h2 className="text-2xl font-bold text-white font-[family-name:var(--font-lexend)]">
+                {results.length > 0 ? "Adicionar mais leads" : `Leads (${results.length})`}
+              </h2>
               <p className="text-[#adaaaa] text-sm mt-1">Identifique decisores que já demonstraram interesse.</p>
             </div>
           </div>
@@ -625,6 +707,7 @@ export default function LeadsGenerationOptionsPage() {
           </div>
         </div>
       </section>
+      )}
 
       {/* Leads Results section */}
       {results.length > 0 && (
