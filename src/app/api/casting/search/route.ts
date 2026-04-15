@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { notifyError } from "@/lib/error-notifier";
+import { isApifyBlocked } from "@/lib/apify-usage";
 
 interface SearchBody {
   themes: string[];
@@ -27,6 +28,13 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (await isApifyBlocked()) {
+    return NextResponse.json(
+      { error: "Limite mensal de créditos Apify atingido. Contate o admin." },
+      { status: 503 }
+    );
   }
 
   const body: SearchBody = await request.json();

@@ -1,6 +1,6 @@
 import type { Handler, HandlerEvent } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { searchGoogle, fetchLinkedInProfile, extractActivityId } from "../../src/lib/scrapingdog";
+import { searchGoogleApify as searchGoogle, fetchLinkedInProfileApify as fetchLinkedInProfile, extractActivityId } from "../../src/lib/apify";
 import { fetchProfilePosts, fetchProfilePostsBatch, searchLinkedInProfiles, searchLinkedInPosts } from "../../src/lib/apify";
 import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculatePostingFrequencyFromApifyPosts, calculateEngagementMetrics, computeEngagementFromPosts, calculateCreatorScore } from "../../src/lib/normalize";
 import { checkPublishLanguage, classifyTopics } from "../../src/lib/ai";
@@ -1080,7 +1080,7 @@ const handler: Handler = async (event: HandlerEvent) => {
     // Log estimated API costs
     const candidatesCount = totalCandidatesProcessed;
     const estimatedCost =
-      candidatesCount * API_COSTS.scrapingdog.fetchLinkedInProfile +
+      candidatesCount * API_COSTS.apify.fetchLinkedInProfileApify +
       candidatesCount * API_COSTS.openrouter.checkPublishLanguage +
       candidatesCount * API_COSTS.openrouter.classifyTopics +
       themes.length * API_COSTS.apify.searchLinkedInProfiles;
@@ -1090,17 +1090,8 @@ const handler: Handler = async (event: HandlerEvent) => {
       searchId: listId,
       provider: "apify",
       operation: "castingSearch",
-      estimatedCost: themes.length * API_COSTS.apify.searchLinkedInProfiles,
+      estimatedCost: themes.length * API_COSTS.apify.searchLinkedInProfiles + candidatesCount * API_COSTS.apify.fetchLinkedInProfileApify,
       metadata: { themes: themes.length, candidates: candidatesCount },
-    });
-    logApiCost({
-      userId,
-      source: "casting",
-      searchId: listId,
-      provider: "scrapingdog",
-      operation: "castingSearch",
-      estimatedCost: candidatesCount * API_COSTS.scrapingdog.fetchLinkedInProfile,
-      metadata: { profilesFetched: candidatesCount },
     });
     logApiCost({
       userId,

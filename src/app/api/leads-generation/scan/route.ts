@@ -3,11 +3,19 @@ import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { rankPostsForLeadGeneration } from "@/lib/ai";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
+import { isApifyBlocked } from "@/lib/apify-usage";
 
 export async function POST(request: Request) {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (await isApifyBlocked()) {
+    return NextResponse.json(
+      { error: "Limite mensal de créditos Apify atingido. Contate o admin." },
+      { status: 503 }
+    );
+  }
 
   const body = await request.json();
   const { profileId, credits = 3 } = body;

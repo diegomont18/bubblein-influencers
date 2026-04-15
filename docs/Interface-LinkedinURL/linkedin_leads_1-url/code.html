@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Bubblein | Análise de Perfil LinkedIn</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-container": "#360061",
+                    "tertiary-fixed-dim": "#fa7c8b",
+                    "surface-container": "#1a1919",
+                    "on-secondary-container": "#f1bfff",
+                    "on-secondary-fixed": "#550e71",
+                    "primary-fixed": "#c284ff",
+                    "error-container": "#a70138",
+                    "on-secondary": "#530b6f",
+                    "background": "#0e0e0e",
+                    "tertiary-dim": "#f47786",
+                    "on-primary": "#47007c",
+                    "error": "#ff6e84",
+                    "inverse-primary": "#842cd3",
+                    "tertiary-fixed": "#ff909c",
+                    "secondary-dim": "#d28aed",
+                    "error-dim": "#d73357",
+                    "on-primary-fixed": "#000000",
+                    "surface-dim": "#0e0e0e",
+                    "on-tertiary": "#680921",
+                    "primary-container": "#c284ff",
+                    "on-surface": "#ffffff",
+                    "on-tertiary-fixed": "#39000d",
+                    "primary-fixed-dim": "#b971ff",
+                    "secondary": "#e197fc",
+                    "on-error-container": "#ffb2b9",
+                    "surface-container-lowest": "#000000",
+                    "on-secondary-fixed-variant": "#753290",
+                    "on-primary-fixed-variant": "#430076",
+                    "surface-bright": "#2c2c2c",
+                    "secondary-fixed": "#f1c1ff",
+                    "surface-tint": "#cc97ff",
+                    "on-tertiary-fixed-variant": "#711227",
+                    "on-background": "#ffffff",
+                    "surface": "#0e0e0e",
+                    "on-error": "#490013",
+                    "secondary-fixed-dim": "#ebaeff",
+                    "surface-container-highest": "#262626",
+                    "on-surface-variant": "#adaaaa",
+                    "inverse-on-surface": "#565555",
+                    "primary-dim": "#9c48ea",
+                    "surface-variant": "#262626",
+                    "outline": "#767575",
+                    "surface-container-high": "#201f1f",
+                    "primary": "#cc97ff",
+                    "on-tertiary-container": "#570018",
+                    "inverse-surface": "#fcf9f8",
+                    "surface-container-low": "#131313",
+                    "tertiary-container": "#fe7e8e",
+                    "tertiary": "#ff95a0",
+                    "outline-variant": "#484847",
+                    "secondary-container": "#6a2785"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-headline { font-family: 'Manrope', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .mesh-gradient {
+            background-color: #0e0e0e;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(204, 151, 255, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(106, 39, 133, 0.1) 0px, transparent 50%),
+                radial-gradient(at 50% 50%, rgba(204, 151, 255, 0.03) 0px, transparent 50%);
+        }
+        .glass-card {
+            background: rgba(26, 25, 25, 0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .text-gradient {
+            background: linear-gradient(135deg, #ffffff 0%, #adaaaa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface mesh-gradient">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-[280px] z-50 bg-surface-container-low/80 backdrop-blur-md border-r border-white/5 flex flex-col py-6 gap-2 font-['Inter'] text-sm tracking-wide">
+<div class="text-2xl font-black text-primary mb-8 px-6 tracking-tighter">Bubblein</div>
+<nav class="flex-1 space-y-1 px-3">
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2.5 rounded-lg hover:text-white hover:bg-white/5 transition-all duration-300 group" href="#">
+<span class="material-symbols-outlined opacity-70 group-hover:opacity-100" data-icon="dashboard">dashboard</span>
+<span class="font-medium">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2.5 rounded-lg hover:text-white hover:bg-white/5 transition-all duration-300 group" href="#">
+<span class="material-symbols-outlined opacity-70 group-hover:opacity-100" data-icon="group">group</span>
+<span class="font-medium">Leads</span>
+</a>
+<a class="flex items-center gap-3 bg-primary/10 text-primary rounded-lg px-4 py-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]" href="#">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+<span class="font-semibold">IA Analysis</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2.5 rounded-lg hover:text-white hover:bg-white/5 transition-all duration-300 group" href="#">
+<span class="material-symbols-outlined opacity-70 group-hover:opacity-100" data-icon="rocket_launch">rocket_launch</span>
+<span class="font-medium">Campaigns</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2.5 rounded-lg hover:text-white hover:bg-white/5 transition-all duration-300 group" href="#">
+<span class="material-symbols-outlined opacity-70 group-hover:opacity-100" data-icon="settings">settings</span>
+<span class="font-medium">Settings</span>
+</a>
+</nav>
+<div class="mt-auto space-y-1 px-3">
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2.5 rounded-lg hover:text-white hover:bg-white/5 transition-all duration-300" href="#">
+<span class="material-symbols-outlined opacity-70" data-icon="help">help</span>
+<span class="font-medium">Help Center</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2.5 rounded-lg hover:text-white hover:bg-white/5 transition-all duration-300" href="#">
+<span class="material-symbols-outlined opacity-70" data-icon="logout">logout</span>
+<span class="font-medium">Logout</span>
+</a>
+</div>
+</aside>
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-280px)] z-40 bg-background/40 backdrop-blur-xl border-b border-white/5 flex justify-between items-center px-8 h-16">
+<div class="flex items-center gap-6">
+<span class="text-on-surface-variant text-[10px] uppercase tracking-[0.2em] font-bold opacity-60">LinkedIn Profile Intelligence</span>
+</div>
+<div class="flex items-center gap-5">
+<div class="flex items-center gap-1">
+<button class="material-symbols-outlined text-on-surface-variant hover:text-white hover:bg-white/5 p-2 rounded-full transition-all" data-icon="notifications">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-white hover:bg-white/5 p-2 rounded-full transition-all" data-icon="settings">settings</button>
+</div>
+<button class="bg-primary text-on-primary-container px-4 py-1.5 rounded-full text-xs font-bold hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-primary/10">Add Credits</button>
+<div class="h-8 w-8 rounded-full overflow-hidden border border-white/10 ring-2 ring-primary/20">
+<img alt="User profile photo" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCQawRL5R3Hmk4umpbdwlLU5hJ1F4wb-gJjc4mS17Y8NKjMJz_Byau6gsNuBpaVzxaJxovLmktbynxvLFAaJHWO7OdWpZz4syPLX54aTDqJkz638kOrsQHk5JbLLfwozTwR5wxLsDtFhQCqdHtvTNiwmeic4h53XJemcAzrnQ7Ni824F_RHRz3Laq2V4nWDT5yIMRhl1hwvkIzvAj-sE70kaXzc0oHRLFdbIdna9-3t0Au2vh_-0EPo7Wp-gxCoKGcJ8MlHpbVqyz0"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-[280px] pt-16 min-h-screen flex flex-col items-center justify-center relative">
+<div class="max-w-4xl mx-auto px-8 w-full py-12 relative z-10">
+<!-- Header Section -->
+<div class="mb-16 text-center space-y-6">
+<h1 class="text-5xl md:text-7xl font-extrabold font-headline tracking-tight text-gradient leading-[1.1] mb-8">
+                Vamos encontrar leads através de seu LinkedIn
+            </h1>
+<div class="space-y-3">
+<p class="text-on-surface-variant/80 text-lg md:text-xl font-medium flex items-center justify-center gap-3">
+<span class="w-1.5 h-1.5 rounded-full bg-primary/40"></span>
+                    quem interagiu com seus posts
+                </p>
+<p class="text-on-surface-variant/80 text-lg md:text-xl font-medium flex items-center justify-center gap-3">
+<span class="w-1.5 h-1.5 rounded-full bg-primary/40"></span>
+                    quem é importante você se relacionar
+                </p>
+</div>
+</div>
+<!-- Main Input Card -->
+<div class="glass-card rounded-[2rem] p-10 md:p-14 relative group transition-all duration-500">
+<!-- Subtle internal glow -->
+<div class="absolute inset-0 rounded-[2rem] bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"></div>
+<div class="relative z-10">
+<label class="block text-[10px] font-black text-primary tracking-[0.3em] uppercase mb-6 ml-1">LinkedIn Profile URL</label>
+<div class="relative mb-10 group/input">
+<span class="material-symbols-outlined absolute left-5 top-1/2 -translate-y-1/2 text-on-surface-variant transition-colors group-focus-within/input:text-primary" data-icon="link">link</span>
+<input class="w-full bg-white/[0.03] border border-white/5 focus:border-primary/50 focus:ring-4 focus:ring-primary/5 rounded-2xl py-7 pl-16 pr-8 text-lg text-on-surface transition-all placeholder:text-outline/30 font-medium" placeholder="https://www.linkedin.com/in/seu-perfil/" type="text"/>
+</div>
+<div class="flex justify-center">
+<button class="w-full md:w-auto group relative bg-primary text-on-primary-container px-14 py-5 rounded-2xl font-extrabold text-lg flex items-center justify-center gap-4 active:scale-95 transition-all shadow-xl shadow-primary/20 hover:shadow-2xl hover:shadow-primary/30 hover:brightness-110">
+<span>Iniciar Análise de Oportunidades</span>
+<span class="material-symbols-outlined transition-transform group-hover:translate-x-1.5" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+<p class="mt-12 text-center text-on-surface-variant/40 text-xs font-medium tracking-wide">
+            Processamento seguro de dados via IA proprietária.
+        </p>
+</div>
+<!-- Background Decorative Elements -->
+<div class="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] -z-10 animate-pulse"></div>
+<div class="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-secondary/5 rounded-full blur-[100px] -z-10 animate-pulse" style="animation-delay: 2s"></div>
+</main>
+</body></html>

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Casting de Influenciadores | Bubblein</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;600;700;800&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0e0e0e;
+            color: #ffffff;
+        }
+        .font-headline { font-family: 'Manrope', sans-serif; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-dim": "#f47786",
+                        "surface-container-high": "#201f1f",
+                        "secondary": "#e197fc",
+                        "on-surface": "#ffffff",
+                        "on-primary-fixed-variant": "#430076",
+                        "primary-dim": "#9c48ea",
+                        "secondary-dim": "#d28aed",
+                        "outline-variant": "#484847",
+                        "tertiary": "#ff95a0",
+                        "on-secondary": "#530b6f",
+                        "primary-container": "#c284ff",
+                        "on-error-container": "#ffb2b9",
+                        "on-tertiary": "#680921",
+                        "error-dim": "#d73357",
+                        "surface": "#0e0e0e",
+                        "inverse-primary": "#842cd3",
+                        "surface-container-highest": "#262626",
+                        "primary": "#cc97ff",
+                        "surface-dim": "#0e0e0e",
+                        "secondary-container": "#6a2785",
+                        "primary-fixed-dim": "#b971ff",
+                        "on-secondary-container": "#f1bfff",
+                        "on-primary-fixed": "#000000",
+                        "tertiary-container": "#fe7e8e",
+                        "secondary-fixed": "#f1c1ff",
+                        "inverse-on-surface": "#565555",
+                        "surface-bright": "#2c2c2c",
+                        "surface-container": "#1a1919",
+                        "on-primary-container": "#360061",
+                        "inverse-surface": "#fcf9f8",
+                        "surface-container-low": "#131313",
+                        "surface-tint": "#cc97ff",
+                        "tertiary-fixed-dim": "#fa7c8b",
+                        "on-tertiary-fixed-variant": "#711227",
+                        "secondary-fixed-dim": "#ebaeff",
+                        "surface-container-lowest": "#000000",
+                        "primary-fixed": "#c284ff",
+                        "error": "#ff6e84",
+                        "outline": "#767575",
+                        "tertiary-fixed": "#ff909c",
+                        "on-tertiary-fixed": "#39000d",
+                        "on-secondary-fixed": "#550e71",
+                        "background": "#0e0e0e",
+                        "on-secondary-fixed-variant": "#753290",
+                        "on-tertiary-container": "#570018",
+                        "on-background": "#ffffff",
+                        "on-error": "#490013",
+                        "on-surface-variant": "#adaaaa",
+                        "on-primary": "#47007c",
+                        "surface-variant": "#262626",
+                        "error-container": "#a70138"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar Component -->
+<aside class="fixed left-0 top-0 h-full w-[280px] z-50 bg-[#131313] flex flex-col py-6 gap-2 font-['Inter'] text-sm tracking-wide">
+<div class="text-2xl font-black text-[#cc97ff] mb-8 px-4 font-headline">Bubblein</div>
+<nav class="flex-1">
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 mx-2 hover:text-white transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 bg-[#262626] text-[#cc97ff] rounded-lg px-4 py-3 mx-2 active:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">group</span>
+<span>Leads</span>
+</a>
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 mx-2 hover:text-white transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">psychology</span>
+<span>IA Analysis</span>
+</a>
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 mx-2 hover:text-white transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">rocket_launch</span>
+<span>Campaigns</span>
+</a>
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 mx-2 hover:text-white transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+<div class="mt-auto pt-6 border-t border-white/5">
+<button class="flex items-center gap-3 bg-primary-container text-on-primary-container rounded-lg px-4 py-3 mx-4 mb-6 font-bold hover:opacity-90 active:scale-95 transition-all">
+<span class="material-symbols-outlined">add</span>
+<span>New Campaign</span>
+</button>
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 mx-2 hover:text-white transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">help</span>
+<span>Help Center</span>
+</a>
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 mx-2 hover:text-white transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span>Logout</span>
+</a>
+</div>
+</aside>
+<!-- TopNavBar Component -->
+<header class="fixed top-0 right-0 w-[calc(100%-280px)] z-40 bg-[#0e0e0e]/70 backdrop-blur-xl border-b border-[#ffffff]/10 shadow-[0_12px_32px_rgba(255,255,255,0.04)] flex justify-between items-center px-8 h-16 font-['Manrope'] font-bold tracking-tight">
+<div class="flex items-center gap-4">
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-on-surface-variant">search</span>
+<input class="bg-surface-container-high border-none rounded-xl pl-10 pr-4 py-1.5 w-64 text-sm focus:ring-1 focus:ring-primary transition-all" placeholder="Search profiles..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<button class="p-2 text-on-surface-variant hover:bg-[#262626] hover:text-white rounded-lg transition-all active:scale-95">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-[#262626] hover:text-white rounded-lg transition-all active:scale-95">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+<button class="bg-[#262626] text-[#cc97ff] px-4 py-1.5 rounded-lg text-sm border border-[#cc97ff]/20 hover:border-[#cc97ff]/50 transition-all active:scale-95">
+                Add Credits
+            </button>
+<div class="flex items-center gap-3 pl-4 border-l border-white/10">
+<img class="w-8 h-8 rounded-full object-cover ring-2 ring-primary/20" data-alt="professional portrait of a male executive in a dark suit against a minimalist studio background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDmgpz7XqS6pELgZZf_JNU_I_9QhZtx3pxRcULHODwqbRYzjmFO13x5p-Tku30NFNtbW09nFffQJDKD5vZKGqA7Py7wJTUfzIta5RmaspEYGFb6GIKMH_zHqu7siGFjwMbb4Q1QDGlVTD46DgwPH3Kjg2oyKrL5fOm7It0KWvW_7Z4_-kDJv8eo6g2Pmv4Be_4uo3NiqhHRqUkC-MxHoN9gWeKYQ-SvI6aFiL31IRAx5qQcKTnRjWdqFaKpaTYJ7_JTPFOXhfmI8JI"/>
+<span class="text-sm text-on-surface">Profile</span>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="ml-[280px] pt-24 px-8 pb-12 min-h-screen">
+<!-- Hero Header -->
+<div class="mb-10 flex justify-between items-end">
+<div>
+<span class="text-[0.6875rem] font-bold tracking-[0.2em] text-primary uppercase font-label mb-2 block">Intelligence Lab</span>
+<h1 class="text-4xl font-extrabold font-headline text-on-surface tracking-tight leading-tight">Casting de Influenciadores</h1>
+<p class="text-on-surface-variant mt-2 max-w-xl">Curadoria inteligente de perfis estratégicos em RH e Recrutamento para sua próxima campanha de influência.</p>
+</div>
+<div class="flex gap-3">
+<button class="flex items-center gap-2 px-6 py-3 bg-surface-container-highest border border-outline-variant/30 text-on-surface rounded-xl hover:bg-surface-bright transition-all">
+<span class="material-symbols-outlined">download</span>
+                    Exportar Lista
+                </button>
+<button class="flex items-center gap-2 px-6 py-3 bg-primary-container text-on-primary-container font-bold rounded-xl hover:opacity-90 active:scale-95 transition-all">
+<span class="material-symbols-outlined">auto_awesome</span>
+                    Nova Análise IA
+                </button>
+</div>
+</div>
+<!-- Filters Section (Bento Style) -->
+<div class="grid grid-cols-12 gap-4 mb-8">
+<div class="col-span-8 bg-surface-container rounded-2xl p-6 border border-outline-variant/10">
+<div class="flex items-center justify-between mb-4">
+<h3 class="font-headline font-bold text-lg">Filtros de Segmentação</h3>
+<button class="text-primary text-sm font-semibold hover:underline">Limpar tudo</button>
+</div>
+<div class="grid grid-cols-3 gap-6">
+<div class="space-y-2">
+<label class="text-[0.6875rem] font-bold text-on-surface-variant tracking-wider uppercase">Palavras-chave</label>
+<div class="relative">
+<input class="w-full bg-surface-container-high border-none rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20" placeholder="RH, Headhunter, Top Voice" type="text"/>
+</div>
+</div>
+<div class="space-y-2">
+<label class="text-[0.6875rem] font-bold text-on-surface-variant tracking-wider uppercase">Localidade</label>
+<select class="w-full bg-surface-container-high border-none rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 appearance-none">
+<option>São Paulo, Brasil</option>
+<option>Global (Inglês)</option>
+<option>Portugal</option>
+</select>
+</div>
+<div class="space-y-2">
+<label class="text-[0.6875rem] font-bold text-on-surface-variant tracking-wider uppercase">Faixa de Seguidores</label>
+<select class="w-full bg-surface-container-high border-none rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 appearance-none">
+<option>10k - 50k (Micro)</option>
+<option>50k - 200k (Mid)</option>
+<option>200k+ (Macro)</option>
+</select>
+</div>
+</div>
+</div>
+<div class="col-span-4 bg-primary-container/10 rounded-2xl p-6 border border-primary/20 flex flex-col justify-between">
+<div>
+<h3 class="font-headline font-bold text-lg text-primary">Sugestão da IA</h3>
+<p class="text-sm text-on-surface-variant mt-2">Baseado no seu perfil de 'Vagas Tech', recomendamos influenciadores focados em <strong>Employee Experience</strong>.</p>
+</div>
+<div class="flex gap-2 mt-4">
+<span class="px-3 py-1 bg-primary/20 text-primary rounded-full text-[10px] font-bold tracking-widest uppercase">Tech Recruitment</span>
+<span class="px-3 py-1 bg-primary/20 text-primary rounded-full text-[10px] font-bold tracking-widest uppercase">Employer Branding</span>
+</div>
+</div>
+</div>
+<!-- Results Table -->
+<div class="bg-surface-container rounded-2xl border border-outline-variant/10 overflow-hidden">
+<div class="px-6 py-4 border-b border-outline-variant/10 flex items-center justify-between">
+<div class="flex gap-4">
+<button class="px-4 py-2 bg-surface-container-highest text-primary font-bold rounded-lg text-sm">Todos (24)</button>
+<button class="px-4 py-2 text-on-surface-variant hover:text-white text-sm transition-colors">Favoritos</button>
+<button class="px-4 py-2 text-on-surface-variant hover:text-white text-sm transition-colors">Arquivados</button>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-sm">sort</span>
+<span>Ordenar por: <strong class="text-on-surface">Relevância</strong></span>
+</div>
+</div>
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low text-[0.6875rem] font-bold text-on-surface-variant tracking-widest uppercase">
+<th class="px-6 py-4 w-12 font-medium">#</th>
+<th class="px-6 py-4">Influenciador</th>
+<th class="px-6 py-4">Seguidores</th>
+<th class="px-6 py-4">Especialidades</th>
+<th class="px-6 py-4 text-center">Relevance Score</th>
+<th class="px-6 py-4 text-right">Ação</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/5">
+<!-- Influencer Row 1 -->
+<tr class="hover:bg-surface-container-high transition-colors group">
+<td class="px-6 py-5 text-on-surface-variant text-sm">01</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<img class="w-10 h-10 rounded-xl object-cover grayscale group-hover:grayscale-0 transition-all" data-alt="professional portrait of a confident woman in business attire with short dark hair, smiling warmly" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFr8C9OzRUmD9iypSrI9UKBgJpNKkABESDFBBoZVozZ0gAkGJLpYltZtyTtr4myf1meOLnldD0ZPr8SMnLIiVkXQhYxHhl6ugj9-SDy-gvi7IGmIOTAm7iSYdeYDfeSHuAOY2IyGla52R-wbVr7qRJZhNAX14BOtjg1cOUAEAPQThLGssbGpVUSBftG829jYHzci2RGPQ4zSPQM6PUHK1n3m8zwsyD87Dyb31FvvMYIn0sXzqNJRfoXDxQ-V5xPfBK2dj1dYJGaio"/>
+<div>
+<h4 class="font-bold text-sm leading-none flex items-center gap-1">
+                                        Renata Silveira 
+                                        <span class="material-symbols-outlined text-primary text-[14px]" style="font-variation-settings: 'FILL' 1;">verified</span>
+</h4>
+<span class="text-xs text-on-surface-variant">Diretora de Gente &amp; Gestão</span>
+</div>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-bold">124k</span>
+<span class="text-[10px] text-primary">+2.4% este mês</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-wrap gap-1">
+<span class="px-2 py-0.5 bg-surface-container-highest border border-outline-variant/20 rounded text-[10px] text-on-surface-variant">Liderança Feminina</span>
+<span class="px-2 py-0.5 bg-surface-container-highest border border-outline-variant/20 rounded text-[10px] text-on-surface-variant">HR Tech</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center justify-center gap-2">
+<div class="w-16 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[94%]"></div>
+</div>
+<span class="font-headline font-bold text-sm">94</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="p-2 hover:bg-primary/10 hover:text-primary rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">add_circle</span>
+</button>
+<button class="p-2 hover:bg-surface-bright rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Influencer Row 2 -->
+<tr class="hover:bg-surface-container-high transition-colors group">
+<td class="px-6 py-5 text-on-surface-variant text-sm">02</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<img class="w-10 h-10 rounded-xl object-cover grayscale group-hover:grayscale-0 transition-all" data-alt="professional headshot of a creative professional man with a beard and glasses in a stylish casual shirt" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDr3cGpQ4m8Vv_4AP228_-KB1nTtAB2TQDJIE_ejqvkV433g-xZYW3brJu97d5_cvCbeGTR0kGc9VOc0U6YfYuJpwofVDyFhpjhF-RH8meA32g2HdA_Mw3Jy42vmjiROzz_pSC8qzJt2fy036UQbXyWMMhHyyh7GrxLt8Su2TYYNh1y6WhZZZAT_nnoBEI7y8P3EcRKcAEaST5AX7LOZIjfqMoyyXfQ7zcdTR2jxMEKUo-Rq30WCDH-SOv5rtkxTu1xrtiQaluspLE"/>
+<div>
+<h4 class="font-bold text-sm leading-none flex items-center gap-1">
+                                        Marcos Viana
+                                        <span class="material-symbols-outlined text-[#cc97ff]/50 text-[14px]">stars</span>
+</h4>
+<span class="text-xs text-on-surface-variant">LinkedIn Top Voice Carreira</span>
+</div>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-bold">89k</span>
+<span class="text-[10px] text-tertiary-dim">-0.5% este mês</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-wrap gap-1">
+<span class="px-2 py-0.5 bg-surface-container-highest border border-outline-variant/20 rounded text-[10px] text-on-surface-variant">Carreira</span>
+<span class="px-2 py-0.5 bg-surface-container-highest border border-outline-variant/20 rounded text-[10px] text-on-surface-variant">Recrutamento</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center justify-center gap-2">
+<div class="w-16 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[88%]"></div>
+</div>
+<span class="font-headline font-bold text-sm">88</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="p-2 hover:bg-primary/10 hover:text-primary rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">add_circle</span>
+</button>
+<button class="p-2 hover:bg-surface-bright rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Influencer Row 3 -->
+<tr class="hover:bg-surface-container-high transition-colors group">
+<td class="px-6 py-5 text-on-surface-variant text-sm">03</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<img class="w-10 h-10 rounded-xl object-cover grayscale group-hover:grayscale-0 transition-all" data-alt="vibrant portrait of a young professional woman with curly hair against a soft pastel background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA4ta5VpvfoMxXBVFnf8i_kJzbwgzvQbbxHPq8qJOkjvO_rS-iAGsiAlVr_--fUIOg47Kj-rnXbWsQYa-lzY3Lxk8mjsWHC2pZrek58dykvPGjAz2mDzViGbNISeLFjvwjZfCydcdI32z8QzCAbvLsBOYGSTJGfKoOvrKn3cy8ur7UOxa45aNWrMq9GbTdhP8uLqmxvUk0n2fUYSrgTtrVzRbI9-mCNd-7uqhOCMkB-4j_jsJ_oUCeCPRCOFO1r-BhGHAtu4PTCcSA"/>
+<div>
+<h4 class="font-bold text-sm leading-none flex items-center gap-1">
+                                        Camila Santos
+                                    </h4>
+<span class="text-xs text-on-surface-variant">Especialista em Employer Branding</span>
+</div>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-bold">42k</span>
+<span class="text-[10px] text-primary">+8.2% este mês</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-wrap gap-1">
+<span class="px-2 py-0.5 bg-surface-container-highest border border-outline-variant/20 rounded text-[10px] text-on-surface-variant">Employer Branding</span>
+<span class="px-2 py-0.5 bg-surface-container-highest border border-outline-variant/20 rounded text-[10px] text-on-surface-variant">Tech Hiring</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center justify-center gap-2">
+<div class="w-16 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[82%]"></div>
+</div>
+<span class="font-headline font-bold text-sm">82</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="p-2 hover:bg-primary/10 hover:text-primary rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">add_circle</span>
+</button>
+<button class="p-2 hover:bg-surface-bright rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Influencer Row 4 -->
+<tr class="hover:bg-surface-container-high transition-colors group">
+<td class="px-6 py-5 text-on-surface-variant text-sm">04</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<img class="w-10 h-10 rounded-xl object-cover grayscale group-hover:grayscale-0 transition-all" data-alt="modern portrait of a professional man in a tailored grey sweater in an industrial office setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCmMvGNir0YoHTY3YbDQzy0TOPJO5xv8mL8YWhee4DGPe3KHqjFkEtmVp8eSEtCx--66ToxoVUJYYW_RsCvL6rqbO8E5hpHQ7yOX18H0IawJhJf58IdmZxigrCFbBBVxapfNdGp5DkFtlGmerC0hjyGke2FN18KtjsPaULpanIWhSf5Ndlxp513bSFG12myiJrO98INxjPrCjwvUo1eWmY9TnJH5JRyw9kbQVC4-9rfh6cuaSiYGD8fcZ4s5N6ASZ8GTW9FS0z0G6g"/>
+<div>
+<h4 class="font-bold text-sm leading-none flex items-center gap-1">
+                                        Felipe Andrade
+                                    </h4>
+<span class="text-xs text-on-surface-variant">Tech Recruitment Lead</span>
+</div>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-bold">215k</span>
+<span class="text-[10px] text-primary">+1.1% este mês</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-wrap gap-1">
+<span class="px-2 py-0.5 bg-surface-container-highest border border-outline-variant/20 rounded text-[10px] text-on-surface-variant">Engenharia de Software</span>
+<span class="px-2 py-0.5 bg-surface-container-highest border border-outline-variant/20 rounded text-[10px] text-on-surface-variant">Mentoria</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center justify-center gap-2">
+<div class="w-16 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[79%]"></div>
+</div>
+<span class="font-headline font-bold text-sm">79</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="p-2 hover:bg-primary/10 hover:text-primary rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">add_circle</span>
+</button>
+<button class="p-2 hover:bg-surface-bright rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+<div class="px-6 py-4 bg-surface-container-low border-t border-outline-variant/10 flex items-center justify-between text-xs text-on-surface-variant">
+<span>Mostrando 4 de 24 perfis analisados</span>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded bg-surface-container-high border border-outline-variant/20 hover:bg-surface-bright transition-all">
+<span class="material-symbols-outlined text-sm">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-primary text-on-primary-container font-bold">1</button>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-surface-container-high border border-outline-variant/20 hover:bg-surface-bright transition-all">2</button>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-surface-container-high border border-outline-variant/20 hover:bg-surface-bright transition-all">3</button>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-surface-container-high border border-outline-variant/20 hover:bg-surface-bright transition-all">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+</body></html>

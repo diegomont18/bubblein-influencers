@@ -5,5 +5,8 @@
 [functions]
   directory = "netlify/functions"
 
+[functions."apify-usage-check"]
+  schedule = "*/15 * * * *"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"

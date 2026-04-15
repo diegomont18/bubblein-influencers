@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { searchGoogle } from "@/lib/scrapingdog";
+import { searchGoogleApify } from "@/lib/apify";
+import { isApifyBlocked } from "@/lib/apify-usage";
 
 function extractSlug(url: string): string | null {
   const match = url.match(/linkedin\.com\/in\/([^/?#]+)/);
@@ -64,6 +65,13 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  if (await isApifyBlocked()) {
+    return NextResponse.json(
+      { error: "Limite mensal de créditos Apify atingido. Contate o admin." },
+      { status: 503 }
+    );
+  }
+
   const service = createServiceClient();
 
   // Fetch pending entries (batch of 5)
@@ -99,7 +107,7 @@ export async function POST() {
     // Step 1: Verify the original URL exists
     if (slug) {
       const verifyQuery = `site:linkedin.com/in/ "${slug}"`;
-      const verifyResult = await searchGoogle(verifyQuery);
+      const verifyResult = await searchGoogleApify(verifyQuery);
 
       const matchUrl = (verifyResult.results as SearchResult[]).find((r) =>
         r.link.includes(`linkedin.com/in/${slug}`)
@@ -129,7 +137,7 @@ export async function POST() {
     let lastResults: SearchResult[] = [];
 
     for (const query of strategies) {
-      const searchResult = await searchGoogle(query);
+      const searchResult = await searchGoogleApify(query);
       lastResults = searchResult.results as SearchResult[];
       foundUrl = findBestMatch(lastResults, entry.name);
       if (foundUrl) break;

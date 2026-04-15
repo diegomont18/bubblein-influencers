@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { extractSlug } from "@/lib/linkedin";
-import { fetchLinkedInProfile } from "@/lib/scrapingdog";
-import { fetchProfilePosts } from "@/lib/apify";
+import { fetchLinkedInProfileApify as fetchLinkedInProfile, fetchProfilePosts } from "@/lib/apify";
 import {
   normalizeProfileData,
   normalizeExperiences,
@@ -121,10 +120,10 @@ export async function POST(request: Request) {
         .update({ enrichment_status: "processing" })
         .eq("id", job.profile_id);
 
-      // Call Scrapingdog
-      console.log(`[enrichment] Job ${job.id}: Calling ScrapingDog for slug="${slug}"`);
+      // Fetch profile via Apify
+      console.log(`[enrichment] Job ${job.id}: Calling Apify for slug="${slug}"`);
       const result = await fetchLinkedInProfile(slug);
-      console.log(`[enrichment] Job ${job.id}: ScrapingDog response status=${result.status}${result.error ? ` error="${result.error}"` : ""}`);
+      console.log(`[enrichment] Job ${job.id}: Apify response status=${result.status}${result.error ? ` error="${result.error}"` : ""}`);
 
       if (result.status === 200 && result.data) {
         // Normalize profile data
@@ -296,15 +295,9 @@ export async function POST(request: Request) {
   const errorCount = allResults.filter((r) => r.status === "failed" || r.error).length;
   console.log(`[enrichment] All batches complete: processed=${totalProcessed} done=${doneCount} retry=${allResults.filter((r) => r.status === "retry").length} errors=${errorCount}`);
 
-  // Log estimated API costs for enrichment batch
+  // Per-call Apify cost is logged inside fetchLinkedInProfileApify itself.
+  // Log only the openrouter aggregate here.
   if (doneCount > 0) {
-    logApiCost({
-      source: "enrichment",
-      provider: "scrapingdog",
-      operation: "fetchLinkedInProfile",
-      estimatedCost: totalProcessed * API_COSTS.scrapingdog.fetchLinkedInProfile,
-      metadata: { profilesProcessed: totalProcessed, done: doneCount },
-    });
     logApiCost({
       source: "enrichment",
       provider: "openrouter",

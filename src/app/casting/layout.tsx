@@ -111,15 +111,7 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
                 pathname === "/casting" ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
               }`}
             >
-              Casting
-            </Link>
-            <Link
-              href="/casting/leads"
-              className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-lexend)] ${
-                pathname === "/casting/leads" || pathname.startsWith("/casting/leads/") ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
-              }`}
-            >
-              Leads
+              Influencers B2B
             </Link>
           </nav>
         </aside>

@@ -959,7 +959,7 @@ export default function LeadsPage() {
                     <p className="text-xs text-[#ca98ff] font-medium mb-1">Todos</p>
                     <div className="flex items-baseline gap-2 mb-2">
                       <span className="text-xl font-bold text-white">{allRer}%</span>
-                      <span className="text-[10px] text-[#adaaaa] uppercase tracking-wider">RER</span>
+                      <span className="text-[10px] text-[#adaaaa] tracking-wider" title="Revenue Engagement Rate">RER (Revenue Engagement Rate)</span>
                     </div>
                     <div className="flex gap-1.5 text-[10px] flex-wrap">
                       <span className="rounded-full bg-[#ca98ff]/10 text-[#ca98ff] px-1.5 py-0.5">{allDecisor} dec.</span>
@@ -987,7 +987,7 @@ export default function LeadsPage() {
                     )}
                     <div className="flex items-baseline gap-2 mb-2">
                       <span className="text-xl font-bold text-white">{s.rer}%</span>
-                      <span className="text-[10px] text-[#adaaaa] uppercase tracking-wider">RER</span>
+                      <span className="text-[10px] text-[#adaaaa] tracking-wider" title="Revenue Engagement Rate">RER (Revenue Engagement Rate)</span>
                     </div>
                     <div className="flex gap-1.5 text-[10px] flex-wrap">
                       <span className="rounded-full bg-[#ca98ff]/10 text-[#ca98ff] px-1.5 py-0.5">{s.decisor} dec.</span>

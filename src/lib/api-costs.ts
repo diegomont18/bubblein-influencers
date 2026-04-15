@@ -5,17 +5,14 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 // Estimated costs per API call (USD)
 export const API_COSTS = {
-  scrapingdog: {
-    fetchLinkedInProfile: 0.004,
-    searchGoogle: 0.002,
-    fetchLinkedInPost: 0.003,
-  },
   apify: {
     searchLinkedInProfiles: 0.05,
     fetchProfilePosts: 0.02,
     fetchProfilePostsBatch: 0.02, // per profile in batch
     searchLinkedInPosts: 0.05,
     fetchPostEngagers: 0.03,
+    fetchLinkedInProfileApify: 0.004,
+    searchGoogleApify: 0.0035,
   },
   openrouter: {
     classifyTopics: 0.001,

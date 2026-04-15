@@ -32,6 +32,15 @@ interface Totals {
   bySource: Record<string, number>;
 }
 
+interface ApifyUsageState {
+  monthly_usage_usd: number;
+  max_monthly_usage_usd: number;
+  billing_cycle_start: string | null;
+  billing_cycle_end: string | null;
+  checked_at: string;
+  pct: number;
+}
+
 function formatCost(cost: number): string {
   return `$${cost.toFixed(4)}`;
 }
@@ -45,7 +54,7 @@ function formatDate(dateStr: string): string {
   } catch { return "—"; }
 }
 
-const PROVIDERS = ["apify", "scrapingdog", "openrouter"];
+const PROVIDERS = ["apify", "openrouter"];
 const SOURCES = ["casting", "leads", "enrichment"];
 
 export default function ApiCostsPage() {
@@ -62,6 +71,26 @@ export default function ApiCostsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+
+  const [apifyUsage, setApifyUsage] = useState<ApifyUsageState | null>(null);
+  const [apifyRefreshing, setApifyRefreshing] = useState(false);
+
+  const fetchApifyUsage = useCallback(async (forceRefresh = false) => {
+    if (forceRefresh) setApifyRefreshing(true);
+    try {
+      const url = forceRefresh
+        ? "/api/dashboard/apify-usage?refresh=1"
+        : "/api/dashboard/apify-usage";
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.state) setApifyUsage(data.state);
+      }
+    } catch { /* ignore */ }
+    finally { setApifyRefreshing(false); }
+  }, []);
+
+  useEffect(() => { fetchApifyUsage(false); }, [fetchApifyUsage]);
 
   const limit = 50;
 
@@ -112,7 +141,6 @@ export default function ApiCostsPage() {
 
   const providerColor: Record<string, string> = {
     apify: "bg-blue-100 text-blue-800",
-    scrapingdog: "bg-green-100 text-green-800",
     openrouter: "bg-purple-100 text-purple-800",
   };
 
@@ -128,6 +156,60 @@ export default function ApiCostsPage() {
         <h1 className="text-2xl font-bold text-gray-900">API Costs</h1>
         <p className="text-sm text-gray-500 mt-1">Detalhamento de todas as chamadas de API com custos estimados.</p>
       </div>
+
+      {/* Apify billing-cycle usage */}
+      {apifyUsage && (() => {
+        const pct = apifyUsage.pct ?? 0;
+        const usd = apifyUsage.monthly_usage_usd ?? 0;
+        const max = apifyUsage.max_monthly_usage_usd ?? 0;
+        const barColor =
+          pct >= 95 ? "bg-red-600"
+          : pct >= 85 ? "bg-orange-500"
+          : pct >= 70 ? "bg-yellow-500"
+          : "bg-green-500";
+        const textColor =
+          pct >= 95 ? "text-red-700"
+          : pct >= 85 ? "text-orange-700"
+          : pct >= 70 ? "text-yellow-700"
+          : "text-green-700";
+        const fmtDate = (iso: string | null) =>
+          iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "—";
+        const ageMinutes = Math.round((Date.now() - new Date(apifyUsage.checked_at).getTime()) / 60000);
+        return (
+          <div className="rounded-lg border border-gray-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-sm font-semibold text-gray-900">Apify — uso do ciclo mensal</p>
+                  {pct >= 95 && <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">BUSCAS BLOQUEADAS</span>}
+                  {pct >= 85 && pct < 95 && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">ATENÇÃO</span>}
+                  {pct >= 70 && pct < 85 && <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-700">AVISO</span>}
+                </div>
+                <div className="flex items-baseline gap-3">
+                  <span className={`text-2xl font-bold ${textColor}`}>${usd.toFixed(2)}</span>
+                  <span className="text-sm text-gray-500">/ ${max.toFixed(2)}</span>
+                  <span className={`text-sm font-semibold ${textColor}`}>({pct.toFixed(1)}%)</span>
+                </div>
+                <div className="mt-3 h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+                  <div className={`h-full ${barColor} transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Ciclo: {fmtDate(apifyUsage.billing_cycle_start)} – {fmtDate(apifyUsage.billing_cycle_end)}
+                  {" · "}
+                  Atualizado há {ageMinutes < 1 ? "<1" : ageMinutes} min
+                </p>
+              </div>
+              <button
+                onClick={() => fetchApifyUsage(true)}
+                disabled={apifyRefreshing}
+                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {apifyRefreshing ? "Atualizando…" : "Atualizar agora"}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

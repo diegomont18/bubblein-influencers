@@ -1,3 +1,27 @@
+import { logApiCost, API_COSTS } from "./api-costs";
+
+export interface ApifyLinkedInProfileResult {
+  status: number;
+  data: Record<string, unknown> | null;
+  error?: string;
+}
+
+export interface ApifyGoogleSearchResult {
+  title: string;
+  link: string;
+  snippet: string;
+}
+
+export interface ApifyGoogleSearchOptions {
+  language?: string;
+  country?: string;
+  domain?: string;
+  lr?: string;
+  page?: number;
+  results?: number;
+  tbs?: string;
+}
+
 export async function searchLinkedInProfiles(params: {
   title: string;
   location?: string;
@@ -341,7 +365,8 @@ export async function searchLinkedInPosts(params: {
  * The actor returns a flat array of items with type "reaction" or "comment",
  * each containing an actor object with linkedinUrl.
  *
- * For share links (urn:li:share:), first resolves to permalink via ScrapingDog.
+ * For share links (urn:li:share:), first resolves to permalink via
+ * fetchLinkedInPostApify.
  */
 export async function fetchPostEngagers(
   postUrl: string,
@@ -356,19 +381,24 @@ export async function fetchPostEngagers(
 
   let resolvedPostUrl = postUrl.trim();
 
-  // If URL is a share link, resolve it to a permalink first
-  if (resolvedPostUrl.includes("urn:li:share:") || resolvedPostUrl.includes("urn:li:activity:")) {
-    console.log(`[apify] fetchPostEngagers: share URL detected, resolving to permalink via ScrapingDog...`);
-    const { fetchLinkedInPost } = await import("./scrapingdog");
-    const postResult = await fetchLinkedInPost(resolvedPostUrl);
+  // If URL is a non-permalink (share / activity / ugcPost URN), resolve it
+  // to a /posts/... permalink first — the engagers actor accepts only
+  // canonical permalinks reliably.
+  const isNonPermalink =
+    resolvedPostUrl.includes("urn:li:share:") ||
+    resolvedPostUrl.includes("urn:li:activity:") ||
+    resolvedPostUrl.includes("urn:li:ugcPost:");
+  if (isNonPermalink) {
+    console.log(`[apify] fetchPostEngagers: non-permalink URL detected, resolving...`);
+    const postResult = await fetchLinkedInPostApify(resolvedPostUrl);
     if (postResult.status === 200 && postResult.data) {
       const postData = postResult.data as Record<string, unknown>;
       const activityUrl = String(postData.activity_url ?? "");
       if (activityUrl && activityUrl.includes("/posts/")) {
         resolvedPostUrl = activityUrl;
-        console.log(`[apify] fetchPostEngagers: resolved to permalink: ${resolvedPostUrl}`);
+        console.log(`[apify] fetchPostEngagers: resolved to permalink: ${resolvedPostUrl.slice(0, 120)}`);
       } else {
-        console.log(`[apify] fetchPostEngagers: ScrapingDog didn't return permalink, using original URL`);
+        console.log(`[apify] fetchPostEngagers: no permalink found, using original URL`);
       }
     }
   }
@@ -442,4 +472,355 @@ export async function fetchPostEngagers(
     }
   }
   return { reactions: [], comments: [] };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for building Apify URLs
+// ---------------------------------------------------------------------------
+
+function apifyActorUrl(actor: string): string {
+  const token = process.env.APIFY_API_TOKEN;
+  if (!token) return "";
+  return `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
+}
+
+async function apifyPostJson(
+  actor: string,
+  body: unknown,
+  timeoutMs: number,
+  logPrefix: string
+): Promise<{ status: number; data: unknown }> {
+  const url = apifyActorUrl(actor);
+  if (!url) {
+    console.error(`[apify] APIFY_API_TOKEN is not set (${logPrefix})`);
+    return { status: 500, data: null };
+  }
+
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const status = res.status;
+      if (status === 200 || status === 201) {
+        const data = await res.json();
+        return { status: 200, data };
+      }
+      const text = await res.text();
+      console.error(`[apify] ${logPrefix} error status=${status} body=${text.slice(0, 400)}`);
+      if ((status === 429 || status >= 500) && attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
+        continue;
+      }
+      return { status, data: null };
+    } catch (err) {
+      console.error(`[apify] ${logPrefix} exception: ${err instanceof Error ? err.message : err}`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
+        continue;
+      }
+      return { status: 500, data: null };
+    }
+  }
+  return { status: 500, data: null };
+}
+
+// ---------------------------------------------------------------------------
+// LinkedIn profile by slug (replaces scrapingdog.fetchLinkedInProfile)
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a harvestapi profile item into a shape compatible with the
+ * existing `normalizeProfileData` helper (`src/lib/normalize.ts`), so that
+ * callers migrating from `scrapingdog.fetchLinkedInProfile` don't need to
+ * change their downstream parsing.
+ */
+function normalizeHarvestProfile(raw: Record<string, unknown>): Record<string, unknown> {
+  const exp = (raw.experience ?? raw.experiences) as Array<Record<string, unknown>> | undefined;
+  const experience = Array.isArray(exp)
+    ? exp.map((e) => ({
+        title: e.title ?? e.position ?? e.role ?? null,
+        position: e.position ?? e.title ?? null,
+        company: e.company ?? e.companyName ?? e.company_name ?? null,
+        company_name: e.companyName ?? e.company ?? null,
+        start_date: e.startDate ?? e.start_date ?? null,
+        end_date: e.endDate ?? e.end_date ?? null,
+        starts_at: e.startDate ?? e.starts_at ?? null,
+        ends_at: e.endDate ?? e.ends_at ?? null,
+        description: e.description ?? null,
+      }))
+    : [];
+
+  const current = (raw.currentPosition ?? raw.current_position) as Record<string, unknown> | undefined;
+  const currentCompany = current ? (current.companyName ?? current.company ?? current.company_name ?? null) : null;
+  const currentTitle = current ? (current.title ?? current.position ?? null) : null;
+
+  return {
+    ...raw,
+    name: raw.name ?? raw.fullName ?? raw.full_name ?? null,
+    fullName: raw.fullName ?? raw.name ?? null,
+    headline: raw.headline ?? raw.sub_title ?? null,
+    about: raw.about ?? raw.summary ?? null,
+    location: raw.location ?? raw.locationName ?? null,
+    followers: raw.followersCount ?? raw.followers_count ?? raw.followers ?? null,
+    follower_count: raw.followersCount ?? raw.follower_count ?? null,
+    followers_count: raw.followersCount ?? raw.followers_count ?? null,
+    connections: raw.connectionsCount ?? raw.connections_count ?? raw.connections ?? null,
+    connection_count: raw.connectionsCount ?? null,
+    public_identifier: raw.publicIdentifier ?? raw.public_identifier ?? null,
+    linkedin_internal_id: raw.linkedinInternalId ?? raw.profileId ?? raw.linkedin_internal_id ?? null,
+    profile_id: raw.profileId ?? raw.public_identifier ?? null,
+    company: currentCompany,
+    title: currentTitle,
+    experience,
+  };
+}
+
+export async function fetchLinkedInProfileApify(
+  slugOrUrl: string
+): Promise<ApifyLinkedInProfileResult> {
+  // Accept both a bare slug (public or ACoAA...) and a full LinkedIn URL.
+  // Full URLs preserve case, which matters: ACoAA... base64 IDs are
+  // case-sensitive and lower-casing them yields 404/403 from harvestapi.
+  const isUrl = /^https?:\/\//i.test(slugOrUrl);
+  const profileUrl = isUrl
+    ? slugOrUrl
+    : `https://www.linkedin.com/in/${slugOrUrl.replace(/^\/+|\/+$/g, "")}/`;
+  const logKey = isUrl ? profileUrl.slice(0, 80) : slugOrUrl.slice(0, 60);
+  console.log(`[apify] fetchLinkedInProfileApify target="${logKey}"`);
+
+  const body = {
+    profileScraperMode: "Profile details no email ($4 per 1k)",
+    urls: [profileUrl],
+  };
+
+  const { status, data } = await apifyPostJson(
+    "harvestapi~linkedin-profile-scraper",
+    body,
+    180_000,
+    `profile-scraper ${logKey}`
+  );
+
+  logApiCost({
+    source: "enrichment",
+    provider: "apify",
+    operation: "fetchLinkedInProfileApify",
+    estimatedCost: API_COSTS.apify.fetchLinkedInProfileApify,
+    metadata: { target: logKey, status },
+  });
+
+  if (status !== 200) {
+    return { status, data: null, error: `Apify profile scraper status ${status}` };
+  }
+
+  if (!Array.isArray(data) || data.length === 0) {
+    console.log(`[apify] fetchLinkedInProfileApify: empty dataset for target="${logKey}"`);
+    return { status: 404, data: null, error: "Empty dataset" };
+  }
+
+  const first = (data as Array<Record<string, unknown>>)[0];
+
+  // harvestapi wraps inaccessible profiles in an error shell instead of
+  // returning real data: { element: null, status: 403|404, error: ..., query: {...} }.
+  // Detect and surface that as a proper error so callers can fall back.
+  const firstStatus = Number(first.status ?? 200);
+  const hasElement = first.element !== undefined; // only present in error shells
+  const hasError = first.error != null;
+  if (hasElement && first.element == null && (firstStatus >= 400 || hasError)) {
+    console.log(`[apify] fetchLinkedInProfileApify: actor returned error shell status=${firstStatus} for target="${logKey}"`);
+    return {
+      status: firstStatus || 404,
+      data: null,
+      error: typeof first.error === "string" ? first.error : "Profile not accessible",
+    };
+  }
+
+  const normalized = normalizeHarvestProfile(first);
+  return { status: 200, data: normalized };
+}
+
+// ---------------------------------------------------------------------------
+// Google SERP (replaces scrapingdog.searchGoogle)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build Google's `tbs` date range parameter from YYYY-MM-DD strings.
+ * Output: `cdr:1,cd_min:MM/DD/YYYY,cd_max:MM/DD/YYYY`
+ */
+export function buildDateRangeTbs(startDate: string, endDate: string): string {
+  const [sy, sm, sd] = startDate.split("-");
+  const [ey, em, ed] = endDate.split("-");
+  return `cdr:1,cd_min:${sm}/${sd}/${sy},cd_max:${em}/${ed}/${ey}`;
+}
+
+/** Extract LinkedIn activity ID from a post URL (permalink or share URN). */
+export function extractActivityId(url: string): string | null {
+  const actMatch = url.match(/activity[_-](\d+)/);
+  if (actMatch) return actMatch[1];
+  const urnMatch = url.match(/urn:li:(?:share|activity):(\d+)/);
+  return urnMatch ? urnMatch[1] : null;
+}
+
+export function extractAuthorSlugFromPostUrl(url: string): string | null {
+  const postsMatch = url.match(/linkedin\.com\/posts\/([^_/?#]+)/);
+  return postsMatch ? postsMatch[1] : null;
+}
+
+export async function searchGoogleApify(
+  query: string,
+  options?: ApifyGoogleSearchOptions
+): Promise<{ results: ApifyGoogleSearchResult[] }> {
+  const resultsPerPage = options?.results ?? 10;
+  const page = options?.page ?? 0;
+  const maxPagesPerQuery = page + 1;
+
+  console.log(`[apify] searchGoogleApify query="${query}" page=${page} results=${resultsPerPage}`);
+
+  const body: Record<string, unknown> = {
+    queries: query,
+    resultsPerPage,
+    maxPagesPerQuery,
+    saveHtml: false,
+    saveHtmlToKeyValueStore: false,
+    mobileResults: false,
+  };
+  if (options?.country) body.countryCode = options.country;
+  if (options?.language) body.languageCode = options.language;
+  if (options?.domain) body.forceExactMatch = false;
+
+  const { status, data } = await apifyPostJson(
+    "apify~google-search-scraper",
+    body,
+    180_000,
+    `google-search query="${query.slice(0, 60)}"`
+  );
+
+  logApiCost({
+    source: "casting",
+    provider: "apify",
+    operation: "searchGoogleApify",
+    estimatedCost: API_COSTS.apify.searchGoogleApify,
+    metadata: { query: query.slice(0, 200), page },
+  });
+
+  if (status !== 200 || !Array.isArray(data)) {
+    return { results: [] };
+  }
+
+  // apify~google-search-scraper returns array of page objects, each with
+  // `organicResults: [{ title, url, description, ... }]`. We may receive
+  // multiple pages; flatten them and pick the one matching `page`.
+  const pages = data as Array<Record<string, unknown>>;
+  let organic: Array<Record<string, unknown>> = [];
+  if (pages.length > 0) {
+    // Prefer the requested page if present, else first page
+    const target = pages[page] ?? pages[0];
+    organic = (target?.organicResults as Array<Record<string, unknown>>) ?? [];
+  }
+
+  const results: ApifyGoogleSearchResult[] = organic.map((r) => ({
+    title: String(r.title ?? ""),
+    link: String(r.url ?? r.link ?? ""),
+    snippet: String(r.description ?? r.snippet ?? ""),
+  }));
+
+  return { results };
+}
+
+// ---------------------------------------------------------------------------
+// LinkedIn post by URL — resolves share/urn URLs to canonical permalinks.
+//
+// Apify has no universally-available actor for a single post lookup, and
+// our only use-case is turning a share URN into a permalink so the
+// `harvestapi~linkedin-profile-posts` engagers call accepts it. That can be
+// done in-process: LinkedIn's public share page (no auth required)
+// redirects/renders with an `og:url` / canonical `<link>` pointing to the
+// real permalink.
+// ---------------------------------------------------------------------------
+
+export async function fetchLinkedInPostApify(
+  postUrl: string
+): Promise<ApifyLinkedInProfileResult> {
+  let cleanUrl: string;
+  try { cleanUrl = decodeURIComponent(postUrl); } catch { cleanUrl = postUrl; }
+
+  // Normalize locale domains
+  try {
+    const parsed = new URL(cleanUrl);
+    if (parsed.hostname.endsWith("linkedin.com") && parsed.hostname !== "www.linkedin.com") {
+      parsed.hostname = "www.linkedin.com";
+      cleanUrl = parsed.toString();
+    }
+  } catch { /* leave as-is */ }
+
+  console.log(`[apify] fetchLinkedInPostApify url=${cleanUrl.slice(0, 120)}`);
+
+  try {
+    const res = await fetch(cleanUrl, {
+      redirect: "follow",
+      headers: {
+        // Real-browser UA so LinkedIn serves the public preview with
+        // canonical metadata rather than the auth wall.
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+
+    if (!res.ok) {
+      console.error(`[apify] fetchLinkedInPostApify fetch status=${res.status}`);
+      return { status: res.status, data: null, error: `HTTP ${res.status}` };
+    }
+
+    const finalUrl = res.url || cleanUrl;
+    const html = await res.text();
+
+    const ogMatch = html.match(/property="og:url"\s+content="([^"]+)"/i);
+    const canonicalMatch = html.match(/<link[^>]+rel="canonical"[^>]+href="([^"]+)"/i);
+    const redirectUrl = ogMatch?.[1] ?? canonicalMatch?.[1] ?? finalUrl;
+
+    const authorSlug =
+      redirectUrl.match(/linkedin\.com\/posts\/([^_/?#]+)/)?.[1]
+      ?? html.match(/linkedin\.com\/in\/([^"/?#]+)/)?.[1]
+      ?? null;
+
+    const realActivityId =
+      redirectUrl.match(/activity[_-](\d+)/)?.[1]
+      ?? html.match(/urn:li:activity:(\d+)/)?.[1]
+      ?? extractActivityId(cleanUrl)
+      ?? null;
+
+    console.log(`[apify] fetchLinkedInPostApify resolved → author="${authorSlug}" activity="${realActivityId}" permalink="${redirectUrl.slice(0, 120)}"`);
+
+    return {
+      status: 200,
+      data: {
+        activity_id: realActivityId,
+        activity_url: redirectUrl,
+        share_url: cleanUrl,
+        text: "",
+        reactions_count: 0,
+        comment_count: 0,
+        author: {
+          name: null,
+          public_identifier: authorSlug,
+          headline: null,
+          follower_count: null,
+          image: null,
+          url: authorSlug ? `https://www.linkedin.com/in/${authorSlug}/` : null,
+        },
+        comments: [],
+        _source: "linkedin-public-html",
+      },
+    };
+  } catch (err) {
+    console.error(`[apify] fetchLinkedInPostApify exception: ${err instanceof Error ? err.message : err}`);
+    return { status: 500, data: null, error: err instanceof Error ? err.message : "Unknown error" };
+  }
 }

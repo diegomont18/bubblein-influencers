@@ -390,7 +390,14 @@ For each lead, determine:
 1. score: 0-100 ICP match percentage (consider synonyms, translations PT/EN/ES, similar roles)
 2. matchedTitles: which ICP job titles match (semantically, not just exact string)
 3. matchedDepartments: which ICP departments match
-4. company: extract the company name from the headline if present (look for "at Company", "em Empresa", "@ Company", or company names after role descriptions)
+4. company: extract the company name from the headline if present. Look for ALL these patterns:
+   - "Title at Company" / "Title @ Company" / "Title na Company" / "Title em Company" / "Cargo na Empresa"
+   - "Title - Company" / "Title | Company" / "Title · Company" / "Title em: Company"
+   - "Company · Title" (company first, separator, title)
+   - "Founder/CEO/CTO of Company" / "Co-founder at Company" / "Sócio na Company"
+   - "Company (Title)" / "Title, Company"
+   - Capitalized brand words appearing next to role keywords
+   If no company is clearly extractable, return an empty string — DO NOT invent one. Ignore generic words like "LinkedIn", "Empresa", "Company".
 5. jobTitle: the primary job title/role (first role mentioned, not the full headline)
 6. roleLevel: classify the person's decision-making power:
    - "decisor": C-level, VP, Director, Head, Partner, Owner, Founder, Managing Director, General Manager, Country Manager, Sócio, Presidente, Diretor
@@ -456,6 +463,73 @@ Where: i=index, s=score, mt=matchedTitles, md=matchedDepartments, c=company, jt=
     console.log(`[ai] batchScoreIcpMatch: scored ${results.size}/${leads.length} leads`);
   } catch (err) {
     console.error(`[ai] batchScoreIcpMatch exception:`, err);
+  }
+
+  return results;
+}
+
+/**
+ * Focused LLM pass to extract JUST the company name from richer bios
+ * (headline + about + experience blurbs) when structured extraction failed.
+ * Returns a Map index → company (empty string if none found).
+ */
+export async function extractCompaniesFromHeadlines(
+  leads: Array<{ index: number; name: string; text: string }>,
+): Promise<Map<number, string>> {
+  const results = new Map<number, string>();
+
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey || leads.length === 0) return results;
+
+  const leadsText = leads.map((l) =>
+    `[${l.index}] "${l.name}" — "${l.text.slice(0, 400)}"`
+  ).join("\n");
+
+  const prompt = `Extract the CURRENT EMPLOYER / COMPANY from each LinkedIn bio text below.
+
+BIOS:
+${leadsText}
+
+Look for ALL these patterns:
+- "Title at Company" / "Title @ Company" / "Title na Company" / "Cargo na Empresa"
+- "Title - Company" / "Title | Company" / "Title · Company"
+- "Company · Title" (company first)
+- "Founder/CEO/CTO of Company" / "Sócio na Company" / "Co-founder at Company"
+- "Company (Title)" / "Title, Company"
+- Prominent capitalized brand words next to role keywords
+
+If you CANNOT find a clear company name, return "". DO NOT invent companies, DO NOT return generic words like "LinkedIn", "Empresa", "Company", "Freelancer".
+
+Respond ONLY with a JSON array:
+[{"i":0,"c":"Acme Corp"},{"i":1,"c":""},...]`;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "google/gemini-2.0-flash-lite-001",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 1500,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      console.error(`[ai] extractCompaniesFromHeadlines failed: status=${res.status}`);
+      return results;
+    }
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? "";
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return results;
+    const parsed = JSON.parse(jsonMatch[0]) as Array<{ i: number; c?: string }>;
+    for (const item of parsed) {
+      if (item.c && item.c.trim()) results.set(item.i, item.c.trim());
+    }
+    console.log(`[ai] extractCompaniesFromHeadlines: extracted ${results.size}/${leads.length} companies`);
+  } catch (err) {
+    console.error(`[ai] extractCompaniesFromHeadlines exception:`, err);
   }
 
   return results;

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { fetchProfilePosts } from "@/lib/apify";
+import { fetchProfilePosts, fetchLinkedInProfileApify } from "@/lib/apify";
 import { analyzeProfileForLeads } from "@/lib/ai";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
+import { isApifyBlocked } from "@/lib/apify-usage";
+import { buildCompanyBlacklist } from "@/lib/company-match";
 
 function extractPostUrl(post: Record<string, unknown>): string {
   for (const key of ["postUrl", "permalink", "shareUrl"]) {
@@ -43,6 +45,13 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  if (await isApifyBlocked()) {
+    return NextResponse.json(
+      { error: "Limite mensal de créditos Apify atingido. Contate o admin." },
+      { status: 503 }
+    );
+  }
+
   const body = await request.json();
   const { profileUrl } = body;
   if (!profileUrl || !profileUrl.includes("linkedin.com")) {
@@ -51,9 +60,11 @@ export async function POST(request: Request) {
 
   const service = createServiceClient();
 
-  // Extract profile name from URL for initial record
-  const slugMatch = profileUrl.match(/\/in\/([^/?#]+)/);
-  const slug = slugMatch ? slugMatch[1] : "";
+  // Detect profile type: /in/<slug> → person, /company/<slug> → company page
+  const personSlugMatch = profileUrl.match(/\/in\/([^/?#]+)/);
+  const companySlugMatch = profileUrl.match(/\/company\/([^/?#]+)/);
+  const isCompanyPage = !!companySlugMatch && !personSlugMatch;
+  const slug = (personSlugMatch?.[1] ?? companySlugMatch?.[1] ?? "");
 
   // Create profile record
   const { data: profile, error: profileError } = await service
@@ -64,6 +75,47 @@ export async function POST(request: Request) {
 
   if (profileError || !profile) {
     return NextResponse.json({ error: "Failed to create profile" }, { status: 500 });
+  }
+
+  // ------------------------------------------------------------------
+  // Build the company blacklist used by the scan to exclude leads from
+  // the same company as the analyzed profile. For a person, we fetch
+  // their full profile and collect every company in their experience
+  // (current + past). For a company page we simply blacklist the company
+  // itself by slug.
+  // ------------------------------------------------------------------
+  const rawCompanyNames: string[] = [];
+  if (isCompanyPage) {
+    // Company slugs are often close to the display name (e.g. "bubblein" ≈ "BubbleIn")
+    rawCompanyNames.push(slug.replace(/-/g, " "));
+  } else if (personSlugMatch) {
+    try {
+      const profileResult = await fetchLinkedInProfileApify(slug);
+      if (profileResult.status === 200 && profileResult.data) {
+        const data = profileResult.data as Record<string, unknown>;
+        // Current company (normalizeHarvestProfile flattens this to `company`)
+        if (typeof data.company === "string") rawCompanyNames.push(data.company);
+        // Every experience entry
+        const exp = data.experience as Array<Record<string, unknown>> | undefined;
+        if (Array.isArray(exp)) {
+          for (const e of exp) {
+            const c = (e.company ?? e.company_name ?? "") as string;
+            if (c) rawCompanyNames.push(c);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[analyze] Failed to fetch profile for blacklist:", err);
+    }
+  }
+
+  const companyBlacklist = buildCompanyBlacklist(rawCompanyNames);
+  if (companyBlacklist.length > 0) {
+    await service
+      .from("lg_profiles")
+      .update({ company_blacklist: companyBlacklist })
+      .eq("id", profile.id);
+    console.log(`[analyze] Profile ${profile.id}: blacklist=${JSON.stringify(companyBlacklist)}`);
   }
 
   // Fetch posts via Apify

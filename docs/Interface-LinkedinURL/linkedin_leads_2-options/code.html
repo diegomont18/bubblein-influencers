@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Resultado da Análise IA - Bubblein</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-container": "#360061",
+                        "tertiary-fixed-dim": "#fa7c8b",
+                        "surface-container": "#1a1919",
+                        "on-secondary-container": "#f1bfff",
+                        "on-secondary-fixed": "#550e71",
+                        "primary-fixed": "#c284ff",
+                        "error-container": "#a70138",
+                        "on-secondary": "#530b6f",
+                        "background": "#080808",
+                        "tertiary-dim": "#f47786",
+                        "on-primary": "#47007c",
+                        "error": "#ff6e84",
+                        "inverse-primary": "#842cd3",
+                        "tertiary-fixed": "#ff909c",
+                        "secondary-dim": "#d28aed",
+                        "error-dim": "#d73357",
+                        "on-primary-fixed": "#000000",
+                        "surface-dim": "#0e0e0e",
+                        "on-tertiary": "#680921",
+                        "primary-container": "#c284ff",
+                        "on-surface": "#ffffff",
+                        "on-tertiary-fixed": "#39000d",
+                        "primary-fixed-dim": "#b971ff",
+                        "secondary": "#e197fc",
+                        "on-error-container": "#ffb2b9",
+                        "surface-container-lowest": "#000000",
+                        "on-secondary-fixed-variant": "#753290",
+                        "on-primary-fixed-variant": "#430076",
+                        "surface-bright": "#2c2c2c",
+                        "secondary-fixed": "#f1c1ff",
+                        "surface-tint": "#cc97ff",
+                        "on-tertiary-fixed-variant": "#711227",
+                        "on-background": "#ffffff",
+                        "surface": "#0e0e0e",
+                        "on-error": "#490013",
+                        "secondary-fixed-dim": "#ebaeff",
+                        "surface-container-highest": "#262626",
+                        "on-surface-variant": "#adaaaa",
+                        "inverse-on-surface": "#565555",
+                        "primary-dim": "#9c48ea",
+                        "surface-variant": "#262626",
+                        "outline": "#767575",
+                        "surface-container-high": "#201f1f",
+                        "primary": "#cc97ff",
+                        "on-tertiary-container": "#570018",
+                        "inverse-surface": "#fcf9f8",
+                        "surface-container-low": "#131313",
+                        "tertiary-container": "#fe7e8e",
+                        "tertiary": "#ff95a0",
+                        "outline-variant": "#484847",
+                        "secondary-container": "#6a2785"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "2xl": "1rem",
+                        "3xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #080808;
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        .glass-input {
+            background: rgba(255, 255, 255, 0.02);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .glass-input:focus-within {
+            border-color: rgba(204, 151, 255, 0.4);
+            background: rgba(204, 151, 255, 0.03);
+        }
+        .glow-hover:hover {
+            box-shadow: 0 0 20px rgba(204, 151, 255, 0.15);
+        }
+    </style>
+</head>
+<body class="antialiased selection:bg-primary/30">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-[280px] z-50 bg-[#0c0c0c] border-r border-white/5 flex flex-col py-8 gap-2 font-['Inter'] text-sm tracking-wide">
+<div class="text-2xl font-black text-[#cc97ff] mb-10 px-6 font-headline tracking-tighter">Bubblein</div>
+<nav class="flex-1 flex flex-col gap-1.5 px-3">
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 rounded-xl hover:text-white hover:bg-white/5 transition-all duration-300 group" href="#">
+<span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform" data-icon="dashboard">dashboard</span>
+<span class="font-medium">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 rounded-xl hover:text-white hover:bg-white/5 transition-all duration-300 group" href="#">
+<span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform" data-icon="group">group</span>
+<span class="font-medium">Leads</span>
+</a>
+<a class="flex items-center gap-3 bg-primary/10 text-[#cc97ff] rounded-xl px-4 py-3 border border-primary/20 shadow-[0_0_15px_rgba(204,151,255,0.1)]" href="#">
+<span class="material-symbols-outlined text-[22px]" data-icon="psychology">psychology</span>
+<span class="font-semibold">IA Analysis</span>
+</a>
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 rounded-xl hover:text-white hover:bg-white/5 transition-all duration-300 group" href="#">
+<span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform" data-icon="rocket_launch">rocket_launch</span>
+<span class="font-medium">Campaigns</span>
+</a>
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 rounded-xl hover:text-white hover:bg-white/5 transition-all duration-300 group" href="#">
+<span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform" data-icon="settings">settings</span>
+<span class="font-medium">Settings</span>
+</a>
+</nav>
+<div class="mt-auto flex flex-col gap-1 border-t border-white/5 pt-6 px-3">
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 rounded-xl hover:text-white hover:bg-white/5 transition-all" href="#">
+<span class="material-symbols-outlined text-[22px]" data-icon="help">help</span>
+<span class="font-medium">Help Center</span>
+</a>
+<a class="flex items-center gap-3 text-[#adaaaa] px-4 py-3 rounded-xl hover:text-white hover:bg-white/5 transition-all" href="#">
+<span class="material-symbols-outlined text-[22px]" data-icon="logout">logout</span>
+<span class="font-medium">Logout</span>
+</a>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-280px)] z-40 bg-[#080808]/80 backdrop-blur-2xl border-b border-white/5 flex justify-between items-center px-10 h-20">
+<div class="flex items-center gap-4">
+<h1 class="font-headline font-bold text-white text-lg tracking-tight">Resultado da Análise IA</h1>
+</div>
+<div class="flex items-center gap-6">
+<button class="bg-primary-container/20 text-primary px-5 py-2 rounded-full font-bold text-sm border border-primary/30 hover:bg-primary/20 transition-all active:scale-95">
+                Add Credits
+            </button>
+<div class="flex items-center gap-3 pl-6 border-l border-white/10">
+<div class="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/10 ring-offset-2 ring-offset-[#080808]">
+<img alt="User profile photo" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCxXZbnrdqeqVsoy4VODhWKgb19Yyf4fxUPg60KquMhCrqBlOP0JXrIpZI6SMFimsAZbF-dv4jmEFRdE4a2WWXDX15LAYEqaShzYe_pzKCkbhLTMzPE9s0Vb_eN50fBv7Ad8whTpMvyEcIWrMVXD9Xy6DeTBjCBDV5g6urBh5YmpMNuqoXX4tDfpD-QvLchAmZIuciPJpUy-HaEZ3MGjNv84UzRM_Hhgv4a4ArcJRbSgykMrl55dtavOuKgiKy_88YuZKuujz371U8"/>
+</div>
+<span class="font-semibold text-sm text-white">Profile</span>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="ml-[280px] mt-20 p-16 max-w-7xl mx-auto">
+<!-- Header Section -->
+<header class="mb-14">
+<h2 class="text-5xl font-headline font-extrabold tracking-tight mb-6 leading-[1.1]">
+                Vamos encontrar leads através <br/>de seu <span class="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">LinkedIn</span>
+</h2>
+<div class="text-on-surface-variant text-lg leading-relaxed flex flex-col gap-2 font-medium opacity-80">
+<div class="flex items-center gap-3">
+<span class="w-1.5 h-1.5 rounded-full bg-primary/60"></span>
+<p>quem interagiu com seus posts</p>
+</div>
+<div class="flex items-center gap-3">
+<span class="w-1.5 h-1.5 rounded-full bg-primary/60"></span>
+<p>quem é importante você se relacionar</p>
+</div>
+</div>
+</header>
+<!-- Paths -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-10 items-start">
+<!-- Path A: Relacionamento com Influenciadores -->
+<div class="glass-card p-10 rounded-[2.5rem] flex flex-col group glow-hover transition-all duration-500 min-h-[580px]">
+<div class="flex flex-col items-center text-center mb-8">
+<div class="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500">
+<span class="material-symbols-outlined text-4xl text-white/60 group-hover:text-white transition-colors" data-icon="share_reviews">share_reviews</span>
+</div>
+<h4 class="text-2xl font-headline font-bold mb-4">Relacionamento com Influenciadores</h4>
+<p class="text-on-surface-variant text-base mb-8 leading-relaxed font-medium opacity-70">
+                        Crie conexões e autoridade interagindo com grandes players do seu nicho.
+                    </p>
+</div>
+<!-- Mercado de Atuação Input (Moved here) -->
+<div class="space-y-3 group/input mb-10">
+<label class="text-[0.65rem] font-black tracking-[0.2em] font-label text-white/30 uppercase ml-1">Mercado de Atuação</label>
+<div class="relative glass-input p-1 rounded-2xl transition-all duration-300">
+<input class="w-full bg-transparent border-none focus:ring-0 px-5 py-4 text-on-surface text-sm font-medium transition-all" type="text" value="RH, recrutamento e seleção"/>
+<div class="absolute right-5 top-1/2 -translate-y-1/2 text-white/20 group-hover/input:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[18px]" data-icon="edit">edit</span>
+</div>
+</div>
+</div>
+<button class="mt-auto w-full py-4 rounded-2xl border border-white/15 text-white font-bold text-sm hover:bg-white/10 hover:border-white/30 transition-all active:scale-[0.98] tracking-wide">
+                    SEGUIR ESTE CAMINHO
+                </button>
+</div>
+<!-- Path B: Prospecção de Decisores -->
+<div class="glass-card p-10 rounded-[2.5rem] flex flex-col group glow-hover transition-all duration-500 overflow-hidden relative min-h-[580px]">
+<div class="absolute -top-20 -right-20 w-40 h-40 bg-primary/20 blur-[60px] rounded-full"></div>
+<div class="flex flex-col items-center text-center mb-8 relative z-10">
+<div class="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500">
+<span class="material-symbols-outlined text-4xl text-primary" data-icon="rocket_launch">rocket_launch</span>
+</div>
+<h4 class="text-2xl font-headline font-bold mb-4">Prospecção de Decisores</h4>
+<p class="text-on-surface-variant text-base mb-8 leading-relaxed font-medium opacity-70">
+                        Identifique e aborde diretamente os decisores que já demonstraram interesse.
+                    </p>
+</div>
+<!-- Refined Público-Alvo Section (Moved here) -->
+<div class="space-y-6 mb-10 relative z-10">
+<div class="grid grid-cols-2 gap-4">
+<div class="space-y-2 group/field">
+<label class="text-[0.65rem] font-black tracking-[0.2em] font-label text-white/30 uppercase ml-1">Cargos</label>
+<div class="relative glass-input p-0.5 rounded-xl transition-all">
+<input class="w-full bg-transparent border-none focus:ring-0 px-4 py-3 text-on-surface text-xs font-medium" type="text" value="CEO, CTO, VP Marketing..."/>
+<div class="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 group-hover/field:text-primary">
+<span class="material-symbols-outlined text-[16px]" data-icon="edit">edit</span>
+</div>
+</div>
+<p class="text-[10px] text-white/20 ml-1 font-medium">Separe por vírgula</p>
+</div>
+<div class="space-y-2 group/field">
+<label class="text-[0.65rem] font-black tracking-[0.2em] font-label text-white/30 uppercase ml-1">Departamentos</label>
+<div class="relative glass-input p-0.5 rounded-xl transition-all">
+<input class="w-full bg-transparent border-none focus:ring-0 px-4 py-3 text-on-surface text-xs font-medium" type="text" value="Marketing, Sales..."/>
+<div class="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 group-hover/field:text-primary">
+<span class="material-symbols-outlined text-[16px]" data-icon="edit">edit</span>
+</div>
+</div>
+<p class="text-[10px] text-white/20 ml-1 font-medium">Separe por vírgula</p>
+</div>
+</div>
+<div class="space-y-3">
+<label class="text-[0.65rem] font-black tracking-[0.2em] font-label text-white/30 uppercase ml-1">Tamanho da Empresa</label>
+<div class="flex flex-wrap gap-2">
+<button class="px-4 py-2 rounded-full border border-white/10 bg-white/5 text-[11px] font-bold text-white/60 hover:border-white/20 hover:text-white transition-all">1-10</button>
+<button class="px-4 py-2 rounded-full border border-white/10 bg-white/5 text-[11px] font-bold text-white/60 hover:border-white/20 hover:text-white transition-all">11-50</button>
+<button class="px-4 py-2 rounded-full border-2 border-primary/40 bg-primary/10 text-[11px] font-bold text-primary shadow-[0_0_15px_rgba(204,151,255,0.1)] transition-all">51-200</button>
+<button class="px-4 py-2 rounded-full border border-white/10 bg-white/5 text-[11px] font-bold text-white/60 hover:border-white/20 hover:text-white transition-all">201-500</button>
+<button class="px-4 py-2 rounded-full border border-white/10 bg-white/5 text-[11px] font-bold text-white/60 hover:border-white/20 hover:text-white transition-all">501-1000</button>
+<button class="px-4 py-2 rounded-full border border-white/10 bg-white/5 text-[11px] font-bold text-white/60 hover:border-white/20 hover:text-white transition-all">1001+</button>
+</div>
+<p class="text-[10px] text-white/20 ml-1 font-medium">Selecione um ou mais</p>
+</div>
+</div>
+<button class="mt-auto w-full py-4 rounded-2xl bg-gradient-to-r from-primary to-primary-dim text-black font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide relative z-10">
+                    VER DECISORES INTERESSADOS
+                </button>
+</div>
+</section>
+</main>
+<!-- Decorative Elements -->
+<div class="fixed top-[-10%] right-[-10%] -z-10 w-[800px] h-[800px] bg-primary/10 blur-[150px] rounded-full pointer-events-none opacity-40"></div>
+<div class="fixed bottom-[-10%] left-[200px] -z-10 w-[600px] h-[600px] bg-secondary/10 blur-[120px] rounded-full pointer-events-none opacity-30"></div>
+<div class="fixed top-[40%] left-[20%] -z-10 w-[300px] h-[300px] bg-tertiary/5 blur-[100px] rounded-full pointer-events-none"></div>
+</body></html>

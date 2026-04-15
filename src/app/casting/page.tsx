@@ -75,6 +75,7 @@ export default function HomePage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const tabLoadStartedRef = useRef<Set<string>>(new Set());
 
   // Fetch user credits
   useEffect(() => {
@@ -111,11 +112,11 @@ export default function HomePage() {
           setCampaigns([data.campaign]);
           setActiveCampaignId(data.campaign.id);
         }
-      } else if (!activeCampaignId) {
-        setActiveCampaignId(list[0].id);
+      } else {
+        setActiveCampaignId((prev) => prev ?? list[0].id);
       }
     } catch { /* ignore */ }
-  }, [activeCampaignId]);
+  }, []);
 
   useEffect(() => { loadCampaigns(); }, [loadCampaigns]);
 
@@ -158,9 +159,14 @@ export default function HomePage() {
   useEffect(() => { loadPastSearches(); }, [loadPastSearches]);
 
   async function loadTabProfiles(tabId: string) {
+    if (tabLoadStartedRef.current.has(tabId)) return;
+    tabLoadStartedRef.current.add(tabId);
     try {
       const res = await fetch(`/api/casting/lists?id=${tabId}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        tabLoadStartedRef.current.delete(tabId);
+        return;
+      }
       const json = await res.json();
       const profiles: CastingProfile[] = (json.profiles ?? []).map(
         (p: { notes: string; profile_id: string }) => {
@@ -199,7 +205,9 @@ export default function HomePage() {
       setSearchTabs((prev) =>
         prev.map((t) => t.id === tabId ? { ...t, profiles, loaded: true, profileCount: profiles.length } : t)
       );
-    } catch { /* ignore */ }
+    } catch {
+      tabLoadStartedRef.current.delete(tabId);
+    }
   }
 
   // Eagerly load profiles for all unloaded tabs
@@ -458,7 +466,7 @@ export default function HomePage() {
       {/* Hero */}
       <div className="relative">
         <h1 className="text-4xl font-extrabold text-white tracking-tight font-[family-name:var(--font-lexend)]">
-          Casting de Creators
+          Encontrar Influencers B2B
         </h1>
         <p className="mt-2 text-[#adaaaa] max-w-xl font-[family-name:var(--font-be-vietnam-pro)]">
           Encontre os creators perfeitos usando inteligência artificial. Filtre por nicho, métricas e qualidade de audiência.

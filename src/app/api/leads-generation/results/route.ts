@@ -32,10 +32,17 @@ export async function GET(request: Request) {
     .eq("profile_id", profileId)
     .order("relevance_score", { ascending: false });
 
+  // Total tracked posts determines the denominator of `interaction_count`
+  // shown in the UI: each post can yield at most 2 interactions (reaction + comment),
+  // so `totalPossibleInteractions = totalTrackedPosts * 2`. Computed dynamically so
+  // old leads automatically reflect newly tracked posts.
+  const totalTrackedPosts = (posts ?? []).length;
+
   return NextResponse.json({
     results: results ?? [],
     posts: posts ?? [],
     profile,
     scanStatus: profile?.scan_status ?? "idle",
+    totalTrackedPosts,
   });
 }
