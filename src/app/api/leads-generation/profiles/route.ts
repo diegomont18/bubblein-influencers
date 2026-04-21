@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
+import { notifyError } from "@/lib/error-notifier";
 
 export const dynamic = "force-dynamic";
 
@@ -48,4 +49,45 @@ export async function GET() {
   }));
 
   return NextResponse.json({ profiles });
+}
+
+export async function DELETE(request: NextRequest) {
+  const supabase = createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const id = request.nextUrl.searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "Missing id parameter" }, { status: 400 });
+
+  const service = createServiceClient();
+
+  try {
+    const { data: profile, error: fetchError } = await service
+      .from("lg_profiles")
+      .select("id")
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (fetchError || !profile) {
+      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
+
+    const { error: deleteError } = await service
+      .from("lg_profiles")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (deleteError) {
+      notifyError("leads-generation-profiles-delete", deleteError, { userId: user.id, profileId: id });
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("[leads-generation-profiles-delete] Error:", err);
+    notifyError("leads-generation-profiles-delete", err, { userId: user.id, profileId: id });
+    return NextResponse.json({ error: "Failed to delete profile" }, { status: 500 });
+  }
 }
