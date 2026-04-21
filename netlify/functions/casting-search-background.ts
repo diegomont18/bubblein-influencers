@@ -301,12 +301,13 @@ const handler: Handler = async (event: HandlerEvent) => {
 
     const data = result.data as Record<string, unknown>;
     const followers = preFilteredFollowers
+      ?? parseAbbreviatedNumber(data.followerCount)
       ?? parseAbbreviatedNumber(data.followers)
       ?? parseAbbreviatedNumber(data.follower_count)
       ?? parseAbbreviatedNumber(data.followers_count)
       ?? 0;
 
-    console.log(`[casting] Profile ${slug}: followers raw=${JSON.stringify(data.followers ?? data.follower_count ?? data.followers_count)}, parsed=${followers}`);
+    console.log(`[casting] Profile ${slug}: followers raw=${JSON.stringify(data.followerCount ?? data.followers ?? data.follower_count ?? data.followers_count)}, parsed=${followers}`);
 
     if (followers < minFollowers || followers > maxFollowers) return null;
 
@@ -407,12 +408,47 @@ const handler: Handler = async (event: HandlerEvent) => {
       if (kwStats) kwStats.matched++;
     }
 
-    // Extract and store profile photo
-    const rawPhotoUrl = String(
-      data.profile_photo ?? data.profilePicture ?? data.profile_pic_url
-      ?? data.profile_picture ?? data.photo ?? data.avatar
-      ?? data.profile_image_url ?? data.profilePictureUrl ?? ""
-    );
+    // Extract and store profile photo — try profile scraper first,
+    // then fall back to the author metadata from fetched posts.
+    let rawPhotoUrl = "";
+    const photoCandidates = [
+      data.profile_photo, data.profilePicture, data.picture,
+      data.profile_pic_url, data.profile_picture, data.photo,
+      data.avatar, data.profile_image_url, data.profilePictureUrl,
+    ];
+    for (const c of photoCandidates) {
+      if (typeof c === "string" && c.startsWith("http")) { rawPhotoUrl = c; break; }
+      if (c && typeof c === "object") {
+        const obj = c as Record<string, unknown>;
+        const url = String(obj.original || obj.large || obj.medium || obj.small || "");
+        if (url.startsWith("http")) { rawPhotoUrl = url; break; }
+      }
+    }
+    // Fallback: if profile scraper didn't return a photo, try from
+    // the posts we already fetched (author metadata often has it).
+    if (!rawPhotoUrl && apifyPosts.length > 0) {
+      const firstPost = apifyPosts[0] as Record<string, unknown>;
+      const author = firstPost.author as Record<string, unknown> | undefined;
+      if (author) {
+        // Try ALL plausible field names for author photo
+        const authorPhotoCandidates = [
+          author.profilePicture, author.picture, author.profilePhoto,
+          author.pictureUrl, author.image, author.avatar,
+          author.photo, author.profilePic,
+        ];
+        for (const ap of authorPhotoCandidates) {
+          if (typeof ap === "string" && ap.startsWith("http")) { rawPhotoUrl = ap; break; }
+          if (ap && typeof ap === "object") {
+            const obj = ap as Record<string, unknown>;
+            const url = String(obj.original || obj.large || obj.medium || obj.small || obj.rootUrl || "");
+            if (url.startsWith("http")) { rawPhotoUrl = url; break; }
+          }
+        }
+        if (!rawPhotoUrl) {
+          console.log(`[casting] Profile ${slug}: post author keys=${JSON.stringify(Object.keys(author)).slice(0, 200)}`);
+        }
+      }
+    }
     let profilePhoto = "";
     console.log(`[casting] Profile ${slug}: rawPhotoUrl=${rawPhotoUrl ? rawPhotoUrl.slice(0, 80) : "(empty)"}`);
     if (rawPhotoUrl && rawPhotoUrl.startsWith("http")) {
@@ -421,7 +457,9 @@ const handler: Handler = async (event: HandlerEvent) => {
         if (photoRes.ok) {
           const photoBuffer = await photoRes.arrayBuffer();
           const ext = rawPhotoUrl.includes(".png") ? "png" : "jpg";
-          const filePath = `${slug}.${ext}`;
+          // Sanitize slug for Supabase Storage key (strip accents, keep ASCII only)
+          const safeSlug = slug.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "-");
+          const filePath = `${safeSlug}.${ext}`;
           const { error: uploadError } = await service.storage
             .from("profile-photos")
             .upload(filePath, photoBuffer, {
@@ -445,7 +483,7 @@ const handler: Handler = async (event: HandlerEvent) => {
 
     return {
       slug,
-      name: String(data.fullName ?? data.full_name ?? data.name ?? "Unknown"),
+      name: String(data.fullName ?? data.full_name ?? data.name ?? ([data.firstName, data.lastName].filter(Boolean).join(" ") || "Unknown")),
       headline: normalized.headline ?? "",
       job_title: normalized.role_current ?? "",
       company: normalized.company_current ?? "",
@@ -488,6 +526,7 @@ const handler: Handler = async (event: HandlerEvent) => {
     const data = result.data as Record<string, unknown>;
     const metaInfo = meta.get(slug);
     const followers = metaInfo?.followers
+      ?? parseAbbreviatedNumber(data.followerCount)
       ?? parseAbbreviatedNumber(data.followers)
       ?? parseAbbreviatedNumber(data.follower_count)
       ?? parseAbbreviatedNumber(data.followers_count)
@@ -544,7 +583,7 @@ const handler: Handler = async (event: HandlerEvent) => {
 
     return {
       slug,
-      name: String(data.fullName ?? data.full_name ?? data.name ?? "Unknown"),
+      name: String(data.fullName ?? data.full_name ?? data.name ?? ([data.firstName, data.lastName].filter(Boolean).join(" ") || "Unknown")),
       headline: normalized.headline ?? "",
       job_title: normalized.role_current ?? "",
       company: normalized.company_current ?? "",
@@ -788,7 +827,7 @@ const handler: Handler = async (event: HandlerEvent) => {
           const slug = extractLinkedInSlug(profileUrl);
           if (!slug || seenSlugs.has(slug)) continue;
 
-          const rawFollowers = parseAbbreviatedNumber(profile.followersCount ?? profile.followers ?? profile.follower_count) ?? 0;
+          const rawFollowers = parseAbbreviatedNumber(profile.followerCount ?? profile.followersCount ?? profile.followers ?? profile.follower_count) ?? 0;
           if (rawFollowers < minFollowers || rawFollowers > maxFollowers) {
             console.log(`[casting] Pre-filter skip ${slug}: followers=${rawFollowers} outside ${minFollowers}-${maxFollowers}`);
             continue;
@@ -933,6 +972,12 @@ const handler: Handler = async (event: HandlerEvent) => {
               results: 50,
             });
             tp.page++;
+
+            // Safety cap: never paginate beyond 10 pages per query to prevent
+            // runaway API spend when no candidates pass filters.
+            if (tp.page >= 10) {
+              tp.exhausted = true;
+            }
 
             const stats = keywordStats.get(tp.sourceKeyword);
             if (stats) stats.googleResults += results.length;

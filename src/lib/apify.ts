@@ -758,16 +758,41 @@ function normalizeHarvestProfile(raw: Record<string, unknown>): Record<string, u
   const currentCompany = current ? (current.companyName ?? current.company ?? current.company_name ?? null) : null;
   const currentTitle = current ? (current.title ?? current.position ?? null) : null;
 
+  // Build full name from firstName + lastName when name is absent
+  const builtName = [raw.firstName, raw.lastName].filter(Boolean).join(" ").trim() || null;
+
+  // profilePicture may be a string URL, an object with size variants, or
+  // empty string. Use || (not ??) to skip empty strings too.
+  const picCandidates = [
+    raw.profilePicture, raw.picture, raw.photo,
+    raw.profile_pic_url, raw.profilePictureUrl, raw.avatar,
+  ];
+  let profilePicUrl = "";
+  for (const c of picCandidates) {
+    if (typeof c === "string" && c.startsWith("http")) {
+      profilePicUrl = c;
+      break;
+    }
+    if (c && typeof c === "object") {
+      const obj = c as Record<string, unknown>;
+      const url = String(obj.original || obj.large || obj.medium || obj.small || "");
+      if (url.startsWith("http")) {
+        profilePicUrl = url;
+        break;
+      }
+    }
+  }
+
   return {
     ...raw,
-    name: raw.name ?? raw.fullName ?? raw.full_name ?? null,
-    fullName: raw.fullName ?? raw.name ?? null,
+    name: raw.name ?? raw.fullName ?? raw.full_name ?? builtName,
+    fullName: raw.fullName ?? raw.name ?? builtName,
     headline: raw.headline ?? raw.sub_title ?? null,
     about: raw.about ?? raw.summary ?? null,
     location: raw.location ?? raw.locationName ?? null,
-    followers: raw.followersCount ?? raw.followers_count ?? raw.followers ?? null,
-    follower_count: raw.followersCount ?? raw.follower_count ?? null,
-    followers_count: raw.followersCount ?? raw.followers_count ?? null,
+    followers: raw.followerCount ?? raw.followersCount ?? raw.followers_count ?? raw.followers ?? null,
+    follower_count: raw.followerCount ?? raw.followersCount ?? raw.follower_count ?? null,
+    followers_count: raw.followerCount ?? raw.followersCount ?? raw.followers_count ?? null,
     connections: raw.connectionsCount ?? raw.connections_count ?? raw.connections ?? null,
     connection_count: raw.connectionsCount ?? null,
     public_identifier: raw.publicIdentifier ?? raw.public_identifier ?? null,
@@ -776,6 +801,11 @@ function normalizeHarvestProfile(raw: Record<string, unknown>): Record<string, u
     company: currentCompany,
     title: currentTitle,
     experience,
+    // Flatten photo to a string URL (casting-search-background checks
+    // profile_photo, profilePicture, photo — cover all variants).
+    profilePicture: profilePicUrl,
+    profile_photo: profilePicUrl,
+    profile_pic_url: profilePicUrl,
   };
 }
 
@@ -877,7 +907,8 @@ export async function searchGoogleApify(
   const page = options?.page ?? 0;
   const maxPagesPerQuery = page + 1;
 
-  console.log(`[apify] searchGoogleApify query="${query}" page=${page} results=${resultsPerPage}`);
+  const countryRaw = options?.country ?? "";
+  console.log(`[apify] searchGoogleApify query="${query}" page=${page} results=${resultsPerPage} country="${countryRaw}"`);
 
   const body: Record<string, unknown> = {
     queries: query,
@@ -887,8 +918,11 @@ export async function searchGoogleApify(
     saveHtmlToKeyValueStore: false,
     mobileResults: false,
   };
-  if (options?.country) body.countryCode = options.country;
-  if (options?.language) body.languageCode = options.language;
+  if (countryRaw) body.countryCode = countryRaw;
+  // NOTE: languageCode is intentionally omitted — the Apify actor
+  // rejects common ISO codes (e.g. "pt") and the search query itself
+  // already contains keywords in the target language, so Google returns
+  // results in the correct language without this hint.
   if (options?.domain) body.forceExactMatch = false;
 
   const { status, data } = await apifyPostJson(

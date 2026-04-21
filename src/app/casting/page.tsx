@@ -676,9 +676,9 @@ export default function HomePage() {
             </div>
           )}
 
-          {!searching && (
-            <>
-              {/* Share button */}
+          {/* Share button + results table — always visible, even during search */}
+          <>
+            {!searching && (
               <div className="flex justify-end">
                 <button
                   onClick={() => setShowSharePanel((v) => !v)}
@@ -692,6 +692,7 @@ export default function HomePage() {
                   Compartilhar
                 </button>
               </div>
+            )}
 
               {/* Share management panel */}
               {showSharePanel && (
@@ -760,14 +761,15 @@ export default function HomePage() {
                 </div>
               )}
 
+            {allProfiles.length > 0 && (
               <CastingResultsView
                 profiles={allProfiles}
                 campaigns={campaigns}
                 filterCampaignId={filterCampaignId}
                 onFilterCampaignChange={setFilterCampaignId}
               />
-            </>
-          )}
+            )}
+          </>
         </div>
       )}
     </div>
