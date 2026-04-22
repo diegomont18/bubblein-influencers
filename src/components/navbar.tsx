@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 
 const NAV_LINKS = [
-  { label: "Content Sales", href: "/content-sales" },
+  { label: "Share of LinkedIn", href: "/share-of-linkedin" },
   { label: "Benefícios", href: "/#beneficios" },
   { label: "Como Funciona", href: "/#processo" },
   { label: "Modelos", href: "/#modelos" },

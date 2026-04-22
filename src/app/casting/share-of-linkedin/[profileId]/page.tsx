@@ -20,6 +20,10 @@ interface Options {
   job_titles: string[];
   departments: string[];
   company_sizes: string[];
+  // Share of LinkedIn fields (company flow)
+  competitors?: Array<{ name: string; logoUrl?: string; url?: string } | string>;
+  employee_profiles?: Array<{ name: string; slug: string; headline: string; linkedinUrl: string; profilePicUrl?: string }>;
+  icp_description?: string;
 }
 
 interface Profile {
@@ -156,6 +160,8 @@ export default function LeadsGenerationOptionsPage() {
   // render (when `results` is still []) even though there ARE leads in
   // the DB that just haven't loaded yet.
   const [configExpanded, setConfigExpanded] = useState(false);
+  // Derived: is this a company profile? Used to gate person-mode sections.
+  const isCompanyProfile = profile?.linkedin_url?.includes("/company/") ?? false;
   useEffect(() => {
     if (!loading && results.length === 0) setConfigExpanded(true);
   }, [loading, results.length]);
@@ -189,6 +195,10 @@ export default function LeadsGenerationOptionsPage() {
           job_titles: data.options.job_titles ?? [],
           departments: data.options.departments ?? [],
           company_sizes: data.options.company_sizes ?? [],
+          // Share of LinkedIn fields
+          competitors: data.options.competitors ?? [],
+          employee_profiles: data.options.employee_profiles ?? [],
+          icp_description: data.options.icp_description ?? "",
         } : null);
       }
 
@@ -458,7 +468,7 @@ export default function LeadsGenerationOptionsPage() {
     return (
       <div className="text-center py-20">
         <p className="text-[#adaaaa]">Análise não encontrada.</p>
-        <Link href="/casting/leads-generation" className="text-[#ca98ff] text-sm mt-2 inline-block hover:underline">← Voltar</Link>
+        <Link href="/casting/share-of-linkedin" className="text-[#ca98ff] text-sm mt-2 inline-block hover:underline">← Voltar</Link>
       </div>
     );
   }
@@ -468,20 +478,22 @@ export default function LeadsGenerationOptionsPage() {
   return (
     <div className="space-y-8">
       {/* Top bar */}
-      <Link href="/casting/leads-generation" className="text-xs text-[#adaaaa] hover:text-[#ca98ff] transition-colors">← Nova análise</Link>
+      <Link href="/casting/share-of-linkedin" className="text-xs text-[#adaaaa] hover:text-[#ca98ff] transition-colors">← Nova análise</Link>
 
       {/* Header with profile dropdown */}
       <header>
         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-4 leading-tight font-[family-name:var(--font-lexend)] text-white">
-          Vamos encontrar leads através{" "}
-          <br className="hidden md:block" />
-          de seu <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">LinkedIn</span>
+          {isCompanyProfile ? (
+            <>Share of <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">LinkedIn</span></>
+          ) : (
+            <>Vamos encontrar leads através{" "}<br className="hidden md:block" />de seu <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">LinkedIn</span></>
+          )}
         </h2>
         <div className="flex items-center gap-3 mt-3">
           {profileHistory.length > 1 ? (
             <select
               value={profileId}
-              onChange={(e) => router.push(`/casting/leads-generation/${e.target.value}`)}
+              onChange={(e) => router.push(`/casting/share-of-linkedin/${e.target.value}`)}
               className="text-lg font-semibold text-white bg-transparent outline-none border-b border-[#ca98ff]/30 focus:border-[#ca98ff] pb-0.5 cursor-pointer font-[family-name:var(--font-lexend)]"
             >
               {profileHistory.map((p) => (
@@ -518,8 +530,363 @@ export default function LeadsGenerationOptionsPage() {
         </div>
       )}
 
-      {/* Dashboard KPIs — only visible once we have leads */}
-      {results.length > 0 && (() => {
+      {/* ============================================================ */}
+      {/* COMPANY MODE: Share of LinkedIn — 4 editable fields */}
+      {/* ============================================================ */}
+      {isCompanyProfile && options && (
+        <div className="space-y-6">
+          {/* KPIs for company */}
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white/[0.03] backdrop-blur-xl border border-[#ca98ff]/20 rounded-2xl p-5">
+              <p className="text-[0.65rem] font-bold tracking-[0.2em] text-white/40 uppercase">Colaboradores</p>
+              <p className="text-4xl font-black text-[#ca98ff] font-[family-name:var(--font-lexend)] mt-2">{(options.employee_profiles ?? []).length}</p>
+            </div>
+            <div className="bg-white/[0.03] backdrop-blur-xl border border-[#a2f31f]/20 rounded-2xl p-5">
+              <p className="text-[0.65rem] font-bold tracking-[0.2em] text-white/40 uppercase">Concorrentes</p>
+              <p className="text-4xl font-black text-[#a2f31f] font-[family-name:var(--font-lexend)] mt-2">{(options.competitors ?? []).length}</p>
+            </div>
+            <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-2xl p-5">
+              <p className="text-[0.65rem] font-bold tracking-[0.2em] text-white/40 uppercase">Posts mapeados</p>
+              <p className="text-4xl font-black text-white font-[family-name:var(--font-lexend)] mt-2">{totalTrackedPosts}</p>
+            </div>
+          </section>
+
+          {/* Mapeamento — collapsible */}
+          {!configExpanded ? (
+            <button
+              onClick={() => setConfigExpanded(true)}
+              className="w-full group rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-[#ca98ff]/20 hover:border-[#ca98ff]/50 hover:bg-[#ca98ff]/[0.06] transition-all py-4 px-6 flex items-center justify-between font-[family-name:var(--font-lexend)]"
+            >
+              <div className="flex items-center gap-6 text-sm text-white/60">
+                <span>Colaboradores: <span className="text-white font-bold">{(options.employee_profiles ?? []).length}</span></span>
+                <span>Concorrentes: <span className="text-white font-bold">{(options.competitors ?? []).length}</span></span>
+                <span>Temas: <span className="text-white font-bold">{options.market_context ? "preenchido" : "vazio"}</span></span>
+                <span>ICP: <span className="text-white font-bold">{options.icp_description || (options.job_titles ?? []).length > 0 ? "preenchido" : "vazio"}</span></span>
+              </div>
+              <span className="text-sm font-bold text-[#ca98ff] uppercase tracking-wider group-hover:translate-x-1 transition-transform">Editar mapeamento →</span>
+            </button>
+          ) : (
+          <div className="bg-white/[0.03] backdrop-blur-xl border border-[#ca98ff]/40 rounded-[2rem] p-8 md:p-10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] relative overflow-hidden">
+            <div className="absolute -top-20 -right-20 w-60 h-60 bg-[#ca98ff]/20 blur-[80px] rounded-full pointer-events-none" />
+            <button
+              onClick={() => setConfigExpanded(false)}
+              aria-label="Fechar mapeamento"
+              className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 flex items-center justify-center text-white/60 hover:text-white transition-all text-lg leading-none"
+            >&times;</button>
+            <h2 className="text-2xl font-bold text-white font-[family-name:var(--font-lexend)] mb-8 relative z-10">
+              Mapeamento de Mercado
+            </h2>
+
+            <div className="space-y-8 relative z-10">
+              {/* Section 1: Colaboradores Ativos */}
+              <div className="space-y-3">
+                <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">
+                  Colaboradores Ativos ({(options.employee_profiles ?? []).length})
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {(options.employee_profiles ?? []).map((emp, i) => (
+                    <div key={i} className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors">
+                      <div className="w-10 h-10 rounded-full bg-[#262626] flex items-center justify-center shrink-0 overflow-hidden">
+                        {emp.profilePicUrl ? (
+                          <img src={emp.profilePicUrl} alt="" className="w-10 h-10 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#adaaaa" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium truncate">{emp.name}</p>
+                        <p className="text-[10px] text-white/40 truncate">{emp.headline}</p>
+                        {emp.linkedinUrl && (
+                          <a href={emp.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">
+                            {emp.linkedinUrl.replace("https://www.linkedin.com", "").replace("https://linkedin.com", "")}
+                          </a>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          const updated = (options.employee_profiles ?? []).filter((_, j) => j !== i);
+                          autoSave({ ...options, employee_profiles: updated });
+                        }}
+                        className="w-7 h-7 rounded-full bg-white/5 hover:bg-[#ff946e]/20 text-white/30 hover:text-[#ff946e] flex items-center justify-center text-base font-bold shrink-0 transition-colors opacity-0 group-hover/card:opacity-100"
+                        title="Remover"
+                      >&times;</button>
+                    </div>
+                  ))}
+                </div>
+                {/* Add employee input */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="linkedin.com/in/nome-do-colaborador"
+                    className="flex-1 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#ca98ff]/40 transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      const input = e.currentTarget;
+                      const val = input.value.trim();
+                      if (!val) return;
+                      const slug = val.match(/linkedin\.com\/in\/([^/?#]+)/)?.[1] ?? val.replace(/^\/+|\/+$/g, "");
+                      const newEmp = { name: slug.replace(/-/g, " "), slug, headline: "", linkedinUrl: `https://www.linkedin.com/in/${slug}`, profilePicUrl: "" };
+                      autoSave({ ...options, employee_profiles: [...(options.employee_profiles ?? []), newEmp] });
+                      input.value = "";
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      const input = document.querySelector<HTMLInputElement>('input[placeholder*="colaborador"]');
+                      if (!input) return;
+                      const val = input.value.trim();
+                      if (!val) return;
+                      const slug = val.match(/linkedin\.com\/in\/([^/?#]+)/)?.[1] ?? val.replace(/^\/+|\/+$/g, "");
+                      const newEmp = { name: slug.replace(/-/g, " "), slug, headline: "", linkedinUrl: `https://www.linkedin.com/in/${slug}`, profilePicUrl: "" };
+                      autoSave({ ...options, employee_profiles: [...(options.employee_profiles ?? []), newEmp] });
+                      input.value = "";
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] text-sm font-medium hover:bg-[#ca98ff]/20 transition-colors whitespace-nowrap"
+                  >
+                    + Adicionar
+                  </button>
+                </div>
+              </div>
+
+              {/* Section 2: Empresas Concorrentes */}
+              <div className="space-y-3">
+                <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">
+                  Empresas Concorrentes ({(options.competitors ?? []).length})
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {(options.competitors ?? []).map((comp, i) => {
+                    // Handle both old format (string) and new format (object)
+                    const isObj = typeof comp === "object" && comp !== null;
+                    const displayName = isObj ? comp.name : (typeof comp === "string" ? (comp.match(/\/company\/([^/?#]+)/)?.[1]?.replace(/-/g, " ") ?? comp) : String(comp));
+                    const logoUrl = isObj ? (comp.logoUrl ?? "") : "";
+                    const compUrl = isObj ? (comp.url ?? "") : (typeof comp === "string" && comp.startsWith("http") ? comp : "");
+                    const letterColors = ["#ca98ff", "#a2f31f", "#ff946e", "#5b9bff", "#f472b6", "#34d399"];
+                    const letterColor = letterColors[(displayName.charCodeAt(0) || 0) % letterColors.length];
+                    return (
+                      <div key={i} className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style={{ backgroundColor: letterColor + "15", borderColor: letterColor + "30" }}>
+                          {logoUrl ? (
+                            <img src={logoUrl} alt="" className="w-10 h-10 rounded-xl object-cover" onError={(e) => { e.currentTarget.style.display = "none"; const parent = e.currentTarget.parentElement; if (parent) { const span = document.createElement("span"); span.textContent = displayName[0]?.toUpperCase() ?? "?"; span.style.color = letterColor; span.style.fontWeight = "800"; span.style.fontSize = "16px"; parent.appendChild(span); }}} />
+                          ) : (
+                            <span style={{ color: letterColor }} className="text-base font-extrabold">{displayName[0]?.toUpperCase() ?? "?"}</span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white font-medium truncate capitalize">{displayName}</p>
+                          {compUrl && (
+                            <a href={compUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">
+                              {compUrl.replace("https://www.linkedin.com", "")}
+                            </a>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            const updated = (options.competitors ?? []).filter((_, j) => j !== i);
+                            autoSave({ ...options, competitors: updated });
+                          }}
+                          className="w-7 h-7 rounded-full bg-white/5 hover:bg-[#ff946e]/20 text-white/30 hover:text-[#ff946e] flex items-center justify-center text-base font-bold shrink-0 transition-colors opacity-0 group-hover/card:opacity-100"
+                          title="Remover"
+                        >&times;</button>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Add competitor input */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Nome da empresa ou linkedin.com/company/slug"
+                    className="flex-1 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#ca98ff]/40 transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      const input = e.currentTarget;
+                      const val = input.value.trim();
+                      if (!val) return;
+                      autoSave({ ...options, competitors: [...(options.competitors ?? []), val] });
+                      input.value = "";
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      const input = document.querySelector<HTMLInputElement>('input[placeholder*="empresa"]');
+                      if (!input) return;
+                      const val = input.value.trim();
+                      if (!val) return;
+                      autoSave({ ...options, competitors: [...(options.competitors ?? []), val] });
+                      input.value = "";
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] text-sm font-medium hover:bg-[#ca98ff]/20 transition-colors whitespace-nowrap"
+                  >
+                    + Adicionar
+                  </button>
+                </div>
+              </div>
+
+              {/* Section 3: Temas de Interesse */}
+              <div className="space-y-2">
+                <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">Temas de Interesse do Mercado</label>
+                <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl focus-within:border-[#ca98ff]/50 transition-all">
+                  <textarea
+                    rows={3}
+                    value={options.market_context}
+                    onChange={(e) => updateField("market_context", e.target.value)}
+                    className="w-full bg-transparent border-none focus:ring-0 px-4 py-3.5 text-white text-sm font-medium outline-none placeholder-white/20 resize-y leading-relaxed"
+                    placeholder="Temas que o mercado discute no LinkedIn..."
+                  />
+                </div>
+              </div>
+
+              {/* Section 4: ICP da Empresa (structured) */}
+              <div className="space-y-4">
+                <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">ICP da Empresa</label>
+
+                {/* Company size chips */}
+                <div className="space-y-2">
+                  <label className="text-[10px] text-white/30 uppercase tracking-wider">Tamanho da Empresa</label>
+                  <div className="flex flex-wrap gap-2">
+                    {["1-10", "11-50", "51-200", "201-500", "501-1000", "1001+"].map((size) => {
+                      const selected = (options.company_sizes ?? []).includes(size);
+                      return (
+                        <button
+                          key={size}
+                          onClick={() => {
+                            const sizes = selected
+                              ? (options.company_sizes ?? []).filter((s) => s !== size)
+                              : [...(options.company_sizes ?? []), size];
+                            autoSave({ ...options, company_sizes: sizes });
+                          }}
+                          className={`px-4 py-2 rounded-full text-[11px] font-bold transition-all ${selected ? "border-2 border-[#ca98ff]/40 bg-[#ca98ff]/10 text-[#ca98ff]" : "border border-white/10 bg-white/5 text-white/60 hover:border-white/20"}`}
+                        >
+                          {size}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Job titles */}
+                <div className="space-y-2">
+                  <label className="text-[10px] text-white/30 uppercase tracking-wider">Cargos-alvo</label>
+                  <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl focus-within:border-[#ca98ff]/50 transition-all">
+                    <textarea
+                      rows={2}
+                      value={(options.job_titles ?? []).join(", ")}
+                      onChange={(e) => autoSave({ ...options, job_titles: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                      className="w-full bg-transparent border-none focus:ring-0 px-4 py-3 text-white text-sm font-medium outline-none placeholder-white/20 resize-none leading-relaxed"
+                      placeholder="CIO, CTO, Head de TI, Diretor de Infraestrutura..."
+                    />
+                  </div>
+                </div>
+
+                {/* Departments */}
+                <div className="space-y-2">
+                  <label className="text-[10px] text-white/30 uppercase tracking-wider">Departamentos</label>
+                  <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl focus-within:border-[#ca98ff]/50 transition-all">
+                    <textarea
+                      rows={2}
+                      value={(options.departments ?? []).join(", ")}
+                      onChange={(e) => autoSave({ ...options, departments: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                      className="w-full bg-transparent border-none focus:ring-0 px-4 py-3 text-white text-sm font-medium outline-none placeholder-white/20 resize-none leading-relaxed"
+                      placeholder="TI, Infraestrutura, Dados, Operações..."
+                    />
+                  </div>
+                </div>
+
+                {/* ICP summary */}
+                {options.icp_description && (
+                  <p className="text-xs text-white/40 italic px-1">{options.icp_description}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Confirmar button (placeholder) */}
+            <div className="mt-8 relative z-10">
+              <button
+                onClick={() => setScanSuccess("Em breve! A análise semanal será ativada na próxima atualização.")}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide"
+              >
+                CONFIRMAR MAPEAMENTO
+              </button>
+            </div>
+          </div>
+          )}
+
+          {/* Analise — always visible below mapeamento */}
+          <div className="space-y-6">
+            {/* Banner */}
+            <div className="rounded-xl bg-[#f59e0b]/10 border border-[#f59e0b]/30 px-5 py-3 flex items-center gap-3">
+              <span className="text-[#f59e0b] text-lg">&#9888;</span>
+              <p className="text-sm text-[#f59e0b] font-medium">Dados ilustrativos — esta analise sera gerada automaticamente na proxima atualizacao</p>
+            </div>
+
+            {/* Section A: Engajamento Competitivo */}
+            <div className="rounded-2xl border border-white/10 p-6">
+              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">Engajamento Competitivo</h3>
+              <p className="text-xs text-white/40 mb-4">Compara o engajamento de decisores nos posts da sua empresa vs concorrentes</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm min-w-[500px]">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">Empresa</th>
+                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">Posts/mes</th>
+                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">Engaj. medio</th>
+                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">RER</th>
+                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">Temas</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    <tr><td className="py-3 text-white font-medium">{profile?.name ?? "Sua empresa"}</td><td className="py-3 text-[#ca98ff]">12</td><td className="py-3">142</td><td className="py-3 text-[#a2f31f]">38%</td><td className="py-3 text-white/50">{(options.market_context ?? "").split(",").slice(0, 3).join(", ")}</td></tr>
+                    {(options.competitors ?? []).slice(0, 3).map((comp, i) => {
+                      const cname = typeof comp === "object" && comp !== null ? comp.name : String(comp);
+                      return (
+                        <tr key={i}><td className="py-3 text-white/60">{cname}</td><td className="py-3">{[8, 15, 6][i]}</td><td className="py-3">{[89, 210, 55][i]}</td><td className="py-3">{["25%", "42%", "18%"][i]}</td><td className="py-3 text-white/50">{["Cloud, Seguranca", "IA, Transformacao", "Cloud, Consulting"][i]}</td></tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Section B: Recomendacoes Semanais */}
+            <div className="rounded-2xl border border-white/10 p-6">
+              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">Recomendacoes Semanais de Conteudo</h3>
+              <p className="text-xs text-white/40 mb-4">3 recomendacoes com tema, abordagem e justificativa baseada em dados reais</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  { tema: "Otimizacao de custos em cloud", angulo: "Case study mostrando reducao de 40% com FinOps", justificativa: "Tema com alto RER entre decisores financeiros" },
+                  { tema: "IA generativa aplicada a dados", angulo: "Tutorial pratico usando seus servicos como base", justificativa: "Lacuna: nenhum concorrente esta abordando isso" },
+                  { tema: "Migracao de on-premise para nuvem", angulo: "Erros comuns e como evitar — perspectiva de consultor", justificativa: "3 concorrentes publicaram sobre isso com alto engajamento" },
+                ].map((rec, i) => (
+                  <div key={i} className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 space-y-2">
+                    <span className="text-[10px] font-bold text-[#ca98ff] uppercase tracking-wider">Recomendacao {i + 1}</span>
+                    <p className="text-sm font-medium text-white">{rec.tema}</p>
+                    <p className="text-xs text-white/50">{rec.angulo}</p>
+                    <p className="text-[10px] text-[#a2f31f]/70 italic">{rec.justificativa}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Section C: Lacunas Tematicas */}
+            <div className="rounded-2xl border border-white/10 p-6">
+              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">Lacunas Tematicas</h3>
+              <p className="text-xs text-white/40 mb-4">Temas relevantes que nenhum concorrente esta explorando — oportunidades de conteudo</p>
+              <div className="flex flex-wrap gap-2">
+                {["FinOps para PMEs", "IA + compliance", "Cloud soberana", "Sustentabilidade digital", "Edge computing", "Dados em tempo real", "Cloud governance"].map((t) => (
+                  <span key={t} className="bg-[#a2f31f]/10 border border-[#a2f31f]/20 text-[#a2f31f] text-xs font-medium px-3 py-1.5 rounded-full">{t}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* PERSON MODE: Legacy leads — Dashboard KPIs + config form */}
+      {/* ============================================================ */}
+
+      {/* Dashboard KPIs — only visible for person profiles with leads */}
+      {!isCompanyProfile && profile && results.length > 0 && (() => {
         const decisorsCount = results.filter((r) => r.role_level === "decisor").length;
         return (
           <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -570,8 +937,8 @@ export default function LeadsGenerationOptionsPage() {
         );
       })()}
 
-      {/* Leads configuration — collapsed when results exist, expanded otherwise */}
-      {results.length > 0 && !configExpanded ? (
+      {/* Leads configuration — only for person profiles, collapsed when results exist */}
+      {!isCompanyProfile && profile && (results.length > 0 && !configExpanded ? (
         <button
           onClick={() => setConfigExpanded(true)}
           className="w-full group rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-[#ca98ff]/20 hover:border-[#ca98ff]/50 hover:bg-[#ca98ff]/[0.06] transition-all py-4 px-6 flex items-center justify-center gap-3 font-[family-name:var(--font-lexend)]"
@@ -707,10 +1074,10 @@ export default function LeadsGenerationOptionsPage() {
           </div>
         </div>
       </section>
-      )}
+      ))}
 
-      {/* Leads Results section */}
-      {results.length > 0 && (
+      {/* Leads Results section — person profiles only */}
+      {!isCompanyProfile && profile && results.length > 0 && (
         <section className="space-y-6 pt-4">
           {/* Top bar: post filter + RER card */}
           <div className="grid grid-cols-12 gap-6">
@@ -994,8 +1361,8 @@ export default function LeadsGenerationOptionsPage() {
         </section>
       )}
 
-      {/* Leads empty state */}
-      {results.length === 0 && !scanning && (
+      {/* Leads empty state — person profiles only */}
+      {!isCompanyProfile && profile && results.length === 0 && !scanning && (
         <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-12 text-center">
           <div className="w-16 h-16 rounded-2xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 flex items-center justify-center mx-auto mb-4">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>

@@ -8,7 +8,7 @@ import Image from "next/image";
 function AuthForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectUrl = searchParams.get("redirectUrl") || "/casting/leads-generation";
+  const redirectUrl = searchParams.get("redirectUrl") || "/casting/share-of-linkedin";
   const supabase = createClient();
 
   const [mode, setMode] = useState<"login" | "signup">("signup");

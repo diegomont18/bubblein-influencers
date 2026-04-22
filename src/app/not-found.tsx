@@ -24,7 +24,7 @@ export default function NotFound() {
             Voltar ao início
           </Link>
           <Link
-            href="/casting/leads-generation"
+            href="/casting/share-of-linkedin"
             className="inline-block border border-[#ca98ff]/30 text-[#ca98ff] font-semibold px-8 py-3 rounded-full text-sm hover:bg-[#ca98ff]/10 transition-colors"
           >
             Leads Generation

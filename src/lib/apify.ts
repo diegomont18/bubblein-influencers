@@ -1057,3 +1057,141 @@ export async function fetchLinkedInPostApify(
     return { status: 500, data: null, error: err instanceof Error ? err.message : "Unknown error" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// LinkedIn Company Scraper (Share of LinkedIn — market mapping)
+// ---------------------------------------------------------------------------
+
+export interface CompanyInfo {
+  name: string;
+  description: string;
+  industry: string;
+  specialties: string;
+  website: string;
+  followers: number;
+  employeeCount: number;
+  similarPages: Array<{ name: string; url: string; industry: string; location: string; logoUrl: string }>;
+  affiliatedPages: Array<{ name: string; url: string; category: string }>;
+  profilePicUrl: string;
+}
+
+export async function fetchLinkedInCompany(
+  companySlug: string
+): Promise<{ status: number; data: CompanyInfo | null; error?: string }> {
+  const companyUrl = `https://www.linkedin.com/company/${companySlug.replace(/^\/+|\/+$/g, "")}/`;
+  console.log(`[apify] fetchLinkedInCompany slug="${companySlug}"`);
+
+  const { status, data } = await apifyPostJson(
+    "dev_fusion~linkedin-company-scraper",
+    { profileUrls: [companyUrl] },
+    120_000,
+    `company-scraper slug=${companySlug}`
+  );
+
+  logApiCost({
+    source: "leads",
+    provider: "apify",
+    operation: "fetchLinkedInCompany",
+    estimatedCost: API_COSTS.apify.fetchLinkedInCompany,
+    metadata: { slug: companySlug, status },
+  });
+
+  if (status !== 200 || !Array.isArray(data) || data.length === 0) {
+    return { status: status || 404, data: null, error: "Company not found" };
+  }
+
+  const raw = (data as Array<Record<string, unknown>>)[0];
+  // dev_fusion uses: similarOrganizations, affiliatedOrganizationsByEmployees
+  const similar = (raw.similarOrganizations ?? raw.similar_pages ?? []) as Array<Record<string, unknown>>;
+  const affiliated = (raw.affiliatedOrganizationsByShowcases ?? raw.affiliated_pages ?? []) as Array<Record<string, unknown>>;
+  // specialities (dev_fusion) is an array; specialties (data-slayer) was a string
+  const rawSpec = raw.specialities ?? raw.specialties ?? [];
+  const specialtiesStr = Array.isArray(rawSpec) ? rawSpec.join(", ") : String(rawSpec);
+
+  const info: CompanyInfo = {
+    name: String(raw.companyName ?? raw.name ?? ""),
+    description: String(raw.description ?? ""),
+    industry: String(raw.industry ?? raw.about_industry ?? ""),
+    specialties: specialtiesStr,
+    website: String(raw.websiteUrl ?? raw.website ?? raw.formatted_url ?? ""),
+    followers: Number(raw.followerCount ?? raw.followers ?? 0),
+    employeeCount: Number(raw.employeeCount ?? raw.employee_count ?? 0),
+    similarPages: similar.map((sp) => ({
+      name: String(sp.name ?? ""),
+      url: String(sp.url ?? ""),
+      industry: String(sp.industry ?? ""),
+      location: String(sp.location ?? ""),
+      logoUrl: String(sp.logoResolutionResult ?? sp.logo_url ?? ""),
+    })),
+    affiliatedPages: affiliated.map((ap) => ({
+      name: String(ap.name ?? ""),
+      url: String(ap.url ?? ""),
+      category: String(ap.category ?? ""),
+    })),
+    profilePicUrl: String(raw.logoResolutionResult ?? raw.profile_pic_url ?? ""),
+  };
+
+  console.log(`[apify] fetchLinkedInCompany: "${info.name}" — ${info.similarPages.length} similar, ${info.employeeCount} employees`);
+  return { status: 200, data: info };
+}
+
+// ---------------------------------------------------------------------------
+// LinkedIn Company Employees Scraper
+// ---------------------------------------------------------------------------
+
+export interface EmployeeProfile {
+  name: string;
+  slug: string;
+  headline: string;
+  linkedinUrl: string;
+  profilePicUrl: string;
+  location: string;
+  isCreator: boolean;
+  isInfluencer: boolean;
+}
+
+export async function fetchCompanyEmployees(
+  companyUrl: string,
+  limit = 30
+): Promise<EmployeeProfile[]> {
+  console.log(`[apify] fetchCompanyEmployees url="${companyUrl.slice(0, 80)}" limit=${limit}`);
+
+  const { status, data } = await apifyPostJson(
+    "apimaestro~linkedin-company-employees-scraper-no-cookies",
+    { companyUrl, limit },
+    90_000,
+    `employees-scraper limit=${limit}`
+  );
+
+  if (status !== 200 || !Array.isArray(data)) {
+    console.log(`[apify] fetchCompanyEmployees: failed status=${status}`);
+    return [];
+  }
+
+  const employees: EmployeeProfile[] = (data as Array<Record<string, unknown>>)
+    .slice(0, limit)
+    .map((e) => ({
+      name: String(e.fullname ?? [e.first_name, e.last_name].filter(Boolean).join(" ") ?? ""),
+      slug: String(e.public_identifier ?? ""),
+      headline: String(e.headline ?? ""),
+      linkedinUrl: String(e.profile_url ?? ""),
+      profilePicUrl: String(e.profile_picture_url ?? ""),
+      location: typeof e.location === "object" && e.location
+        ? String((e.location as Record<string, unknown>).full ?? "")
+        : String(e.location ?? ""),
+      isCreator: Boolean(e.is_creator),
+      isInfluencer: Boolean(e.is_influencer),
+    }));
+
+  const itemCost = employees.length * API_COSTS.apify.fetchCompanyEmployees;
+  logApiCost({
+    source: "leads",
+    provider: "apify",
+    operation: "fetchCompanyEmployees",
+    estimatedCost: itemCost,
+    metadata: { companyUrl: companyUrl.slice(0, 200), found: employees.length, limit },
+  });
+
+  console.log(`[apify] fetchCompanyEmployees: found ${employees.length} employees`);
+  return employees;
+}

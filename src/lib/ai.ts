@@ -535,6 +535,81 @@ Respond ONLY with a JSON array:
   return results;
 }
 
+/**
+ * Analyze a company's LinkedIn presence to extract themes + ICP for the
+ * Share of LinkedIn market mapping feature.
+ */
+export async function analyzeCompanyForShareOfLinkedin(
+  companyName: string,
+  description: string,
+  specialties: string,
+  industry: string,
+  employeeTitles: string[],
+): Promise<{ themes: string; icp: string; competitors: string[]; icp_job_titles: string[]; icp_departments: string[]; icp_company_sizes: string[] } | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) return null;
+
+  const empSample = employeeTitles.slice(0, 20).join(", ");
+
+  const prompt = `You are a B2B market analyst specializing in the Brazilian/Latin American market. Analyze this company and return three fields in JSON.
+
+COMPANY:
+- Name: ${companyName}
+- Industry: ${industry}
+- Specialties: ${specialties}
+- Description: ${description.slice(0, 800)}
+${empSample ? `- Sample employee titles: ${empSample}` : ""}
+
+Return a JSON object with exactly these fields:
+1. "themes": A comma-separated list of 5-10 market themes/topics this company and its competitors likely discuss on LinkedIn. Focus on B2B-relevant themes, not generic topics. Write in Portuguese (Brazil) if the company seems Brazilian, otherwise English.
+2. "icp": A 1-sentence summary of the Ideal Customer Profile.
+3. "icp_job_titles": An array of 4-8 job titles that typically buy from this company (e.g. ["CIO", "CTO", "Head de TI", "Diretor de Infraestrutura"]).
+4. "icp_departments": An array of 3-6 departments/areas (e.g. ["TI", "Infraestrutura", "Dados", "Operações"]).
+5. "icp_company_sizes": An array of LinkedIn company size ranges that are the best fit (pick from EXACTLY these values: "1-10", "11-50", "51-200", "201-500", "501-1000", "1001+").
+6. "competitors": An array of 5-8 company names that are direct competitors or operate in the same market segment. Use the companies' official names as they appear on LinkedIn.
+
+Respond ONLY with the JSON object, no markdown:
+{"themes":"...","icp":"...","icp_job_titles":["..."],"icp_departments":["..."],"icp_company_sizes":["..."],"competitors":["..."]}`;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "google/gemini-2.0-flash-lite-001",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        max_tokens: 1000,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      console.error(`[ai] analyzeCompanyForShareOfLinkedin failed: status=${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? "";
+    console.log(`[ai] analyzeCompanyForShareOfLinkedin response: ${content.slice(0, 300)}`);
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]) as {
+      themes?: string; icp?: string; competitors?: string[];
+      icp_job_titles?: string[]; icp_departments?: string[]; icp_company_sizes?: string[];
+    };
+    return {
+      themes: parsed.themes ?? "",
+      icp: parsed.icp ?? "",
+      competitors: Array.isArray(parsed.competitors) ? parsed.competitors : [],
+      icp_job_titles: Array.isArray(parsed.icp_job_titles) ? parsed.icp_job_titles : [],
+      icp_departments: Array.isArray(parsed.icp_departments) ? parsed.icp_departments : [],
+      icp_company_sizes: Array.isArray(parsed.icp_company_sizes) ? parsed.icp_company_sizes : [],
+    };
+  } catch (err) {
+    console.error(`[ai] analyzeCompanyForShareOfLinkedin exception:`, err);
+    return null;
+  }
+}
+
 export async function analyzeProfileForLeads(
   profileName: string,
   profileHeadline: string,

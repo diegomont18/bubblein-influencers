@@ -19,6 +19,7 @@ export default function LeadsGenerationPage() {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<AnalyzedProfile[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/leads-generation/profiles")
@@ -27,7 +28,7 @@ export default function LeadsGenerationPage() {
       .catch(() => {})
       .finally(() => setHistoryLoading(false));
 
-    // Auto-analyze from content-sales redirect
+    // Auto-analyze from share-of-linkedin redirect
     const pendingUrl = localStorage.getItem("pendingLinkedinUrl");
     if (pendingUrl) {
       localStorage.removeItem("pendingLinkedinUrl");
@@ -40,6 +41,30 @@ export default function LeadsGenerationPage() {
     }
   }, []);
 
+  async function handleDelete(profileId: string, profileName: string) {
+    const confirmed = window.confirm(
+      `Tem certeza que deseja apagar a análise de "${profileName || "este perfil"}"? Esta ação não pode ser desfeita.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(profileId);
+    try {
+      const res = await fetch(`/api/leads-generation/profiles?id=${profileId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error ?? "Erro ao apagar. Tente novamente.");
+        return;
+      }
+      setHistory((prev) => prev.filter((p) => p.id !== profileId));
+    } catch {
+      alert("Erro de conexão. Tente novamente.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   async function handleAnalyze() {
     if (!url.trim() || !url.includes("linkedin.com")) {
       setError("Insira uma URL válida do LinkedIn");
@@ -49,22 +74,39 @@ export default function LeadsGenerationPage() {
     setLoading(true);
 
     try {
+      // 2-minute timeout — if the API takes longer, show error instead of hanging
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 180_000);
+
       const res = await fetch("/api/leads-generation/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileUrl: url.trim() }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "Erro ao analisar perfil");
+        setError(data.error ?? "Erro ao mapear empresa. Tente novamente.");
         return;
       }
 
       const data = await res.json();
-      router.push(`/casting/leads-generation/${data.profile.id}`);
-    } catch {
-      setError("Erro de conexão. Tente novamente.");
+      if (data.error && !data.profile) {
+        setError(data.error);
+        return;
+      }
+      if (data.error) {
+        console.warn("[share-of-linkedin] Partial: ", data.error);
+      }
+      router.push(`/casting/share-of-linkedin/${data.profile.id}`);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("O mapeamento demorou demais. Tente novamente — a segunda tentativa costuma ser mais rápida.");
+      } else {
+        setError("Erro de conexão. Tente novamente.");
+      }
     } finally {
       setLoading(false);
     }
@@ -75,18 +117,18 @@ export default function LeadsGenerationPage() {
       {/* Hero */}
       <div className="flex flex-col items-center text-center pt-8 pb-4">
         <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight leading-tight mb-6 font-[family-name:var(--font-lexend)]">
-          Vamos encontrar leads através{" "}
+          Mapeie o <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">Share of LinkedIn</span>
           <br className="hidden md:block" />
-          de seu <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">LinkedIn</span>
+          da sua empresa
         </h1>
         <div className="text-[#adaaaa] text-base leading-relaxed flex flex-col gap-2 font-medium mb-10">
           <div className="flex items-center gap-3">
             <span className="w-1.5 h-1.5 rounded-full bg-[#ca98ff]/60" />
-            <p>quem interagiu com seus posts</p>
+            <p>concorrentes, colaboradores influentes e temas do seu nicho</p>
           </div>
           <div className="flex items-center gap-3">
             <span className="w-1.5 h-1.5 rounded-full bg-[#ca98ff]/60" />
-            <p>quem é importante você se relacionar</p>
+            <p>recomendações estratégicas de conteúdo baseadas em dados reais</p>
           </div>
         </div>
       </div>
@@ -95,7 +137,7 @@ export default function LeadsGenerationPage() {
       <div className="max-w-2xl mx-auto">
         <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-[2rem] p-8 md:p-10 shadow-[0_8px_32px_rgba(0,0,0,0.37)]">
           <label className="text-[0.65rem] font-black tracking-[0.2em] text-white/30 uppercase block mb-3">
-            LinkedIn Profile URL
+            LinkedIn da Empresa
           </label>
           <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-1 mb-6 focus-within:border-[#ca98ff]/40 focus-within:bg-[#ca98ff]/[0.03] transition-all">
             <input
@@ -103,7 +145,7 @@ export default function LeadsGenerationPage() {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleAnalyze(); }}
-              placeholder="https://www.linkedin.com/in/seu-perfil"
+              placeholder="https://www.linkedin.com/company/sua-empresa"
               className="w-full bg-transparent border-none focus:ring-0 px-5 py-4 text-white text-sm font-medium placeholder-white/20 outline-none"
             />
           </div>
@@ -118,11 +160,11 @@ export default function LeadsGenerationPage() {
           >
             {loading ? (
               <>
-                <span className="animate-pulse">Analisando perfil...</span>
+                <span className="animate-pulse">Mapeando empresa...</span>
               </>
             ) : (
               <>
-                Iniciar Análise de Oportunidades
+                Mapear Empresa
                 <span className="text-lg">→</span>
               </>
             )}
@@ -136,7 +178,7 @@ export default function LeadsGenerationPage() {
 
       {/* History */}
       <div className="max-w-2xl mx-auto pt-4">
-        <h3 className="text-xs font-black tracking-[0.2em] text-white/20 uppercase mb-3">Perfis analisados</h3>
+        <h3 className="text-xs font-black tracking-[0.2em] text-white/20 uppercase mb-3">Empresas mapeadas</h3>
 
         {historyLoading ? (
           <div className="space-y-2">
@@ -160,7 +202,7 @@ export default function LeadsGenerationPage() {
                 className="w-full flex items-center gap-3 bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3 hover:border-[#ca98ff]/20 hover:bg-[#ca98ff]/[0.02] transition-all"
               >
                 <button
-                  onClick={() => router.push(`/casting/leads-generation/${p.id}`)}
+                  onClick={() => router.push(`/casting/share-of-linkedin/${p.id}`)}
                   className="flex-1 min-w-0 text-left"
                 >
                   <div className="flex items-center gap-2">
@@ -184,6 +226,27 @@ export default function LeadsGenerationPage() {
                   <span className="text-[10px] text-white/20">
                     {new Date(p.created_at).toLocaleDateString("pt-BR")}
                   </span>
+                  <button
+                    onClick={() => handleDelete(p.id, p.name)}
+                    disabled={deletingId === p.id}
+                    aria-label="Apagar análise"
+                    title="Apagar análise"
+                    className="text-white/30 hover:text-[#ff6e84] hover:bg-[#ff6e84]/10 p-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {deletingId === p.id ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin">
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                        <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
               </div>
             ))}

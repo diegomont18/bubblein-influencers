@@ -98,12 +98,12 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
         <aside className="w-44 shrink-0 hidden md:block">
           <nav className="space-y-1 sticky top-24">
             <Link
-              href="/casting/leads-generation"
+              href="/casting/share-of-linkedin"
               className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-lexend)] ${
-                pathname.startsWith("/casting/leads-generation") ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
+                pathname.startsWith("/casting/share-of-linkedin") ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
               }`}
             >
-              Leads Generation
+              Share of LinkedIn
             </Link>
             <Link
               href="/casting"

@@ -49,7 +49,8 @@ export async function PATCH(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
-  const { profileId, market_context, job_titles, departments, company_sizes } = body;
+  const { profileId, market_context, job_titles, departments, company_sizes,
+    competitors, employee_profiles, icp_description } = body;
   if (!profileId) return NextResponse.json({ error: "profileId required" }, { status: 400 });
 
   const service = createServiceClient();
@@ -63,6 +64,10 @@ export async function PATCH(request: Request) {
   if (job_titles !== undefined) update.job_titles = job_titles;
   if (departments !== undefined) update.departments = departments;
   if (company_sizes !== undefined) update.company_sizes = company_sizes;
+  // Share of LinkedIn fields
+  if (competitors !== undefined) update.competitors = competitors;
+  if (employee_profiles !== undefined) update.employee_profiles = employee_profiles;
+  if (icp_description !== undefined) update.icp_description = icp_description;
 
   const { error } = await service.from("lg_options").update(update).eq("profile_id", profileId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

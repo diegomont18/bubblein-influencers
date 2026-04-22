@@ -22,6 +22,8 @@ export const API_COSTS = {
     perSupremeItem: 0.0012,
     fetchLinkedInProfileApify: 0.004,
     searchGoogleApify: 0.0035,
+    fetchLinkedInCompany: 0.005,
+    fetchCompanyEmployees: 0.004, // per employee
   },
   openrouter: {
     classifyTopics: 0.001,
