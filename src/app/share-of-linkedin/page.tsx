@@ -88,6 +88,31 @@ function LinkedInInput({ value, onChange, onAnalyze }: { value: string; onChange
   );
 }
 
+function PlanTooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex items-center ml-1 align-middle">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="w-4 h-4 rounded-full bg-gray-700/50 text-gray-400 hover:bg-gray-600 hover:text-white flex items-center justify-center text-[9px] font-bold leading-none transition-colors"
+        aria-label="Mais informações"
+      >
+        i
+      </button>
+      {open && (
+        <span
+          role="tooltip"
+          className="absolute z-50 left-6 top-1/2 -translate-y-1/2 w-56 rounded-lg bg-[#0B0B1A] border border-[#E91E8C]/30 px-3 py-2 text-[11px] text-gray-300 font-normal normal-case tracking-normal shadow-[0_8px_24px_rgba(0,0,0,0.6)]"
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function ShareOfLinkedInPage() {
   const router = useRouter();
   const [linkedinUrl, setLinkedinUrl] = useState("");
@@ -121,6 +146,14 @@ export default function ShareOfLinkedInPage() {
           <LinkedInInput value={linkedinUrl} onChange={setLinkedinUrl} onAnalyze={handleAnalyze} />
         </div>
       </section>
+
+      {/* Link para planos */}
+      <div className="text-center pb-4">
+        <a href="#planos" className="inline-flex items-center gap-2 text-sm text-[#E91E8C] hover:text-[#C724D1] font-medium transition-colors">
+          Ver planos e preços
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+        </a>
+      </div>
 
       {/* 2. O ponto cego do LinkedIn B2B */}
       <section className="py-20 md:py-28">
@@ -361,12 +394,12 @@ export default function ShareOfLinkedInPage() {
       </section>
 
       {/* 10. Planos */}
-      <section className="py-20 md:py-28">
+      <section id="planos" className="py-20 md:py-28 scroll-mt-20">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
               Escolha o plano ideal para sua{" "}
-              <span className="text-gradient">inteligencia competitiva</span>
+              <span className="text-gradient">inteligência competitiva</span>
             </h2>
             <p className="text-gray-400 max-w-2xl mx-auto">
               Todos os planos incluem mapeamento de mercado com IA. Cancele quando quiser.
@@ -379,19 +412,19 @@ export default function ShareOfLinkedInPage() {
               <p className="text-sm text-gray-400 font-medium mb-2">Starter</p>
               <div className="flex items-baseline gap-1 mb-2">
                 <span className="text-4xl font-bold text-white">R$199</span>
-                <span className="text-gray-500 text-sm">/mes</span>
+                <span className="text-gray-500 text-sm">/mês</span>
               </div>
               <p className="text-gray-500 text-sm mb-8">Comece a enxergar seu mercado</p>
               <ul className="space-y-3 mb-8 flex-1">
                 {[
-                  "1 empresa monitorada",
-                  "5 concorrentes mapeados",
-                  "10 colaboradores rastreados",
-                  "Relatorio mensal",
+                  { text: "1 concorrente mapeado", tip: "Empresas concorrentes que serão monitoradas continuamente. Seus posts e engajamento são analisados semanalmente." },
+                  { text: "4 colaboradores rastreados", tip: "Colaboradores da sua empresa e dos concorrentes que publicam ativamente no LinkedIn. Rastreamos seus posts e engajamento com decisores." },
+                  { text: "2 influencers rastreados", tip: "Influencers B2B do seu nicho que publicam conteúdo relevante. Identificamos quem tem maior impacto entre decisores do seu mercado." },
+                  { text: "9 créditos/mês", tip: "Use créditos para extrair leads (1 crédito cada) ou encontrar novos influencers (3 créditos cada). Créditos do plano renovam mensalmente." },
                 ].map((f) => (
-                  <li key={f} className="flex items-start gap-3 text-sm text-gray-300">
+                  <li key={f.text} className="flex items-start gap-3 text-sm text-gray-300">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5" /></svg>
-                    {f}
+                    <span>{f.text}<PlanTooltip text={f.tip} /></span>
                   </li>
                 ))}
               </ul>
@@ -399,7 +432,7 @@ export default function ShareOfLinkedInPage() {
                 onClick={() => { router.push("/auth?redirectUrl=/casting/share-of-linkedin"); }}
                 className="w-full py-3.5 rounded-full border border-[#E91E8C]/40 text-[#E91E8C] font-semibold text-sm hover:bg-[#E91E8C]/10 transition-colors"
               >
-                Comecar agora
+                Começar agora
               </button>
             </div>
 
@@ -411,19 +444,19 @@ export default function ShareOfLinkedInPage() {
               <p className="text-sm text-[#E91E8C] font-medium mb-2">Professional</p>
               <div className="flex items-baseline gap-1 mb-2">
                 <span className="text-4xl font-bold text-white">R$499</span>
-                <span className="text-gray-500 text-sm">/mes</span>
+                <span className="text-gray-500 text-sm">/mês</span>
               </div>
-              <p className="text-gray-500 text-sm mb-8">Domine a estrategia do seu nicho</p>
+              <p className="text-gray-500 text-sm mb-8">Domine a estratégia do seu nicho</p>
               <ul className="space-y-3 mb-8 flex-1">
                 {[
-                  "3 empresas monitoradas",
-                  "10 concorrentes por empresa",
-                  "30 colaboradores por empresa",
-                  "Relatorio semanal",
+                  { text: "2 concorrentes mapeados", tip: "Monitore 2 concorrentes por empresa. Posts, engajamento de decisores e temas são analisados semanalmente para comparação direta." },
+                  { text: "8 colaboradores rastreados", tip: "Rastreie 8 colaboradores ativos da sua empresa e dos concorrentes. Monitora quem publica, com que frequência e qual o impacto entre decisores." },
+                  { text: "4 influencers rastreados", tip: "Acompanhe 4 influencers B2B do seu nicho. Veja o que publicam, quais temas abordam e como decisores reagem ao conteúdo deles." },
+                  { text: "24 créditos/mês", tip: "Use créditos para extrair leads (1 crédito cada) ou encontrar novos influencers (3 créditos cada). Créditos do plano renovam mensalmente." },
                 ].map((f) => (
-                  <li key={f} className="flex items-start gap-3 text-sm text-gray-300">
+                  <li key={f.text} className="flex items-start gap-3 text-sm text-gray-300">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5" /></svg>
-                    {f}
+                    <span>{f.text}<PlanTooltip text={f.tip} /></span>
                   </li>
                 ))}
               </ul>
@@ -431,7 +464,7 @@ export default function ShareOfLinkedInPage() {
                 onClick={() => { router.push("/auth?redirectUrl=/casting/share-of-linkedin"); }}
                 className="w-full py-3.5 rounded-full bg-gradient-accent text-white font-semibold text-sm hover:opacity-90 transition-opacity"
               >
-                Comecar agora
+                Começar agora
               </button>
             </div>
 
@@ -440,20 +473,19 @@ export default function ShareOfLinkedInPage() {
               <p className="text-sm text-gray-400 font-medium mb-2">Business</p>
               <div className="flex items-baseline gap-1 mb-2">
                 <span className="text-4xl font-bold text-white">R$999</span>
-                <span className="text-gray-500 text-sm">/mes</span>
+                <span className="text-gray-500 text-sm">/mês</span>
               </div>
-              <p className="text-gray-500 text-sm mb-8">Inteligencia completa para seu LinkedIn B2B</p>
+              <p className="text-gray-500 text-sm mb-8">Inteligência completa para seu LinkedIn B2B</p>
               <ul className="space-y-3 mb-8 flex-1">
                 {[
-                  "10 empresas monitoradas",
-                  "20 concorrentes por empresa",
-                  "50 colaboradores por empresa",
-                  "Relatorio semanal + resumo diario",
-                  "White-label: relatorios com sua marca",
+                  { text: "4 concorrentes mapeados", tip: "Monitore até 4 concorrentes com análise profunda. Ideal para mercados com múltiplos players relevantes." },
+                  { text: "16 colaboradores rastreados", tip: "Rastreie 16 colaboradores entre sua empresa e concorrentes. Cobertura ampla de quem está moldando a percepção do mercado no LinkedIn." },
+                  { text: "8 influencers rastreados", tip: "Acompanhe 8 influencers B2B do seu nicho. Visão completa de quem produz conteúdo relevante e engaja decisores." },
+                  { text: "48 créditos/mês", tip: "Use créditos para extrair leads (1 crédito cada) ou encontrar novos influencers (3 créditos cada). Créditos do plano renovam mensalmente." },
                 ].map((f) => (
-                  <li key={f} className="flex items-start gap-3 text-sm text-gray-300">
+                  <li key={f.text} className="flex items-start gap-3 text-sm text-gray-300">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5" /></svg>
-                    {f}
+                    <span>{f.text}<PlanTooltip text={f.tip} /></span>
                   </li>
                 ))}
               </ul>
@@ -461,8 +493,36 @@ export default function ShareOfLinkedInPage() {
                 onClick={() => { router.push("/auth?redirectUrl=/casting/share-of-linkedin"); }}
                 className="w-full py-3.5 rounded-full border border-[#E91E8C]/40 text-[#E91E8C] font-semibold text-sm hover:bg-[#E91E8C]/10 transition-colors"
               >
-                Comecar agora
+                Começar agora
               </button>
+            </div>
+          </div>
+
+          {/* Como funcionam os créditos */}
+          <div className="mt-10 bg-[#12122A] border border-[#1E1E3A] rounded-2xl p-6 md:p-8">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-white mb-2">Como funcionam os créditos?</h3>
+                <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm text-gray-400">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#E91E8C]" />
+                    <strong className="text-white">1 crédito</strong> = 1 lead extraído
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#C724D1]" />
+                    <strong className="text-white">3 créditos</strong> = 1 influencer encontrado
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Créditos inclusos no plano são renovados mensalmente. Créditos adicionais não expiram.</p>
+              </div>
+              <div className="bg-gradient-to-br from-[#E91E8C]/10 to-[#C724D1]/10 border border-[#E91E8C]/20 rounded-xl p-5 text-center shrink-0 min-w-[200px]">
+                <p className="text-xs text-gray-400 mb-1">Créditos adicionais</p>
+                <div className="flex items-baseline justify-center gap-1">
+                  <span className="text-2xl font-bold text-white">R$100</span>
+                </div>
+                <p className="text-sm text-[#E91E8C] font-medium mt-1">por 20 créditos</p>
+                <p className="text-[10px] text-gray-500 mt-2">Compre a qualquer momento como add-on</p>
+              </div>
             </div>
           </div>
         </div>

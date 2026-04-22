@@ -811,35 +811,91 @@ export default function LeadsGenerationOptionsPage() {
           </div>
           )}
 
-          {/* Analise — always visible below mapeamento */}
+          {/* ============================================================ */}
+          {/* Relatório Semanal — mockup com dados fixos */}
+          {/* ============================================================ */}
           <div className="space-y-6">
             {/* Banner */}
             <div className="rounded-xl bg-[#f59e0b]/10 border border-[#f59e0b]/30 px-5 py-3 flex items-center gap-3">
               <span className="text-[#f59e0b] text-lg">&#9888;</span>
-              <p className="text-sm text-[#f59e0b] font-medium">Dados ilustrativos — esta analise sera gerada automaticamente na proxima atualizacao</p>
+              <p className="text-sm text-[#f59e0b] font-medium">Dados ilustrativos — esta análise será gerada automaticamente na próxima atualização</p>
             </div>
 
-            {/* Section A: Engajamento Competitivo */}
+            {/* Header */}
+            <div>
+              <h2 className="text-2xl font-extrabold text-white font-[family-name:var(--font-lexend)]">Relatório Semanal — Share of LinkedIn</h2>
+              <p className="text-sm text-white/40 mt-1">Semana de 14/04 a 21/04</p>
+            </div>
+
+            {/* Seção 1: Resumo Executivo */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white/[0.03] border border-[#ca98ff]/20 rounded-xl p-5">
+                <p className="text-[10px] font-bold tracking-[0.15em] text-white/40 uppercase mb-2">Share of Voice</p>
+                <p className="text-3xl font-black text-[#ca98ff] font-[family-name:var(--font-lexend)]">18%</p>
+                <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full bg-[#ca98ff] rounded-full" style={{ width: "18%" }} />
+                </div>
+                <p className="text-[10px] text-white/30 mt-1.5">Líder: TechCloud Solutions 32%</p>
+              </div>
+              <div className="bg-white/[0.03] border border-[#a2f31f]/20 rounded-xl p-5">
+                <p className="text-[10px] font-bold tracking-[0.15em] text-white/40 uppercase mb-2">RER Medio</p>
+                <p className="text-3xl font-black text-[#a2f31f] font-[family-name:var(--font-lexend)]">38%</p>
+                <span className="inline-block mt-2 text-[10px] font-bold text-[#a2f31f] bg-[#a2f31f]/10 px-2 py-0.5 rounded-full">+13% vs média</span>
+              </div>
+              <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5">
+                <p className="text-[10px] font-bold tracking-[0.15em] text-white/40 uppercase mb-2">Posts analisados</p>
+                <p className="text-3xl font-black text-white font-[family-name:var(--font-lexend)]">247</p>
+                <p className="text-[10px] text-white/30 mt-2">de 8 empresas</p>
+              </div>
+              <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5">
+                <p className="text-[10px] font-bold tracking-[0.15em] text-white/40 uppercase mb-2">Decisores engajados</p>
+                <p className="text-3xl font-black text-white font-[family-name:var(--font-lexend)]">89</p>
+                <p className="text-[10px] text-white/30 mt-2">decisores únicos identificados</p>
+              </div>
+            </div>
+
+            {/* Seção 2: Diagnóstico Competitivo */}
             <div className="rounded-2xl border border-white/10 p-6">
-              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">Engajamento Competitivo</h3>
-              <p className="text-xs text-white/40 mb-4">Compara o engajamento de decisores nos posts da sua empresa vs concorrentes</p>
+              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
+                Diagnóstico Competitivo
+                <InfoTooltip text="Comparativo semanal de presença no LinkedIn entre sua empresa e concorrentes. Mede colaboradores ativos, volume de posts, engajamento médio e RER (Revenue Engagement Rate — % de engajadores que são decisores de compra). Posts motivacionais e anúncios de vagas são excluídos automaticamente." />
+              </h3>
+              <p className="text-xs text-white/40 mb-4">Engajamento de decisores — posts motivacionais e anúncios de vagas foram excluídos da análise</p>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm min-w-[500px]">
+                <table className="w-full text-left text-sm min-w-[650px]">
                   <thead>
                     <tr className="border-b border-white/10">
-                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">Empresa</th>
-                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">Posts/mes</th>
-                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">Engaj. medio</th>
-                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">RER</th>
-                      <th className="py-2 text-[0.65rem] font-bold tracking-widest text-white/40 uppercase">Temas</th>
+                      <th className="py-2.5 pr-3 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase w-8">#</th>
+                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Empresa</th>
+                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Colab. ativos</th>
+                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Posts/mes</th>
+                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Engaj. medio</th>
+                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">RER</th>
+                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Top Tema</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    <tr><td className="py-3 text-white font-medium">{profile?.name ?? "Sua empresa"}</td><td className="py-3 text-[#ca98ff]">12</td><td className="py-3">142</td><td className="py-3 text-[#a2f31f]">38%</td><td className="py-3 text-white/50">{(options.market_context ?? "").split(",").slice(0, 3).join(", ")}</td></tr>
-                    {(options.competitors ?? []).slice(0, 3).map((comp, i) => {
-                      const cname = typeof comp === "object" && comp !== null ? comp.name : String(comp);
+                    {[
+                      { pos: 1, name: "TechCloud Solutions", colabs: 8, posts: 22, engaj: 310, rer: 42, tema: "IA Generativa", highlight: false },
+                      { pos: 2, name: "Sua Empresa", colabs: 5, posts: 12, engaj: 142, rer: 38, tema: "Cloud Computing", highlight: true },
+                      { pos: 3, name: "DataBridge Corp", colabs: 6, posts: 18, engaj: 195, rer: 28, tema: "Transformação Digital", highlight: false },
+                      { pos: 4, name: "InfraNext", colabs: 4, posts: 8, engaj: 89, rer: 22, tema: "Segurança em Nuvem", highlight: false },
+                      { pos: 5, name: "CloudSync Brasil", colabs: 3, posts: 6, engaj: 55, rer: 15, tema: "Migração Cloud", highlight: false },
+                    ].map((row) => {
+                      const rerColor = row.rer >= 30 ? "text-[#a2f31f]" : row.rer >= 15 ? "text-[#f59e0b]" : "text-[#ff946e]";
+                      const rerBg = row.rer >= 30 ? "bg-[#a2f31f]/10" : row.rer >= 15 ? "bg-[#f59e0b]/10" : "bg-[#ff946e]/10";
                       return (
-                        <tr key={i}><td className="py-3 text-white/60">{cname}</td><td className="py-3">{[8, 15, 6][i]}</td><td className="py-3">{[89, 210, 55][i]}</td><td className="py-3">{["25%", "42%", "18%"][i]}</td><td className="py-3 text-white/50">{["Cloud, Seguranca", "IA, Transformacao", "Cloud, Consulting"][i]}</td></tr>
+                        <tr key={row.pos} className={row.highlight ? "bg-[#ca98ff]/[0.06]" : ""}>
+                          <td className="py-3 pr-3">
+                            <span className={`text-xs font-black ${row.pos === 1 ? "text-[#f59e0b]" : row.pos === 2 ? "text-[#adaaaa]" : row.pos === 3 ? "text-[#cd7f32]" : "text-white/30"}`}>{row.pos}</span>
+                          </td>
+                          <td className={`py-3 font-medium ${row.highlight ? "text-[#ca98ff]" : "text-white/80"}`}>{row.name}</td>
+                          <td className="py-3 text-center text-white/60">{row.colabs}</td>
+                          <td className="py-3 text-center text-white/60">{row.posts}</td>
+                          <td className="py-3 text-center text-white/60">{row.engaj}</td>
+                          <td className="py-3 text-center"><span className={`${rerColor} ${rerBg} text-xs font-bold px-2 py-0.5 rounded-full`}>{row.rer}%</span></td>
+                          <td className="py-3 text-white/50 text-xs">{row.tema}</td>
+                        </tr>
                       );
                     })}
                   </tbody>
@@ -847,34 +903,135 @@ export default function LeadsGenerationOptionsPage() {
               </div>
             </div>
 
-            {/* Section B: Recomendacoes Semanais */}
+            {/* Seção 3: Top Posts da Semana */}
             <div className="rounded-2xl border border-white/10 p-6">
-              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">Recomendacoes Semanais de Conteudo</h3>
-              <p className="text-xs text-white/40 mb-4">3 recomendacoes com tema, abordagem e justificativa baseada em dados reais</p>
+              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
+                Top Posts da Semana
+                <InfoTooltip text="Os 3 posts com maior RER (Revenue Engagement Rate) da semana no seu nicho. São os conteúdos que mais atraíram decisores de compra — servem como referência para sua estratégia de conteúdo." />
+              </h3>
+              <p className="text-xs text-white/40 mb-4">Posts com maior Revenue Engagement Rate entre decisores</p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {[
-                  { tema: "Otimizacao de custos em cloud", angulo: "Case study mostrando reducao de 40% com FinOps", justificativa: "Tema com alto RER entre decisores financeiros" },
-                  { tema: "IA generativa aplicada a dados", angulo: "Tutorial pratico usando seus servicos como base", justificativa: "Lacuna: nenhum concorrente esta abordando isso" },
-                  { tema: "Migracao de on-premise para nuvem", angulo: "Erros comuns e como evitar — perspectiva de consultor", justificativa: "3 concorrentes publicaram sobre isso com alto engajamento" },
-                ].map((rec, i) => (
-                  <div key={i} className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 space-y-2">
-                    <span className="text-[10px] font-bold text-[#ca98ff] uppercase tracking-wider">Recomendacao {i + 1}</span>
-                    <p className="text-sm font-medium text-white">{rec.tema}</p>
-                    <p className="text-xs text-white/50">{rec.angulo}</p>
-                    <p className="text-[10px] text-[#a2f31f]/70 italic">{rec.justificativa}</p>
+                  { company: "TechCloud Solutions", author: "Ana Silva, CEO", text: "Reduzimos o custo de infraestrutura cloud em 40% para um cliente do setor financeiro usando FinOps. Aqui estão os 3 passos que seguimos...", likes: 342, comments: 47, rer: 52 },
+                  { company: "Sua Empresa", author: "Pedro Santos, CTO", text: "A migração para multi-cloud não é sobre tecnologia — é sobre estratégia de negócios. Depois de 3 anos liderando migrações, aprendi que...", likes: 189, comments: 31, rer: 45 },
+                  { company: "DataBridge Corp", author: "Carlos Lima, Head of Data", text: "IA generativa está mudando a forma como processamos dados não-estruturados. Na semana passada, implementamos um pipeline que...", likes: 267, comments: 38, rer: 41 },
+                ].map((post, i) => (
+                  <div key={i} className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-medium text-[#ca98ff]">{post.company}</p>
+                        <p className="text-[10px] text-white/40">{post.author}</p>
+                      </div>
+                      <span className="text-[10px] font-bold text-[#a2f31f] bg-[#a2f31f]/10 px-2 py-0.5 rounded-full">RER {post.rer}%</span>
+                    </div>
+                    <p className="text-sm text-white/70 leading-relaxed line-clamp-3">{post.text}</p>
+                    <div className="flex items-center gap-4 text-[10px] text-white/30 pt-1 border-t border-white/5">
+                      <span>{post.likes} curtidas</span>
+                      <span>{post.comments} comentários</span>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Section C: Lacunas Tematicas */}
+            {/* Seção 4: Recomendações de Conteúdo */}
             <div className="rounded-2xl border border-white/10 p-6">
-              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">Lacunas Tematicas</h3>
-              <p className="text-xs text-white/40 mb-4">Temas relevantes que nenhum concorrente esta explorando — oportunidades de conteudo</p>
-              <div className="flex flex-wrap gap-2">
-                {["FinOps para PMEs", "IA + compliance", "Cloud soberana", "Sustentabilidade digital", "Edge computing", "Dados em tempo real", "Cloud governance"].map((t) => (
-                  <span key={t} className="bg-[#a2f31f]/10 border border-[#a2f31f]/20 text-[#a2f31f] text-xs font-medium px-3 py-1.5 rounded-full">{t}</span>
+              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
+                Recomendações de Conteúdo
+                <InfoTooltip text="3 recomendações semanais geradas por IA com base na análise competitiva. Cada uma inclui: tema a abordar, ângulo sugerido, justificativa com dados reais do mercado, e um post de referência de concorrente que inspirou a recomendação." />
+              </h3>
+              <p className="text-xs text-white/40 mb-4">Temas, ângulos e justificativas baseadas nos dados da semana</p>
+              <div className="space-y-4">
+                {[
+                  {
+                    num: "01", tema: "Otimização de custos com FinOps",
+                    angulo: "Publique um case study mostrando como sua equipe reduziu custos em cloud para um cliente real. Use números concretos e o framework FinOps.",
+                    justificativa: "TechCloud Solutions publicou 3 posts sobre FinOps com RER acima de 40%. O tema atrai decisores financeiros (CFOs, VPs de Finanças) que são o ICP com maior poder de compra.",
+                    ref: { author: "Ana Silva — TechCloud Solutions", text: "Reduzimos o custo de infraestrutura cloud em 40% para um cliente do setor financeiro usando FinOps..." }
+                  },
+                  {
+                    num: "02", tema: "IA generativa aplicada a dados corporativos",
+                    angulo: "Crie um tutorial prático mostrando como sua empresa usa IA generativa nos serviços de dados. Foque em resultados mensuráveis, não na tecnologia.",
+                    justificativa: "Nenhum concorrente está abordando IA generativa aplicada a dados — é uma lacuna temática com alta demanda. Posts sobre IA tiveram +34% de engajamento no último mês.",
+                    ref: { author: "Carlos Lima — DataBridge Corp", text: "IA generativa está mudando a forma como processamos dados não-estruturados..." }
+                  },
+                  {
+                    num: "03", tema: "Erros comuns na migração para nuvem",
+                    angulo: "Compartilhe os 5 erros mais frequentes que você vê em projetos de migração cloud, com a perspectiva de quem já liderou dezenas de projetos.",
+                    justificativa: "3 concorrentes publicaram sobre migração com alto engajamento. O ângulo de 'erros comuns' gera identificação e debate — ideal para atrair comentários de decisores.",
+                    ref: { author: "Pedro Santos — Sua Empresa", text: "A migração para multi-cloud não é sobre tecnologia — é sobre estratégia de negócios..." }
+                  },
+                ].map((rec) => (
+                  <div key={rec.num} className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-5">
+                    <div className="flex items-start gap-4">
+                      <span className="text-3xl font-black text-[#ca98ff]/30 font-[family-name:var(--font-lexend)] leading-none shrink-0">{rec.num}</span>
+                      <div className="flex-1 space-y-3">
+                        <div>
+                          <p className="text-base font-bold text-white">{rec.tema}</p>
+                          <p className="text-sm text-white/60 mt-1 leading-relaxed">{rec.angulo}</p>
+                        </div>
+                        <div className="bg-[#a2f31f]/5 border border-[#a2f31f]/15 rounded-lg px-4 py-2.5">
+                          <p className="text-[10px] font-bold text-[#a2f31f] uppercase tracking-wider mb-1">Justificativa</p>
+                          <p className="text-xs text-[#a2f31f]/80 leading-relaxed">{rec.justificativa}</p>
+                        </div>
+                        <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg px-4 py-2.5">
+                          <p className="text-[10px] font-bold text-white/30 uppercase tracking-wider mb-1">Post de referência</p>
+                          <p className="text-[10px] text-[#ca98ff]/60 mb-0.5">{rec.ref.author}</p>
+                          <p className="text-xs text-white/40 italic">&ldquo;{rec.ref.text}&rdquo;</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 ))}
+              </div>
+            </div>
+
+            {/* Seção 5: Lacunas + Tendências */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-2xl border border-white/10 p-6">
+                <h3 className="text-base font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
+                  Lacunas Temáticas
+                  <InfoTooltip text="Temas B2B relevantes para seu mercado que nenhum concorrente está abordando no LinkedIn. São oportunidades de conteúdo com demanda real e baixa competição — ideais para se posicionar como referência." />
+                </h3>
+                <p className="text-xs text-white/40 mb-4">Temas que nenhum concorrente está explorando</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    "FinOps para PMEs",
+                    "IA + compliance regulatório",
+                    "Cloud soberana no Brasil",
+                    "Sustentabilidade em data centers",
+                    "Edge computing industrial",
+                    "Dados em tempo real para varejo",
+                    "Governanca multi-cloud",
+                  ].map((t) => (
+                    <span key={t} className="inline-flex items-center gap-1.5 bg-[#a2f31f]/10 border border-[#a2f31f]/20 text-[#a2f31f] text-xs font-medium px-3 py-1.5 rounded-full">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v8m-4-4h8"/></svg>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/10 p-6">
+                <h3 className="text-base font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
+                  Tendências em Alta
+                  <InfoTooltip text="Temas cujo engajamento de decisores cresceu significativamente no último mês. Indicam mudanças de interesse do mercado — publicar sobre esses temas agora aumenta a chance de alcançar decisores ativamente interessados." />
+                </h3>
+                <p className="text-xs text-white/40 mb-4">Temas com engajamento crescente no último mês</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { tema: "IA Generativa", pct: "+52%" },
+                    { tema: "FinOps", pct: "+34%" },
+                    { tema: "Segurança Zero Trust", pct: "+28%" },
+                    { tema: "Observabilidade", pct: "+24%" },
+                    { tema: "Platform Engineering", pct: "+19%" },
+                    { tema: "MLOps", pct: "+15%" },
+                  ].map((t) => (
+                    <span key={t.tema} className="inline-flex items-center gap-1.5 bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] text-xs font-medium px-3 py-1.5 rounded-full">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/></svg>
+                      {t.tema} <span className="text-[#a2f31f] font-bold">{t.pct}</span>
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
