@@ -15,7 +15,7 @@ export async function GET() {
   // Fetch all user's scans with result counts
   const { data: scans, error } = await service
     .from("leads_scans")
-    .select("id, post_urls, icp_job_titles, icp_departments, icp_company_size, total_engagers, matched_leads, status, created_at")
+    .select("id, post_urls, icp_job_titles, icp_departments, icp_company_size, total_engagers, matched_leads, status, created_at, icp_profile_id, url_profile_id, icp_profiles(name), url_profiles(name)")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 

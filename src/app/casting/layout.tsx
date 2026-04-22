@@ -113,6 +113,14 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
             >
               Influencers B2B
             </Link>
+            <Link
+              href="/casting/leads"
+              className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-lexend)] ${
+                pathname === "/casting/leads" || pathname.startsWith("/casting/leads/") ? "bg-[#ca98ff]/10 text-[#ca98ff]" : "text-[#adaaaa] hover:text-white hover:bg-[#20201f]"
+              }`}
+            >
+              Leads <span className="ml-1 text-[9px] font-bold bg-[#ff946e]/20 text-[#ff946e] px-1.5 py-0.5 rounded-full uppercase tracking-wider">beta</span>
+            </Link>
           </nav>
         </aside>
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import Navbar from "@/components/navbar";
 
@@ -144,6 +145,15 @@ export default function ShareOfLinkedInPage() {
             Cole a URL da sua empresa no LinkedIn e mapeie seu mercado em minutos.
           </p>
           <LinkedInInput value={linkedinUrl} onChange={setLinkedinUrl} onAnalyze={handleAnalyze} />
+          <div className="mt-6">
+            <Link
+              href="/share-of-linkedin-exemplo"
+              className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-[#E91E8C] font-medium transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+              Ver exemplo de relatório
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -212,9 +222,16 @@ export default function ShareOfLinkedInPage() {
             <p className="text-gray-400 leading-relaxed max-w-2xl mx-auto relative z-10 mb-4">
               Share of LinkedIn é a medida da presença e influência da sua empresa no LinkedIn comparada aos concorrentes do mesmo nicho. Assim como Share of Voice mede presença na mídia, o Share of LinkedIn mede quem domina as conversas relevantes no LinkedIn B2B.
             </p>
-            <p className="text-gray-400 leading-relaxed max-w-2xl mx-auto relative z-10">
+            <p className="text-gray-400 leading-relaxed max-w-2xl mx-auto relative z-10 mb-8">
               Nossa plataforma monitora continuamente o que concorrentes, funcionários influentes e referências do seu mercado publicam. Analisa o que funciona com IA e entrega recomendações estratégicas para que sua empresa ganhe terreno onde importa: na frente dos decisores que compram.
             </p>
+            <Link
+              href="/share-of-linkedin-exemplo"
+              className="relative z-10 inline-flex items-center gap-3 bg-gradient-accent text-white font-semibold px-8 py-4 rounded-full text-base hover:opacity-90 transition-opacity shadow-[0_4px_24px_rgba(233,30,140,0.3)]"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+              Ver exemplo de relatório
+            </Link>
           </div>
         </div>
       </section>
@@ -417,14 +434,17 @@ export default function ShareOfLinkedInPage() {
               <p className="text-gray-500 text-sm mb-8">Comece a enxergar seu mercado</p>
               <ul className="space-y-3 mb-8 flex-1">
                 {[
-                  { text: "1 concorrente mapeado", tip: "Empresas concorrentes que serão monitoradas continuamente. Seus posts e engajamento são analisados semanalmente." },
-                  { text: "4 colaboradores rastreados", tip: "Colaboradores da sua empresa e dos concorrentes que publicam ativamente no LinkedIn. Rastreamos seus posts e engajamento com decisores." },
+                  { text: "Sua marca + 1 concorrente", sub: "Através dos colaboradores de ambos", tip: "A análise de cada empresa é feita através dos posts de seus colaboradores no LinkedIn — rastreamos o que publicam e como decisores reagem." },
+                  { text: "4 colaboradores rastreados", tip: "Colaboradores da sua empresa e do concorrente que publicam ativamente. No LinkedIn, a presença de uma empresa é a soma das vozes dos seus colaboradores." },
                   { text: "2 influencers rastreados", tip: "Influencers B2B do seu nicho que publicam conteúdo relevante. Identificamos quem tem maior impacto entre decisores do seu mercado." },
                   { text: "9 créditos/mês", tip: "Use créditos para extrair leads (1 crédito cada) ou encontrar novos influencers (3 créditos cada). Créditos do plano renovam mensalmente." },
                 ].map((f) => (
                   <li key={f.text} className="flex items-start gap-3 text-sm text-gray-300">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5" /></svg>
-                    <span>{f.text}<PlanTooltip text={f.tip} /></span>
+                    <span>
+                      {f.text}<PlanTooltip text={f.tip} />
+                      {"sub" in f && f.sub && <span className="block text-xs text-[#E91E8C]/80 mt-0.5">{f.sub}</span>}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -449,14 +469,17 @@ export default function ShareOfLinkedInPage() {
               <p className="text-gray-500 text-sm mb-8">Domine a estratégia do seu nicho</p>
               <ul className="space-y-3 mb-8 flex-1">
                 {[
-                  { text: "2 concorrentes mapeados", tip: "Monitore 2 concorrentes por empresa. Posts, engajamento de decisores e temas são analisados semanalmente para comparação direta." },
-                  { text: "8 colaboradores rastreados", tip: "Rastreie 8 colaboradores ativos da sua empresa e dos concorrentes. Monitora quem publica, com que frequência e qual o impacto entre decisores." },
-                  { text: "4 influencers rastreados", tip: "Acompanhe 4 influencers B2B do seu nicho. Veja o que publicam, quais temas abordam e como decisores reagem ao conteúdo deles." },
+                  { text: "Sua marca + 3 concorrentes", sub: "Através dos colaboradores de ambos", tip: "A análise de cada empresa é feita através dos posts de seus colaboradores no LinkedIn — rastreamos o que publicam e como decisores reagem." },
+                  { text: "8 colaboradores rastreados", tip: "Colaboradores da sua empresa e de cada concorrente que publicam ativamente. São eles que representam a voz da empresa no LinkedIn — rastreamos seus posts e engajamento com decisores." },
+                  { text: "4 influencers rastreados", tip: "Influencers B2B do seu nicho. Veja o que publicam, quais temas abordam e como decisores reagem ao conteúdo deles." },
                   { text: "24 créditos/mês", tip: "Use créditos para extrair leads (1 crédito cada) ou encontrar novos influencers (3 créditos cada). Créditos do plano renovam mensalmente." },
                 ].map((f) => (
                   <li key={f.text} className="flex items-start gap-3 text-sm text-gray-300">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5" /></svg>
-                    <span>{f.text}<PlanTooltip text={f.tip} /></span>
+                    <span>
+                      {f.text}<PlanTooltip text={f.tip} />
+                      {"sub" in f && f.sub && <span className="block text-xs text-[#E91E8C]/80 mt-0.5">{f.sub}</span>}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -478,14 +501,17 @@ export default function ShareOfLinkedInPage() {
               <p className="text-gray-500 text-sm mb-8">Inteligência completa para seu LinkedIn B2B</p>
               <ul className="space-y-3 mb-8 flex-1">
                 {[
-                  { text: "4 concorrentes mapeados", tip: "Monitore até 4 concorrentes com análise profunda. Ideal para mercados com múltiplos players relevantes." },
-                  { text: "16 colaboradores rastreados", tip: "Rastreie 16 colaboradores entre sua empresa e concorrentes. Cobertura ampla de quem está moldando a percepção do mercado no LinkedIn." },
-                  { text: "8 influencers rastreados", tip: "Acompanhe 8 influencers B2B do seu nicho. Visão completa de quem produz conteúdo relevante e engaja decisores." },
+                  { text: "Sua marca + 6 concorrentes", sub: "Através dos colaboradores de ambos", tip: "A análise de cada empresa é feita através dos posts de seus colaboradores — rastreamos quem publica, sobre o que e com qual impacto entre decisores." },
+                  { text: "16 colaboradores rastreados", tip: "Colaboradores da sua empresa e de cada concorrente que publicam ativamente. No LinkedIn, a presença de uma empresa é a soma das vozes dos seus colaboradores — monitoramos todos eles." },
+                  { text: "8 influencers rastreados", tip: "Influencers B2B do seu nicho. Visão completa de quem produz conteúdo relevante e engaja decisores do seu mercado." },
                   { text: "48 créditos/mês", tip: "Use créditos para extrair leads (1 crédito cada) ou encontrar novos influencers (3 créditos cada). Créditos do plano renovam mensalmente." },
                 ].map((f) => (
                   <li key={f.text} className="flex items-start gap-3 text-sm text-gray-300">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5" /></svg>
-                    <span>{f.text}<PlanTooltip text={f.tip} /></span>
+                    <span>
+                      {f.text}<PlanTooltip text={f.tip} />
+                      {"sub" in f && f.sub && <span className="block text-xs text-[#E91E8C]/80 mt-0.5">{f.sub}</span>}
+                    </span>
                   </li>
                 ))}
               </ul>

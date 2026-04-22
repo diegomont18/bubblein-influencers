@@ -16,6 +16,8 @@ interface Lead {
   matched_titles: string[];
   matched_departments: string[];
   company_size_match: boolean;
+  company_size?: string;
+  company_industry?: string;
   engagement_type: "reaction" | "comment" | "both";
   source_post_url: string;
   role_level?: "decisor" | "influenciador" | "observador";
@@ -90,7 +92,7 @@ export default function LeadsPage() {
   const [pageLoading, setPageLoading] = useState(true);
 
   // Past scans
-  const [pastScans, setPastScans] = useState<Array<{ id: string; created_at: string; post_urls: string[]; matched_leads: number; status: string; leads: Lead[] }>>([]);
+  const [pastScans, setPastScans] = useState<Array<{ id: string; created_at: string; post_urls: string[]; icp_job_titles: string[]; icp_departments: string[]; matched_leads: number; status: string; leads: Lead[]; icp_profiles?: { name: string } | null; url_profiles?: { name: string } | null }>>([]);
   const [activeScanId, setActiveScanId] = useState<string | null>(null);
 
   // Scan state
@@ -319,6 +321,8 @@ export default function LeadsPage() {
   const [filterPostUrl, setFilterPostUrl] = useState<string>("all");
   const [expandedSourceRow, setExpandedSourceRow] = useState<string | null>(null);
   const [expandedHeadlineRow, setExpandedHeadlineRow] = useState<string | null>(null);
+  const [leadsPage, setLeadsPage] = useState(1);
+  const LEADS_PER_PAGE = 10;
 
   // --- Scan (background + polling) ---
   async function handleScan() {
@@ -355,6 +359,8 @@ export default function LeadsPage() {
           icpJobTitles: titles,
           icpDepartments: depts,
           icpCompanySizes,
+          icpProfileId: activeIcpId,
+          urlProfileId: activeUrlId,
         }),
         signal: controller.signal,
       });
@@ -427,11 +433,13 @@ export default function LeadsPage() {
   }
 
   function exportCsv() {
-    const headers = ["Nome", "LinkedIn URL", "Cargo", "Especialidades", "Empresa", "ICP Score", "ICP Nivel", "Titulos Match", "Departamentos Match", "Tipo Engajamento", "Post URL"];
+    const headers = ["Nome", "LinkedIn URL", "Cargo", "Especialidades", "Empresa", "Tamanho", "Setor", "ICP Score", "ICP Nivel", "Decisor", "Titulos Match", "Departamentos Match", "Tipo Engajamento", "Post URL"];
     const escape = (v: string) => v.includes(",") || v.includes('"') || v.includes("\n") ? '"' + v.replace(/"/g, '""') + '"' : v;
     const rows = filteredLeads.map((l) => [
       l.name, l.linkedin_url, l.job_title ?? "", l.headline ?? "", l.company,
+      l.company_size ?? "", l.company_industry ?? "",
       String(l.icp_score), icpLabel(l.icp_score).text,
+      l.role_level ?? "",
       (l.matched_titles ?? []).join("; "), (l.matched_departments ?? []).join("; "),
       l.engagement_type, l.source_post_url,
     ].map(escape));
@@ -612,10 +620,10 @@ export default function LeadsPage() {
             </select>
             <button
               onClick={handleCreateIcp}
-              className="rounded-lg bg-[#20201f] px-2.5 py-1.5 text-xs text-[#ca98ff] hover:bg-[#262626] transition-colors font-bold"
+              className="rounded-lg bg-[#ca98ff]/10 border border-[#ca98ff]/20 px-3 py-1.5 text-xs text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors font-bold flex items-center gap-1"
               title="Criar novo ICP"
             >
-              +
+              <span className="text-sm leading-none">+</span> Novo ICP
             </button>
             {activeIcp && (
               editingIcpName !== null ? (
@@ -725,10 +733,10 @@ export default function LeadsPage() {
               </select>
               <button
                 onClick={handleCreateUrl}
-                className="rounded-lg bg-[#20201f] px-2.5 py-1.5 text-xs text-[#ca98ff] hover:bg-[#262626] transition-colors font-bold"
+                className="rounded-lg bg-[#ca98ff]/10 border border-[#ca98ff]/20 px-3 py-1.5 text-xs text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors font-bold flex items-center gap-1"
                 title="Criar novo perfil de URLs"
               >
-                +
+                <span className="text-sm leading-none">+</span> Novo Perfil
               </button>
               {activeUrl && (
                 editingUrlName !== null ? (
@@ -924,11 +932,16 @@ export default function LeadsPage() {
                   onChange={(e) => handleSelectScan(e.target.value)}
                   className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] font-[family-name:var(--font-lexend)]"
                 >
-                  {pastScans.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {new Date(s.created_at).toLocaleDateString("pt-BR")} {new Date(s.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} — {s.matched_leads ?? 0} leads
-                    </option>
-                  ))}
+                  {pastScans.map((s) => {
+                    const icpName = s.icp_profiles?.name ?? ((s.icp_job_titles ?? []).slice(0, 2).join(", ") || "Sem ICP");
+                    const urlName = s.url_profiles?.name ?? "";
+                    const date = new Date(s.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {icpName}{urlName ? ` · ${urlName}` : ""} · {date} · {s.matched_leads ?? 0} leads
+                      </option>
+                    );
+                  })}
                 </select>
               )}
             </div>
@@ -1009,7 +1022,7 @@ export default function LeadsPage() {
               <option value="Medio">ICP: Medio</option>
               <option value="Baixo">ICP: Baixo</option>
             </select>
-            <select value={filterRoleLevel} onChange={(e) => setFilterRoleLevel(e.target.value)} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff]">
+            <select value={filterRoleLevel} onChange={(e) => { setFilterRoleLevel(e.target.value); setLeadsPage(1); }} className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff]">
               <option value="all">Decisor: Todos</option>
               <option value="decisor">Decisor</option>
               <option value="influenciador">Influenciador</option>
@@ -1032,8 +1045,29 @@ export default function LeadsPage() {
           </div>
 
           <div className="rounded-2xl bg-[#131313] overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div
+              className="overflow-x-auto"
+              ref={(el) => {
+                if (!el) return;
+                const id = "leads-top-scroll";
+                let topScroll = el.parentElement?.querySelector(`#${id}`) as HTMLDivElement | null;
+                if (!topScroll) {
+                  topScroll = document.createElement("div");
+                  topScroll.id = id;
+                  topScroll.style.overflowX = "auto";
+                  topScroll.style.marginBottom = "4px";
+                  const inner = document.createElement("div");
+                  inner.style.height = "1px";
+                  topScroll.appendChild(inner);
+                  el.parentElement?.insertBefore(topScroll, el);
+                  topScroll.addEventListener("scroll", () => { el.scrollLeft = topScroll!.scrollLeft; });
+                  el.addEventListener("scroll", () => { topScroll!.scrollLeft = el.scrollLeft; });
+                }
+                const inner = topScroll.firstChild as HTMLDivElement;
+                if (inner) inner.style.width = `${el.scrollWidth}px`;
+              }}
+            >
+              <table className="w-full text-sm min-w-[900px]">
                 <thead>
                   <tr className="bg-[#1a1a1a] text-left">
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">#</th>
@@ -1042,6 +1076,7 @@ export default function LeadsPage() {
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Cargo</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Especialidades</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Empresa</th>
+                    <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Tamanho</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">ICP Score</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Decisor</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Engajamento</th>
@@ -1051,11 +1086,13 @@ export default function LeadsPage() {
                 <tbody>
                   {filteredLeads
                     .sort((a, b) => b.icp_score - a.icp_score)
+                    .slice((leadsPage - 1) * LEADS_PER_PAGE, leadsPage * LEADS_PER_PAGE)
                     .map((lead, idx) => {
+                      const globalIdx = (leadsPage - 1) * LEADS_PER_PAGE + idx;
                       const label = icpLabel(lead.icp_score);
                       return (
                         <tr key={lead.slug} className="border-t border-[#262626] hover:bg-[#20201f] transition-colors">
-                          <td className="px-4 py-3 text-[#adaaaa] text-xs">#{idx + 1}</td>
+                          <td className="px-4 py-3 text-[#adaaaa] text-xs">#{globalIdx + 1}</td>
                           <td className="px-2 py-3">
                             {lead.profile_photo ? (
                               <img src={lead.profile_photo} alt={lead.name} className="w-8 h-8 rounded-full object-cover ring-2 ring-[#ca98ff]/20" onError={(e) => { e.currentTarget.style.display = "none"; }} />
@@ -1091,6 +1128,11 @@ export default function LeadsPage() {
                             ) : "—"}
                           </td>
                           <td className="px-4 py-3 text-[#adaaaa] text-sm">{lead.company || "—"}</td>
+                          <td className="px-4 py-3">
+                            {lead.company_size ? (
+                              <span className="inline-block rounded-full bg-white/5 px-2.5 py-0.5 text-xs text-[#adaaaa] font-medium">{lead.company_size}</span>
+                            ) : <span className="text-[#adaaaa]">—</span>}
+                          </td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold ${label.cls}`}>
                               {label.text}
@@ -1138,6 +1180,33 @@ export default function LeadsPage() {
               </table>
             </div>
           </div>
+
+          {/* Pagination */}
+          {(() => {
+            const totalPages = Math.ceil(filteredLeads.length / LEADS_PER_PAGE);
+            if (totalPages <= 1) return null;
+            return (
+              <div className="flex items-center justify-center py-4 gap-3">
+                <button
+                  onClick={() => setLeadsPage((p) => Math.max(1, p - 1))}
+                  disabled={leadsPage === 1}
+                  className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] disabled:opacity-50 transition-colors"
+                >
+                  Anterior
+                </button>
+                <span className="px-4 py-2 text-xs font-medium text-[#adaaaa]">
+                  Página {leadsPage} de {totalPages}
+                </span>
+                <button
+                  onClick={() => setLeadsPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={leadsPage === totalPages}
+                  className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] disabled:opacity-50 transition-colors"
+                >
+                  Próxima
+                </button>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

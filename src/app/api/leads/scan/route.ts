@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { fetchPostEngagers } from "@/lib/apify";
-import { batchScoreIcpMatch } from "@/lib/ai";
+import { fetchPostEngagers, fetchLinkedInProfileApify } from "@/lib/apify";
+import { batchScoreIcpMatch, extractCompaniesFromHeadlines } from "@/lib/ai";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { isApifyBlocked } from "@/lib/apify-usage";
+import { resolveCompanySizes } from "@/lib/company-cache";
 
 interface ScanBody {
   postUrls: string[];
@@ -11,6 +12,8 @@ interface ScanBody {
   icpDepartments: string[];
   icpCompanySizes: string[];
   icpCompanySize?: string;
+  icpProfileId?: string;
+  urlProfileId?: string;
 }
 
 
@@ -176,6 +179,133 @@ async function runScanInline(
       }
     }
 
+    // Enrich leads with empty company by fetching their LinkedIn profile
+    try {
+      const { data: emptyCompanyLeads } = await service
+        .from("leads_results")
+        .select("id, profile_slug, notes")
+        .eq("scan_id", scanId);
+
+      const toEnrich = ((emptyCompanyLeads ?? []) as Array<{ id: string; profile_slug: string; notes: unknown }>)
+        .map((row) => {
+          const notes = typeof row.notes === "string" ? JSON.parse(row.notes) : (row.notes as Record<string, unknown>);
+          return { id: row.id, slug: row.profile_slug, notes, company: String(notes?.company ?? ""), linkedinUrl: String(notes?.linkedin_url ?? "") };
+        })
+        .filter((r) => !r.company);
+
+      if (toEnrich.length > 0) {
+        console.log(`[leads] Company enrichment: ${toEnrich.length} leads need company from profile`);
+        const MAX_ENRICH = 20;
+        const needsAiExtraction: Array<{ id: string; index: number; name: string; text: string; leadRef: typeof toEnrich[number] }> = [];
+
+        for (let i = 0; i < Math.min(toEnrich.length, MAX_ENRICH); i += 5) {
+          const batch = toEnrich.slice(i, i + 5);
+          await Promise.all(batch.map(async (lead) => {
+            try {
+              const target = lead.linkedinUrl && lead.linkedinUrl.startsWith("http")
+                ? lead.linkedinUrl
+                : lead.slug;
+              const result = await fetchLinkedInProfileApify(target);
+              if (result.status === 200 && result.data) {
+                const d = result.data as Record<string, unknown>;
+
+                // Try currentPosition.company first
+                let company = String(d.company ?? "").trim();
+
+                // Fallback 1: experience[0].company (current or most recent)
+                if (!company) {
+                  const exp = d.experience as Array<Record<string, unknown>> | undefined;
+                  if (Array.isArray(exp) && exp.length > 0) {
+                    const current = exp.find((e) => !e.end_date && (!e.ends_at || e.ends_at === "Present"));
+                    const pick = current ?? exp[0];
+                    company = String(pick?.company ?? pick?.company_name ?? "").trim();
+                  }
+                }
+
+                // Save enriched headline for potential AI extraction
+                const enrichedHeadline = String(d.headline ?? "");
+                if (enrichedHeadline && !lead.notes.headline) lead.notes.headline = enrichedHeadline;
+
+                if (company) {
+                  lead.notes.company = company;
+                  await service.from("leads_results").update({
+                    notes: JSON.stringify(lead.notes),
+                  }).eq("id", lead.id);
+                  console.log(`[leads]   ✓ ${lead.notes.name ?? lead.slug} → company="${company}"`);
+                } else if (enrichedHeadline && enrichedHeadline.length > 10) {
+                  // Fallback 2: queue for AI extraction from enriched headline
+                  needsAiExtraction.push({
+                    id: lead.id,
+                    index: needsAiExtraction.length,
+                    name: String(lead.notes.name ?? ""),
+                    text: enrichedHeadline,
+                    leadRef: lead,
+                  });
+                  console.log(`[leads]   ? ${lead.notes.name ?? lead.slug} → queued for AI headline extraction`);
+                } else {
+                  console.log(`[leads]   ✗ ${lead.notes.name ?? lead.slug} → no company in profile`);
+                }
+              }
+            } catch (err) {
+              console.log(`[leads]   ✗ ${lead.slug} error: ${(err as Error).message}`);
+            }
+          }));
+        }
+
+        // Fallback 2: batch AI extraction from enriched headlines
+        if (needsAiExtraction.length > 0) {
+          console.log(`[leads] AI headline extraction for ${needsAiExtraction.length} leads`);
+          const aiResults = await extractCompaniesFromHeadlines(
+            needsAiExtraction.map((x) => ({ index: x.index, name: x.name, text: x.text }))
+          );
+          for (const [idx, company] of Array.from(aiResults.entries())) {
+            const item = needsAiExtraction[idx];
+            if (!item || !company) continue;
+            item.leadRef.notes.company = company;
+            await service.from("leads_results").update({
+              notes: JSON.stringify(item.leadRef.notes),
+            }).eq("id", item.id);
+            console.log(`[leads]   ✓ ${item.name} → company="${company}" (AI)`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[leads] Company profile enrichment failed:", err);
+    }
+
+    // Enrich leads with company size from LinkedIn company pages
+    try {
+      const { data: savedLeads } = await service
+        .from("leads_results")
+        .select("id, notes")
+        .eq("scan_id", scanId);
+
+      const companyNames = (savedLeads ?? [])
+        .map((l) => {
+          const notes = typeof l.notes === "string" ? JSON.parse(l.notes) : l.notes;
+          return (notes?.company ?? "") as string;
+        })
+        .filter(Boolean);
+
+      if (companyNames.length > 0) {
+        const companySizes = await resolveCompanySizes(companyNames, userId, scanId);
+
+        // Update each lead's notes with company_size
+        for (const row of (savedLeads ?? []) as Array<{ id: string; notes: unknown }>) {
+          const notes = typeof row.notes === "string" ? JSON.parse(row.notes as string) : (row.notes as Record<string, unknown>);
+          const company = (notes?.company ?? "") as string;
+          if (!company) continue;
+          const info = companySizes.get(company);
+          if (!info) continue;
+          const updatedNotes = { ...notes, company_size: info.employeeCountRange, company_industry: info.industry };
+          await service.from("leads_results").update({ notes: JSON.stringify(updatedNotes) }).eq("id", row.id);
+        }
+        console.log(`[leads] Company size enrichment: ${companySizes.size}/${companyNames.length} companies resolved`);
+      }
+    } catch (err) {
+      console.error("[leads] Company size enrichment failed:", err);
+    }
+
     // Deduct credits: 1 credit per 10 leads found
     if (userRole && userRole.credits !== -1 && leadCount > 0) {
       const creditsToDeduct = Math.ceil(leadCount / 10);
@@ -234,7 +364,7 @@ export async function POST(request: Request) {
   }
 
   const body: ScanBody = await request.json();
-  const { postUrls, icpJobTitles, icpDepartments, icpCompanySizes = [], icpCompanySize } = body;
+  const { postUrls, icpJobTitles, icpDepartments, icpCompanySizes = [], icpCompanySize, icpProfileId, urlProfileId } = body;
   const companySizes = icpCompanySizes.length > 0 ? icpCompanySizes : (icpCompanySize ? [icpCompanySize] : []);
 
   if (!postUrls || postUrls.length === 0) {
@@ -269,6 +399,8 @@ export async function POST(request: Request) {
       icp_departments: icpDepartments,
       icp_company_size: companySizes.join(","),
       status: "processing",
+      icp_profile_id: icpProfileId || null,
+      url_profile_id: urlProfileId || null,
     })
     .select()
     .single();
