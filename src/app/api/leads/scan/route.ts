@@ -4,7 +4,7 @@ import { fetchPostEngagers, fetchLinkedInProfileApify } from "@/lib/apify";
 import { batchScoreIcpMatch, extractCompaniesFromHeadlines } from "@/lib/ai";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { isApifyBlocked } from "@/lib/apify-usage";
-import { resolveCompanySizes } from "@/lib/company-cache";
+// resolveCompanySizes moved to /api/leads/enrich (on-demand admin endpoint)
 
 interface ScanBody {
   postUrls: string[];
@@ -273,38 +273,8 @@ async function runScanInline(
       console.error("[leads] Company profile enrichment failed:", err);
     }
 
-    // Enrich leads with company size from LinkedIn company pages
-    try {
-      const { data: savedLeads } = await service
-        .from("leads_results")
-        .select("id, notes")
-        .eq("scan_id", scanId);
-
-      const companyNames = (savedLeads ?? [])
-        .map((l) => {
-          const notes = typeof l.notes === "string" ? JSON.parse(l.notes) : l.notes;
-          return (notes?.company ?? "") as string;
-        })
-        .filter(Boolean);
-
-      if (companyNames.length > 0) {
-        const companySizes = await resolveCompanySizes(companyNames, userId, scanId);
-
-        // Update each lead's notes with company_size
-        for (const row of (savedLeads ?? []) as Array<{ id: string; notes: unknown }>) {
-          const notes = typeof row.notes === "string" ? JSON.parse(row.notes as string) : (row.notes as Record<string, unknown>);
-          const company = (notes?.company ?? "") as string;
-          if (!company) continue;
-          const info = companySizes.get(company);
-          if (!info) continue;
-          const updatedNotes = { ...notes, company_size: info.employeeCountRange, company_industry: info.industry };
-          await service.from("leads_results").update({ notes: JSON.stringify(updatedNotes) }).eq("id", row.id);
-        }
-        console.log(`[leads] Company size enrichment: ${companySizes.size}/${companyNames.length} companies resolved`);
-      }
-    } catch (err) {
-      console.error("[leads] Company size enrichment failed:", err);
-    }
+    // Company size enrichment removed from automatic scan (moved to /api/leads/enrich endpoint)
+    // Use "Fazer Enrich" button in admin UI to trigger on-demand
 
     // Deduct credits: 1 credit per 10 leads found
     if (userRole && userRole.credits !== -1 && leadCount > 0) {

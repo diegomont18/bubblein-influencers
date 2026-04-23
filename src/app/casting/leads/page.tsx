@@ -77,6 +77,10 @@ export default function LeadsPage() {
   // URL form
   const [postUrls, setPostUrls] = useState("");
   const [userCredits, setUserCredits] = useState<number>(5);
+  const [enriched, setEnriched] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+  const [showEnrichModal, setShowEnrichModal] = useState(false);
+  const isAdmin = userCredits === -1;
   const [inputMode, setInputMode] = useState<"posts" | "profile">("posts");
   const [profileUrl, setProfileUrl] = useState("");
   const [profilePosts, setProfilePosts] = useState<ProfilePost[]>([]);
@@ -181,6 +185,11 @@ export default function LeadsPage() {
       setLeads((latest.leads ?? []).filter((l: Lead) => l.name && l.name !== "Unknown" && l.name.length >= 2));
     }
   }, [activeScanId, leads.length]);
+
+  // Detect if leads already have company_size data (previously enriched)
+  useEffect(() => {
+    setEnriched(leads.some((l) => l.company_size));
+  }, [leads]);
 
   useEffect(() => {
     Promise.all([loadIcpProfiles(), loadUrlProfiles(), loadPastScans()]).finally(() => setPageLoading(false));
@@ -432,12 +441,42 @@ export default function LeadsPage() {
     }
   }
 
+  async function handleEnrich() {
+    if (!activeScanId || enriching) return;
+    setEnriching(true);
+    setShowEnrichModal(false);
+    try {
+      const res = await fetch("/api/leads/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scanId: activeScanId }),
+      });
+      if (res.ok) {
+        // Reload leads to get updated company_size
+        const scansRes = await fetch("/api/leads/scans");
+        if (scansRes.ok) {
+          const scansData = await scansRes.json();
+          const scan = (scansData.scans ?? []).find((s: { id: string }) => s.id === activeScanId);
+          if (scan) {
+            setLeads((scan.leads ?? []).filter((l: Lead) => l.name && l.name !== "Unknown" && l.name.length >= 2));
+          }
+        }
+      } else {
+        const errData = await res.json();
+        setError(errData.error || "Falha no enrich");
+      }
+    } catch { setError("Falha no enrich"); }
+    finally { setEnriching(false); }
+  }
+
   function exportCsv() {
-    const headers = ["Nome", "LinkedIn URL", "Cargo", "Especialidades", "Empresa", "Tamanho", "Setor", "ICP Score", "ICP Nivel", "Decisor", "Titulos Match", "Departamentos Match", "Tipo Engajamento", "Post URL"];
+    const baseHeaders = ["Nome", "LinkedIn URL", "Cargo", "Especialidades", "Empresa"];
+    const sizeHeaders = enriched ? ["Tamanho", "Setor"] : [];
+    const headers = [...baseHeaders, ...sizeHeaders, "ICP Score", "ICP Nivel", "Decisor", "Titulos Match", "Departamentos Match", "Tipo Engajamento", "Post URL"];
     const escape = (v: string) => v.includes(",") || v.includes('"') || v.includes("\n") ? '"' + v.replace(/"/g, '""') + '"' : v;
     const rows = filteredLeads.map((l) => [
       l.name, l.linkedin_url, l.job_title ?? "", l.headline ?? "", l.company,
-      l.company_size ?? "", l.company_industry ?? "",
+      ...(enriched ? [l.company_size ?? "", l.company_industry ?? ""] : []),
       String(l.icp_score), icpLabel(l.icp_score).text,
       l.role_level ?? "",
       (l.matched_titles ?? []).join("; "), (l.matched_departments ?? []).join("; "),
@@ -951,7 +990,47 @@ export default function LeadsPage() {
             >
               Exportar CSV
             </button>
+            {isAdmin && !enriched && leads.length > 0 && (
+              <button
+                onClick={() => setShowEnrichModal(true)}
+                disabled={enriching}
+                className="rounded-full bg-red-600 px-4 py-2 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 transition-colors font-[family-name:var(--font-lexend)]"
+              >
+                {enriching ? "Processando..." : "Fazer Enrich"}
+              </button>
+            )}
+            {enriched && (
+              <span className="text-[10px] text-green-400 bg-green-400/10 px-2.5 py-1 rounded-full font-medium">Enrich completo</span>
+            )}
           </div>
+
+          {/* Enrich confirmation modal */}
+          {showEnrichModal && (() => {
+            const companies = new Set(leads.filter((l) => l.company && !l.company_size).map((l) => l.company));
+            const estCost = companies.size * 0.0085;
+            return (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowEnrichModal(false)}>
+                <div className="bg-[#1a1a2e] border border-[#E91E8C]/30 rounded-2xl p-6 max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="text-lg font-bold text-white mb-3">Confirmar Enrich de Empresas</h3>
+                  <p className="text-sm text-gray-400 mb-4">
+                    Esta operacao consulta o LinkedIn para cada empresa dos leads e consome creditos significativos da API Apify (~$0.005 por empresa + ~$0.0035 por busca SERP).
+                  </p>
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 mb-4">
+                    <p className="text-sm text-red-400">
+                      <strong>{companies.size}</strong> empresas unicas para enriquecer
+                    </p>
+                    <p className="text-sm text-red-400">
+                      Custo estimado: <strong>${estCost.toFixed(4)}</strong> (R${(estCost * 5).toFixed(2)})
+                    </p>
+                  </div>
+                  <div className="flex gap-3 justify-end">
+                    <button onClick={() => setShowEnrichModal(false)} className="px-4 py-2 rounded-full text-sm text-gray-400 hover:text-white border border-[#1E1E3A] transition-colors">Cancelar</button>
+                    <button onClick={handleEnrich} className="px-4 py-2 rounded-full text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors">Confirmar Enrich</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Post cards — horizontal scrollable, always visible */}
           {uniquePostUrls.length > 0 && (
@@ -1076,7 +1155,7 @@ export default function LeadsPage() {
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Cargo</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Especialidades</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Empresa</th>
-                    <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Tamanho</th>
+                    {enriched && <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Tamanho</th>}
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">ICP Score</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Decisor</th>
                     <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Engajamento</th>
@@ -1128,11 +1207,13 @@ export default function LeadsPage() {
                             ) : "—"}
                           </td>
                           <td className="px-4 py-3 text-[#adaaaa] text-sm">{lead.company || "—"}</td>
+                          {enriched && (
                           <td className="px-4 py-3">
                             {lead.company_size ? (
                               <span className="inline-block rounded-full bg-white/5 px-2.5 py-0.5 text-xs text-[#adaaaa] font-medium">{lead.company_size}</span>
                             ) : <span className="text-[#adaaaa]">—</span>}
                           </td>
+                          )}
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold ${label.cls}`}>
                               {label.text}
