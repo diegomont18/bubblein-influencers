@@ -512,8 +512,11 @@ export default function ApiCostsPage() {
                   { op: "Buscar perfil de engajadores", api: "Apify", cost: "$0.004", desc: "Para identificar se é decisor (ICP match)" },
                   { op: "Buscar empresa LinkedIn", api: "Apify", cost: "$0.005", desc: "Para enriquecer dados de empresa" },
                   { op: "SERP Google", api: "Apify", cost: "$0.0035", desc: "Para encontrar slugs de empresas" },
+                  { op: "SERP Share of Voice", api: "Apify", cost: "$0.0035", desc: "Buscar menções externas por keyword de cada empresa" },
+                  { op: "Buscar perfil do mencionador", api: "Apify", cost: "$0.004", desc: "Perfil de quem mencionou a marca (identificar influenciadores)" },
                   { op: "Classificação ICP (IA)", api: "OpenRouter", cost: "$0.0002", desc: "Scoring de match com ICP por engajador" },
                   { op: "Análise temática (IA)", api: "OpenRouter", cost: "$0.001", desc: "Classificação de temas por post" },
+                  { op: "Análise de sentimento (IA)", api: "OpenRouter", cost: "$0.0005", desc: "Classificar menções como positivo/neutro/negativo" },
                 ].map((r) => (
                   <tr key={r.op}>
                     <td className="px-4 py-2.5 text-gray-800 font-medium">{r.op}</td>
@@ -543,22 +546,13 @@ export default function ApiCostsPage() {
                     { op: "Perfil engajadores", calc: "32 × 50 × $0.004", cost: 6.40 },
                     { op: "ICP scoring", calc: "32 × 50 × $0.0002", cost: 0.32 },
                     { op: "Análise temática", calc: "32 posts × $0.001", cost: 0.032 },
+                    { op: "SERP Share of Voice", calc: "4 kw × 2 empresas × $0.0035", cost: 0.028 },
+                    { op: "Perfil mencionadores", calc: "~10 menções × $0.004", cost: 0.04 },
+                    { op: "Sentimento (IA)", calc: "~10 menções × $0.0005", cost: 0.005 },
                   ],
                 },
                 {
                   name: "Professional", badge: "Sua marca + 3 concorrentes", highlight: true,
-                  collabs: 8, postsPerCollab: 8, engagersPerPost: 50,
-                  breakdown: [
-                    { op: "Perfis LinkedIn", calc: "8 × $0.004", cost: 0.032 },
-                    { op: "Posts dos perfis", calc: "8 × $0.02", cost: 0.16 },
-                    { op: "Engajadores", calc: "64 posts × 50 × $0.0012", cost: 3.84 },
-                    { op: "Perfil engajadores", calc: "64 × 50 × $0.004", cost: 12.80 },
-                    { op: "ICP scoring", calc: "64 × 50 × $0.0002", cost: 0.64 },
-                    { op: "Análise temática", calc: "64 posts × $0.001", cost: 0.064 },
-                  ],
-                },
-                {
-                  name: "Business", badge: "Sua marca + 6 concorrentes", highlight: false,
                   collabs: 16, postsPerCollab: 8, engagersPerPost: 50,
                   breakdown: [
                     { op: "Perfis LinkedIn", calc: "16 × $0.004", cost: 0.064 },
@@ -567,18 +561,39 @@ export default function ApiCostsPage() {
                     { op: "Perfil engajadores", calc: "128 × 50 × $0.004", cost: 25.60 },
                     { op: "ICP scoring", calc: "128 × 50 × $0.0002", cost: 1.28 },
                     { op: "Análise temática", calc: "128 posts × $0.001", cost: 0.128 },
+                    { op: "SERP Share of Voice", calc: "5 kw × 4 empresas × $0.0035", cost: 0.07 },
+                    { op: "Perfil mencionadores", calc: "~30 menções × $0.004", cost: 0.12 },
+                    { op: "Sentimento (IA)", calc: "~30 menções × $0.0005", cost: 0.015 },
+                  ],
+                },
+                {
+                  name: "Business", badge: "Sua marca + 6 concorrentes", highlight: false,
+                  collabs: 32, postsPerCollab: 8, engagersPerPost: 50,
+                  breakdown: [
+                    { op: "Perfis LinkedIn", calc: "32 × $0.004", cost: 0.128 },
+                    { op: "Posts dos perfis", calc: "32 × $0.02", cost: 0.64 },
+                    { op: "Engajadores", calc: "256 posts × 50 × $0.0012", cost: 15.36 },
+                    { op: "Perfil engajadores", calc: "256 × 50 × $0.004", cost: 51.20 },
+                    { op: "ICP scoring", calc: "256 × 50 × $0.0002", cost: 2.56 },
+                    { op: "Análise temática", calc: "256 posts × $0.001", cost: 0.256 },
+                    { op: "SERP Share of Voice", calc: "5 kw × 7 empresas × $0.0035", cost: 0.1225 },
+                    { op: "Perfil mencionadores", calc: "~50 menções × $0.004", cost: 0.20 },
+                    { op: "Sentimento (IA)", calc: "~50 menções × $0.0005", cost: 0.025 },
                   ],
                 },
                 {
                   name: "Enterprise", badge: "Alta atividade", highlight: false,
-                  collabs: 16, postsPerCollab: 15, engagersPerPost: 100,
+                  collabs: 32, postsPerCollab: 15, engagersPerPost: 100,
                   breakdown: [
-                    { op: "Perfis LinkedIn", calc: "16 × $0.004", cost: 0.064 },
-                    { op: "Posts dos perfis", calc: "16 × $0.02", cost: 0.32 },
-                    { op: "Engajadores", calc: "240 posts × 100 × $0.0012", cost: 28.80 },
-                    { op: "Perfil engajadores", calc: "240 × 100 × $0.004", cost: 96.00 },
-                    { op: "ICP scoring", calc: "240 × 100 × $0.0002", cost: 4.80 },
-                    { op: "Análise temática", calc: "240 posts × $0.001", cost: 0.24 },
+                    { op: "Perfis LinkedIn", calc: "32 × $0.004", cost: 0.128 },
+                    { op: "Posts dos perfis", calc: "32 × $0.02", cost: 0.64 },
+                    { op: "Engajadores", calc: "480 posts × 100 × $0.0012", cost: 57.60 },
+                    { op: "Perfil engajadores", calc: "480 × 100 × $0.004", cost: 192.00 },
+                    { op: "ICP scoring", calc: "480 × 100 × $0.0002", cost: 9.60 },
+                    { op: "Análise temática", calc: "480 posts × $0.001", cost: 0.48 },
+                    { op: "SERP Share of Voice", calc: "5 kw × 7 empresas × $0.0035", cost: 0.1225 },
+                    { op: "Perfil mencionadores", calc: "~100 menções × $0.004", cost: 0.40 },
+                    { op: "Sentimento (IA)", calc: "~100 menções × $0.0005", cost: 0.05 },
                   ],
                 },
               ].map((scenario) => {
@@ -624,7 +639,7 @@ export default function ApiCostsPage() {
           </div>
 
           <p className="text-xs text-gray-400 text-center">
-            Custos estimados baseados nos preços atuais dos provedores. O custo real pode variar conforme o volume de engajamento dos posts e o número de posts publicados pelos colaboradores no mês. Engajadores já verificados são cacheados por 48h, reduzindo o custo em meses subsequentes.
+            Custos estimados baseados nos preços atuais dos provedores. Inclui: monitoramento de colaboradores, análise de engajamento (ICP), Share of Voice (menções externas), identificação de influenciadores e análise de sentimento. Engajadores e mencionadores verificados são cacheados por 48h, reduzindo custos em meses subsequentes.
           </p>
         </div>
       )}

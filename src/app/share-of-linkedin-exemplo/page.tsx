@@ -331,7 +331,7 @@ function NewReport() {
                   ))}
                 </div>
 
-                {/* Bars */}
+                {chartTab !== "sov" && (
                 <div className="space-y-4">
                   {bars.map((bar) => (
                     <div key={bar.name} className="flex items-center gap-3">
@@ -352,19 +352,21 @@ function NewReport() {
                     </div>
                   ))}
                 </div>
+                )}
                 {chartTab === "sov" && (
-                  <div className="mt-4 pt-3 border-t border-[#1E1E3A] space-y-2">
-                    {[{n:"SAP Brasil",p:3,ne:1,ng:2},{n:"TOTVS",p:3,ne:1,ng:1},{n:"Oracle",p:2,ne:1,ng:1}].map((s) => (
+                  <div className="space-y-4">
+                    {[{n:"SAP Brasil",p:3,ne:1,ng:2,hl:false},{n:"TOTVS",p:3,ne:1,ng:1,hl:true},{n:"Oracle",p:2,ne:1,ng:1,hl:false}].map((s) => (
                       <div key={s.n} className="flex items-center gap-3">
-                        <span className="text-xs text-gray-500 w-24 text-right shrink-0">{s.n}</span>
-                        <div className="flex-1 flex h-5 rounded-full overflow-hidden">
-                          <div className="bg-green-500 flex items-center justify-center" style={{width:`${(s.p/(s.p+s.ne+s.ng))*100}%`}}><span className="text-[9px] font-bold text-white">{s.p}</span></div>
-                          <div className="bg-yellow-500 flex items-center justify-center" style={{width:`${(s.ne/(s.p+s.ne+s.ng))*100}%`}}><span className="text-[9px] font-bold text-white">{s.ne}</span></div>
-                          <div className="bg-red-500 flex items-center justify-center" style={{width:`${(s.ng/(s.p+s.ne+s.ng))*100}%`}}><span className="text-[9px] font-bold text-white">{s.ng}</span></div>
+                        <span className={`text-sm w-24 shrink-0 text-right ${s.hl ? "text-[#E91E8C] font-bold" : "text-gray-400"}`}>{s.n}</span>
+                        <div className="flex-1 flex h-8 rounded-full overflow-hidden bg-white/5">
+                          <div className="bg-green-500 flex items-center justify-center" style={{width:`${(s.p/(s.p+s.ne+s.ng))*100}%`}}><span className="text-[10px] font-bold text-white">{s.p}</span></div>
+                          <div className="bg-yellow-500 flex items-center justify-center" style={{width:`${(s.ne/(s.p+s.ne+s.ng))*100}%`}}><span className="text-[10px] font-bold text-white">{s.ne}</span></div>
+                          <div className="bg-red-500 flex items-center justify-center" style={{width:`${(s.ng/(s.p+s.ne+s.ng))*100}%`}}><span className="text-[10px] font-bold text-white">{s.ng}</span></div>
                         </div>
+                        <span className={`text-sm w-28 shrink-0 tabular-nums ${s.hl ? "text-white font-bold" : "text-gray-400"}`}>{s.p+s.ne+s.ng} menções</span>
                       </div>
                     ))}
-                    <div className="flex gap-4 text-[10px] text-gray-500 pt-1">
+                    <div className="flex gap-4 text-[10px] text-gray-500 pt-1 pl-28">
                       <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Positivo</span>
                       <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" />Neutro</span>
                       <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />Negativo</span>
@@ -395,7 +397,7 @@ function NewReport() {
                 </div>
                 <div>
                   <p className="text-sm text-white font-semibold">Share of Voice positivo (8 de 15)</p>
-                  <p className="text-xs text-gray-400">8 de 15 mencoes externas positivas. TOTVS citada por tributaristas. 4 influenciadores com alto potencial.</p>
+                  <p className="text-xs text-gray-400">8 de 15 menções externas positivas. TOTVS citada por tributaristas. 4 influenciadores com alto potencial.</p>
                 </div>
               </div>
             </div>
@@ -416,8 +418,8 @@ function NewReport() {
                   <p className="text-xs text-gray-400">Oracle: 18 posts ERP Cloud, RER acima de 35%. TOTVS sem colaborador ativo em cloud.</p>
                 </div>
                 <div>
-                  <p className="text-sm text-white font-semibold">SAP acumula mencoes negativas</p>
-                  <p className="text-xs text-gray-400">2 mencoes negativas (custo e complexidade). Monitorar padrao.</p>
+                  <p className="text-sm text-white font-semibold">SAP acumula menções negativas</p>
+                  <p className="text-xs text-gray-400">2 menções negativas (custo e complexidade). Monitorar padrao.</p>
                 </div>
               </div>
             </div>

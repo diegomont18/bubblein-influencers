@@ -21,6 +21,23 @@ interface UserActivity {
   totalCost: number;
 }
 
+interface DailyReport {
+  id: string;
+  period_start: string;
+  period_end: string;
+  report_type: string;
+  data: {
+    newUsers: Array<{ email: string; created_at: string; role: string }>;
+    castingSearches: Array<{ user_email: string; name: string; query_theme: string; created_at: string }>;
+    leadsScans: Array<{ user_email: string; total_engagers: number; matched_leads: number; created_at: string }>;
+    lgProfiles: Array<{ user_email: string; name: string; linkedin_url: string; created_at: string }>;
+    apiCosts: { total: number; byProvider: Record<string, number>; bySource: Record<string, number> };
+    summary: { newUsersCount: number; totalActions: number; totalCostUsd: number; totalCostBrl: number };
+  };
+  sent_at: string | null;
+  created_at: string;
+}
+
 interface PendingCredit {
   id: string;
   email: string;
@@ -57,6 +74,11 @@ export default function UsersPage() {
   const [newExtraCredits, setNewExtraCredits] = useState(0);
   const [creating, setCreating] = useState(false);
 
+  const [mainTab, setMainTab] = useState<"users" | "reports">("users");
+  const [reports, setReports] = useState<DailyReport[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportPeriod, setReportPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
+  const [expandedReport, setExpandedReport] = useState<string | null>(null);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [userActivities, setUserActivities] = useState<Record<string, UserActivity>>({});
   const [activityLoading, setActivityLoading] = useState<string | null>(null);
@@ -226,6 +248,20 @@ export default function UsersPage() {
     }
   }
 
+  const fetchReports = useCallback(async () => {
+    setReportsLoading(true);
+    try {
+      const res = await fetch("/api/dashboard/daily-reports?type=daily&limit=90");
+      if (res.ok) {
+        const data = await res.json();
+        setReports(data.reports ?? []);
+      }
+    } catch { /* ignore */ }
+    finally { setReportsLoading(false); }
+  }, []);
+
+  useEffect(() => { if (mainTab === "reports" && reports.length === 0) fetchReports(); }, [mainTab, reports.length, fetchReports]);
+
   async function handleCreatePending(e: React.FormEvent) {
     e.preventDefault();
     setPendingCreating(true);
@@ -266,6 +302,27 @@ export default function UsersPage() {
     );
   }
 
+  // Group reports by week/month for aggregated views
+  function groupReports(period: "weekly" | "monthly") {
+    const groups: Record<string, { label: string; reports: DailyReport[]; summary: DailyReport["data"]["summary"] }> = {};
+    for (const r of reports) {
+      const d = new Date(r.period_start);
+      const key = period === "weekly"
+        ? `${d.getFullYear()}-W${String(Math.ceil((d.getDate() + new Date(d.getFullYear(), d.getMonth(), 1).getDay()) / 7)).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}`
+        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = period === "weekly"
+        ? `Semana de ${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}`
+        : d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+      if (!groups[key]) groups[key] = { label, reports: [], summary: { newUsersCount: 0, totalActions: 0, totalCostUsd: 0, totalCostBrl: 0 } };
+      groups[key].reports.push(r);
+      groups[key].summary.newUsersCount += r.data.summary.newUsersCount;
+      groups[key].summary.totalActions += r.data.summary.totalActions;
+      groups[key].summary.totalCostUsd += r.data.summary.totalCostUsd;
+      groups[key].summary.totalCostBrl += r.data.summary.totalCostBrl;
+    }
+    return Object.values(groups).slice(0, period === "weekly" ? 12 : 6);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -283,6 +340,13 @@ export default function UsersPage() {
         </button>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-gray-200">
+        <button onClick={() => setMainTab("users")} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${mainTab === "users" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>Usuarios</button>
+        <button onClick={() => setMainTab("reports")} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${mainTab === "reports" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>Relatorios</button>
+      </div>
+
+      {mainTab === "users" && (<>
       {error && (
         <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
           {error}
@@ -690,6 +754,119 @@ export default function UsersPage() {
           </div>
         )}
       </div>
+      </>)}
+
+      {/* Reports Tab */}
+      {mainTab === "reports" && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="flex gap-1 border border-gray-200 rounded-lg p-0.5">
+              {(["daily", "weekly", "monthly"] as const).map((p) => (
+                <button key={p} onClick={() => setReportPeriod(p)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${reportPeriod === p ? "bg-blue-100 text-blue-700" : "text-gray-500 hover:text-gray-700"}`}>
+                  {p === "daily" ? "Diario" : p === "weekly" ? "Semanal" : "Mensal"}
+                </button>
+              ))}
+            </div>
+            <button onClick={fetchReports} className="text-xs text-blue-600 hover:underline">Atualizar</button>
+          </div>
+
+          {reportsLoading ? (
+            <p className="text-gray-400 text-sm py-8 text-center">Carregando relatorios...</p>
+          ) : reportPeriod === "daily" ? (
+            <div className="space-y-3">
+              {reports.length === 0 && <p className="text-gray-400 text-sm py-8 text-center">Nenhum relatorio encontrado</p>}
+              {reports.map((r) => {
+                const isExp = expandedReport === r.id;
+                const s = r.data.summary;
+                return (
+                  <div key={r.id} className={`rounded-lg border bg-white overflow-hidden ${isExp ? "border-blue-300" : "border-gray-200"}`}>
+                    <div className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50" onClick={() => setExpandedReport(isExp ? null : r.id)}>
+                      <div className="flex items-center gap-3">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform text-gray-400 ${isExp ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
+                        <span className="text-sm font-medium text-gray-900">{formatDate(r.period_start)}</span>
+                        {r.sent_at && <span className="text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded">enviado</span>}
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                        <span><strong className="text-gray-900">{s.newUsersCount}</strong> novos</span>
+                        <span><strong className="text-gray-900">{s.totalActions}</strong> acoes</span>
+                        <span><strong className="text-gray-900">${s.totalCostUsd.toFixed(4)}</strong> (R${s.totalCostBrl.toFixed(2)})</span>
+                      </div>
+                    </div>
+                    {isExp && (
+                      <div className="px-4 py-4 border-t border-gray-100 space-y-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-[10px] text-gray-500 uppercase font-bold">Novos Users</p>
+                            <p className="text-xl font-bold text-gray-900">{s.newUsersCount}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-[10px] text-gray-500 uppercase font-bold">Acoes</p>
+                            <p className="text-xl font-bold text-gray-900">{s.totalActions}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-[10px] text-gray-500 uppercase font-bold">Custo USD</p>
+                            <p className="text-xl font-bold text-gray-900">${s.totalCostUsd.toFixed(4)}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-[10px] text-gray-500 uppercase font-bold">Custo BRL</p>
+                            <p className="text-xl font-bold text-gray-900">R${s.totalCostBrl.toFixed(2)}</p>
+                          </div>
+                        </div>
+                        {r.data.newUsers.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-gray-700 mb-1">Novos usuarios</p>
+                            {r.data.newUsers.map((u) => <p key={u.email} className="text-xs text-gray-500">{u.email} ({u.role}) — {formatDate(u.created_at)}</p>)}
+                          </div>
+                        )}
+                        {r.data.castingSearches.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-gray-700 mb-1">Buscas Casting ({r.data.castingSearches.length})</p>
+                            {r.data.castingSearches.map((c, i) => <p key={i} className="text-xs text-gray-500">{c.user_email} — {c.query_theme || c.name} — {formatDate(c.created_at)}</p>)}
+                          </div>
+                        )}
+                        {r.data.leadsScans.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-gray-700 mb-1">Scans de Leads ({r.data.leadsScans.length})</p>
+                            {r.data.leadsScans.map((l, i) => <p key={i} className="text-xs text-gray-500">{l.user_email} — {l.total_engagers} engaj, {l.matched_leads} leads — {formatDate(l.created_at)}</p>)}
+                          </div>
+                        )}
+                        {r.data.lgProfiles.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-gray-700 mb-1">Perfis Analisados ({r.data.lgProfiles.length})</p>
+                            {r.data.lgProfiles.map((p, i) => <p key={i} className="text-xs text-gray-500">{p.user_email} — {p.name} — {formatDate(p.created_at)}</p>)}
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-xs font-semibold text-gray-700 mb-1">Custos por Provider</p>
+                          <div className="flex gap-3 text-xs text-gray-500">
+                            {Object.entries(r.data.apiCosts.byProvider).map(([p, c]) => <span key={p}>{p}: ${c.toFixed(4)}</span>)}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {groupReports(reportPeriod).map((g) => (
+                <div key={g.label} className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-900">{g.label} <span className="text-xs text-gray-400">({g.reports.length} relatorios)</span></span>
+                    <div className="flex items-center gap-4 text-xs text-gray-500">
+                      <span><strong className="text-gray-900">{g.summary.newUsersCount}</strong> novos</span>
+                      <span><strong className="text-gray-900">{g.summary.totalActions}</strong> acoes</span>
+                      <span><strong className="text-gray-900">${g.summary.totalCostUsd.toFixed(4)}</strong> (R${g.summary.totalCostBrl.toFixed(2)})</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {groupReports(reportPeriod).length === 0 && <p className="text-gray-400 text-sm py-8 text-center">Nenhum relatorio encontrado</p>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
