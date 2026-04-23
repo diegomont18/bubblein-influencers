@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import Navbar from "@/components/navbar";
-import { NAV_ANALYSIS, NAV_CONTENT, NAV_SECTIONS, HIGHLIGHT_POSTS, COLLAB_DATA, COMPANY_COLORS } from "./data";
+import { NAV_ANALYSIS, NAV_CONTENT, NAV_SECTIONS, HIGHLIGHT_POSTS, COLLAB_DATA } from "./data";
 import InfluencersTab from "./influencers-tab";
 import PostsTab from "./posts-tab";
 
