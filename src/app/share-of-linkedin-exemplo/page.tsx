@@ -195,12 +195,21 @@ function NewReport() {
 
   return (
     <div>
-      {/* 1. Header */}
-      <div className="mb-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl md:text-3xl font-extrabold text-white">Relatório Mensal — Share of LinkedIn</h1>
+      {/* Sticky header */}
+      <div className="sticky top-0 z-30 bg-[#0B0B1A] pb-0 -mx-6 px-6 pt-2">
+        <div className="flex items-center gap-3 mb-3">
+          <h1 className="text-xl md:text-2xl font-extrabold text-white">Relatório Mensal — Share of LinkedIn</h1>
           <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded-full shrink-0">exemplo</span>
         </div>
+        <div className="flex border-b border-[#1E1E3A]">
+          {([["analysis", "Análise"], ["content", "Conteúdo"], ["influencers", "Influencers"], ["posts", "Posts"]] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setReportTab(key)} className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${reportTab === key ? "border-[#E91E8C] text-[#E91E8C]" : "border-transparent text-gray-500 hover:text-gray-300"}`}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Header card */}
+      <div className="mt-4 mb-6 space-y-4">
 
         <div className="rounded-2xl bg-[#12122A] border border-[#1E1E3A] p-5">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -264,13 +273,6 @@ function NewReport() {
         </div>
       </div>
 
-      {/* Report tabs */}
-      <div className="flex border-b border-[#1E1E3A] mb-6">
-        {([["analysis", "Análise"], ["content", "Conteúdo"], ["posts", "Posts"], ["influencers", "Influencers"]] as const).map(([key, label]) => (
-          <button key={key} onClick={() => setReportTab(key)} className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${reportTab === key ? "border-[#E91E8C] text-[#E91E8C]" : "border-transparent text-gray-500 hover:text-gray-300"}`}>{label}</button>
-        ))}
-      </div>
-
       {reportTab === "posts" ? <PostsTab /> : reportTab === "influencers" ? <InfluencersTab /> : (
       <div className="lg:grid lg:grid-cols-[180px_1fr] lg:gap-8">
         <ReportNav activeId={activeSection} sections={reportTab === "content" ? NAV_CONTENT : NAV_ANALYSIS} />
@@ -304,8 +306,8 @@ function NewReport() {
               ],
             };
             const tabs: Array<{ key: "share" | "sov" | "engagement" | "posts"; label: string; tip: string }> = [
-              { key: "sov", label: "Share of Voice", tip: "Posts de terceiros mencionando a marca." },
               { key: "share", label: "Share of LinkedIn", tip: "Índice composto que mede a presença qualificada da marca. Calculado como: Posts engajados × RER (% de decisores) × Engajamentos totais. Quanto maior, mais a marca está dominando as conversas relevantes." },
+              { key: "sov", label: "Share of Voice", tip: "Posts de terceiros mencionando a marca." },
               { key: "engagement", label: "Engajamento", tip: "Volume total de engajamento (curtidas, comentários, compartilhamentos) gerado pelos perfis monitorados de cada empresa. Não filtra por decisores — mede alcance bruto." },
               { key: "posts", label: "Número de Posts", tip: "Total de posts publicados no período pelos perfis monitorados (oficial + colaboradores). Exclui reposts sem comentário." },
             ];
@@ -351,10 +353,22 @@ function NewReport() {
                   ))}
                 </div>
                 {chartTab === "sov" && (
-                  <div className="mt-4 pt-3 border-t border-[#1E1E3A] flex flex-wrap gap-4 text-xs text-gray-500">
-                    <span>SAP: <span className="text-green-400">+3</span> <span className="text-yellow-400">~1</span> <span className="text-red-400">-2</span></span>
-                    <span>TOTVS: <span className="text-green-400">+3</span> <span className="text-yellow-400">~1</span> <span className="text-red-400">-1</span></span>
-                    <span>Oracle: <span className="text-green-400">+2</span> <span className="text-yellow-400">~1</span> <span className="text-red-400">-1</span></span>
+                  <div className="mt-4 pt-3 border-t border-[#1E1E3A] space-y-2">
+                    {[{n:"SAP Brasil",p:3,ne:1,ng:2},{n:"TOTVS",p:3,ne:1,ng:1},{n:"Oracle",p:2,ne:1,ng:1}].map((s) => (
+                      <div key={s.n} className="flex items-center gap-3">
+                        <span className="text-xs text-gray-500 w-24 text-right shrink-0">{s.n}</span>
+                        <div className="flex-1 flex h-5 rounded-full overflow-hidden">
+                          <div className="bg-green-500 flex items-center justify-center" style={{width:`${(s.p/(s.p+s.ne+s.ng))*100}%`}}><span className="text-[9px] font-bold text-white">{s.p}</span></div>
+                          <div className="bg-yellow-500 flex items-center justify-center" style={{width:`${(s.ne/(s.p+s.ne+s.ng))*100}%`}}><span className="text-[9px] font-bold text-white">{s.ne}</span></div>
+                          <div className="bg-red-500 flex items-center justify-center" style={{width:`${(s.ng/(s.p+s.ne+s.ng))*100}%`}}><span className="text-[9px] font-bold text-white">{s.ng}</span></div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex gap-4 text-[10px] text-gray-500 pt-1">
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Positivo</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" />Neutro</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />Negativo</span>
+                    </div>
                   </div>
                 )}
               </div>

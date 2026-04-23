@@ -122,3 +122,49 @@ export const INFLUENCERS_DATA = [
   { name: "Andre Oliveira", role: "Cloud Architect", company: "Accenture", followers: 30000, postsAbout: 4, avgEngagement: 580, avgRer: 33, frequency: 4, brands: ["Oracle"], sentiment: "positivo", potential: "medio" },
   { name: "Julia Santos", role: "VP CS", company: "RD Station", followers: 20000, postsAbout: 3, avgEngagement: 450, avgRer: 36, frequency: 3, brands: ["SAP Brasil", "TOTVS"], sentiment: "positivo", potential: "alto" },
 ];
+
+export const INFLUENCER_MENTIONS: Record<string, Array<{ date: string; brand: string; text: string; sentiment: string }>> = {
+  "Ricardo Amorim": [
+    { date: "2026-03-22", brand: "TOTVS", text: "A reforma tributaria vai mudar tudo e a TOTVS esta na frente. Conversei com 3 CFOs que migraram e todos elogiam o modulo fiscal.", sentiment: "positivo" },
+    { date: "2026-03-15", brand: "SAP Brasil", text: "SAP apostando pesado em IA. Vi a demo no Sapphire e fiquei impressionado com a velocidade de processamento.", sentiment: "positivo" },
+    { date: "2026-03-08", brand: "TOTVS", text: "Para mid-market brasileiro, custo-beneficio da TOTVS ainda e imbativel. Dados do meu ultimo relatorio confirmam.", sentiment: "positivo" },
+    { date: "2026-03-01", brand: "SAP Brasil", text: "Comparando ERPs enterprise: SAP lidera em IA mas custo preocupa. TOTVS ganha em fiscal.", sentiment: "neutro" },
+  ],
+  "Mariana Lopes": [
+    { date: "2026-03-25", brand: "SAP Brasil", text: "O modulo de IA generativa da SAP para supply chain e o mais avancado que ja vi. Testei com 3 clientes.", sentiment: "positivo" },
+    { date: "2026-03-18", brand: "Oracle", text: "Oracle Cloud evolui rapido mas precisa resolver o vendor lock-in. Clientes reclamam.", sentiment: "neutro" },
+    { date: "2026-03-10", brand: "SAP Brasil", text: "Recomendo SAP para enterprise acima de R$500M. ROI comprovado em 6 meses.", sentiment: "positivo" },
+  ],
+  "Paulo Andrade": [
+    { date: "2026-03-20", brand: "TOTVS", text: "Implementei TOTVS em mais 2 clientes este mes. Compliance fiscal automatico e game changer.", sentiment: "positivo" },
+    { date: "2026-03-12", brand: "TOTVS", text: "Protheus evoluiu muito. A versao cloud esta madura para mid-market.", sentiment: "positivo" },
+  ],
+  "Ana Beatriz": [
+    { date: "2026-03-24", brand: "Oracle", text: "Migracao para Oracle Cloud: performance 3x melhor mas processo de 8 meses.", sentiment: "neutro" },
+    { date: "2026-03-16", brand: "SAP Brasil", text: "S/4HANA tem potencial mas integracao com sistemas legados e complexa.", sentiment: "neutro" },
+  ],
+  "Fernando Gomes": [
+    { date: "2026-03-28", brand: "TOTVS", text: "TOTVS Cloud finalmente maduro. Recomendo para empresas de 200 a 2000 funcionarios.", sentiment: "positivo" },
+    { date: "2026-03-21", brand: "SAP Brasil", text: "SAP Sapphire impressionou em IA mas falta cases concretos no Brasil.", sentiment: "neutro" },
+    { date: "2026-03-14", brand: "Oracle", text: "Oracle Fusion ERP: produto bom, marca carrega peso do passado.", sentiment: "positivo" },
+    { date: "2026-03-07", brand: "TOTVS", text: "Comparativo ERP mid-market: TOTVS ganha em fiscal, SAP em IA, Oracle em cloud.", sentiment: "neutro" },
+  ],
+  "Lucia Martins": [
+    { date: "2026-03-19", brand: "SAP Brasil", text: "Usando SAP para analytics de dados no iFood. Integracao com data lake foi tranquila.", sentiment: "positivo" },
+  ],
+  "Carlos Melo": [
+    { date: "2026-03-26", brand: "SAP Brasil", text: "Analise: SAP reestrutura go-to-market no Brasil focando em IA e cloud.", sentiment: "neutro" },
+    { date: "2026-03-17", brand: "TOTVS", text: "TOTVS reporta crescimento de 18% em receita recorrente. Mid-market continua forte.", sentiment: "neutro" },
+  ],
+  "Beatriz Campos": [
+    { date: "2026-03-13", brand: "TOTVS", text: "Usando TOTVS como case study em aula de sistemas de gestao na FGV. Bom exemplo de ERP brasileiro.", sentiment: "positivo" },
+  ],
+  "Andre Oliveira": [
+    { date: "2026-03-23", brand: "Oracle", text: "Oracle Cloud vs AWS para ERP: Oracle vence em integracao nativa e custo de BD.", sentiment: "positivo" },
+    { date: "2026-03-11", brand: "Oracle", text: "Arquitetura cloud da Oracle para ERP enterprise e solida. Recomendo para workloads pesados.", sentiment: "positivo" },
+  ],
+  "Julia Santos": [
+    { date: "2026-03-27", brand: "SAP Brasil", text: "Customer success na SAP: vi como ajudaram Ambev a transformar operacao fiscal. Impressionante.", sentiment: "positivo" },
+    { date: "2026-03-09", brand: "TOTVS", text: "TOTVS tem o melhor suporte para mid-market. Na RD Station usamos e funciona bem.", sentiment: "positivo" },
+  ],
+};
