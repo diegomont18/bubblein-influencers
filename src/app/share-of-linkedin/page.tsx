@@ -470,7 +470,7 @@ export default function ShareOfLinkedInPage() {
               <ul className="space-y-3 mb-8 flex-1">
                 {[
                   { text: "Sua marca + 3 concorrentes", sub: "Através dos colaboradores de ambos", tip: "A análise de cada empresa é feita através dos posts de seus colaboradores no LinkedIn — rastreamos o que publicam e como decisores reagem." },
-                  { text: "8 colaboradores rastreados", tip: "Colaboradores da sua empresa e de cada concorrente que publicam ativamente. São eles que representam a voz da empresa no LinkedIn — rastreamos seus posts e engajamento com decisores." },
+                  { text: "16 colaboradores rastreados", tip: "Colaboradores da sua empresa e de cada concorrente que publicam ativamente. São eles que representam a voz da empresa no LinkedIn — rastreamos seus posts e engajamento com decisores." },
                   { text: "4 influencers rastreados", tip: "Influencers B2B do seu nicho. Veja o que publicam, quais temas abordam e como decisores reagem ao conteúdo deles." },
                   { text: "24 créditos/mês", tip: "Use créditos para extrair leads (1 crédito cada) ou encontrar novos influencers (3 créditos cada). Créditos do plano renovam mensalmente." },
                 ].map((f) => (
@@ -502,7 +502,7 @@ export default function ShareOfLinkedInPage() {
               <ul className="space-y-3 mb-8 flex-1">
                 {[
                   { text: "Sua marca + 6 concorrentes", sub: "Através dos colaboradores de ambos", tip: "A análise de cada empresa é feita através dos posts de seus colaboradores — rastreamos quem publica, sobre o que e com qual impacto entre decisores." },
-                  { text: "16 colaboradores rastreados", tip: "Colaboradores da sua empresa e de cada concorrente que publicam ativamente. No LinkedIn, a presença de uma empresa é a soma das vozes dos seus colaboradores — monitoramos todos eles." },
+                  { text: "32 colaboradores rastreados", tip: "Colaboradores da sua empresa e de cada concorrente que publicam ativamente. No LinkedIn, a presença de uma empresa é a soma das vozes dos seus colaboradores — monitoramos todos eles." },
                   { text: "8 influencers rastreados", tip: "Influencers B2B do seu nicho. Visão completa de quem produz conteúdo relevante e engaja decisores do seu mercado." },
                   { text: "48 créditos/mês", tip: "Use créditos para extrair leads (1 crédito cada) ou encontrar novos influencers (3 créditos cada). Créditos do plano renovam mensalmente." },
                 ].map((f) => (
@@ -573,9 +573,13 @@ export default function ShareOfLinkedInPage() {
       <footer className="border-t border-[#1E1E3A] py-10">
         <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
           <Image src="/logo.png" alt="BubbleIn" width={100} height={36} />
-          <p className="text-sm text-gray-500">
-            &copy; {new Date().getFullYear()} BubbleIn. Todos os direitos reservados.
-          </p>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
+            <span>&copy; {new Date().getFullYear()} BubbleIn. Todos os direitos reservados.</span>
+            <span className="text-gray-700">·</span>
+            <a href="/termos-de-uso" className="hover:text-[#E91E8C] transition-colors">Termos de Uso</a>
+            <span className="text-gray-700">·</span>
+            <a href="/politica-de-privacidade" className="hover:text-[#E91E8C] transition-colors">Política de Privacidade</a>
+          </div>
         </div>
       </footer>
     </div>

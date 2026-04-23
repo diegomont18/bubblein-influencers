@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 
 interface User {
   id: string;
@@ -10,6 +10,15 @@ interface User {
   credits_total: number;
   created_at: string;
   last_sign_in_at: string | null;
+}
+
+interface UserActivity {
+  castingSearches: Array<{ id: string; name: string; query_theme: string; created_at: string }>;
+  leadsScans: Array<{ id: string; post_urls: string[]; icp_job_titles: string[]; icp_departments: string[]; icp_company_size: string; total_engagers: number; matched_leads: number; status: string; created_at: string }>;
+  lgProfiles: Array<{ id: string; linkedin_url: string; name: string; headline: string; created_at: string }>;
+  recentCosts: Array<{ provider: string; operation: string; estimated_cost: number; source: string; metadata: Record<string, unknown> | null; created_at: string }>;
+  costsByProvider: Record<string, number>;
+  totalCost: number;
 }
 
 interface PendingCredit {
@@ -47,6 +56,10 @@ export default function UsersPage() {
   const [newRole, setNewRole] = useState("user");
   const [newExtraCredits, setNewExtraCredits] = useState(0);
   const [creating, setCreating] = useState(false);
+
+  const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  const [userActivities, setUserActivities] = useState<Record<string, UserActivity>>({});
+  const [activityLoading, setActivityLoading] = useState<string | null>(null);
 
   // Pending credits
   const [pendingCredits, setPendingCredits] = useState<PendingCredit[]>([]);
@@ -194,6 +207,25 @@ export default function UsersPage() {
     }
   }
 
+  async function toggleUserActivity(userId: string) {
+    if (expandedUser === userId) {
+      setExpandedUser(null);
+      return;
+    }
+    setExpandedUser(userId);
+    if (!userActivities[userId]) {
+      setActivityLoading(userId);
+      try {
+        const res = await fetch(`/api/dashboard/user-activity?userId=${userId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setUserActivities((prev) => ({ ...prev, [userId]: data }));
+        }
+      } catch { /* ignore */ }
+      finally { setActivityLoading(null); }
+    }
+  }
+
   async function handleCreatePending(e: React.FormEvent) {
     e.preventDefault();
     setPendingCreating(true);
@@ -335,16 +367,26 @@ export default function UsersPage() {
             {users.map((user) => {
               const isAdmin = user.credits === -1;
               const spent = isAdmin ? 0 : Math.max(0, user.credits_total - user.credits);
+              const isExpanded = expandedUser === user.id;
+              const activity = userActivities[user.id];
               return (
+                <React.Fragment key={user.id}>
                 <tr
-                  key={user.id}
-                  className="border-b border-gray-100 last:border-0"
+                  className={`border-b border-gray-100 last:border-0 hover:bg-blue-50 cursor-pointer transition-colors ${isExpanded ? "bg-blue-50" : ""}`}
+                  onClick={() => toggleUserActivity(user.id)}
+                  title="Clique para ver atividade"
                 >
-                  <td className="px-4 py-3 text-gray-900">{user.email}</td>
+                  <td className="px-4 py-3 text-gray-900">
+                    <span className="flex items-center gap-1.5">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform shrink-0 text-gray-400 ${isExpanded ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
+                      {user.email}
+                    </span>
+                  </td>
                   <td className="px-4 py-3">
                     <select
                       value={user.role}
                       onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
                       className="rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                     >
                       <option value="user">User</option>
@@ -381,6 +423,7 @@ export default function UsersPage() {
                         onBlur={(e) =>
                           handleCreditsChange(user.id, Number(e.target.value))
                         }
+                        onClick={(e) => e.stopPropagation()}
                         min={0}
                         className="w-20 rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
@@ -410,13 +453,138 @@ export default function UsersPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
-                      onClick={() => handleDelete(user.id, user.email ?? "")}
+                      onClick={(e) => { e.stopPropagation(); handleDelete(user.id, user.email ?? ""); }}
                       className="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
                     >
                       Delete
                     </button>
                   </td>
                 </tr>
+                {isExpanded && (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                      {activityLoading === user.id ? (
+                        <p className="text-xs text-gray-400">Carregando atividade...</p>
+                      ) : !activity ? (
+                        <p className="text-xs text-gray-400">Sem dados</p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Casting Searches */}
+                          <div className="bg-white rounded-lg border border-gray-200 p-4">
+                            <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                              Buscas Casting ({activity.castingSearches.length})
+                            </h4>
+                            {activity.castingSearches.length === 0 ? (
+                              <p className="text-xs text-gray-400">Nenhuma busca</p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {activity.castingSearches.map((s) => (
+                                  <div key={s.id} className="flex items-start gap-2 text-xs">
+                                    <span className="text-gray-400 whitespace-nowrap shrink-0">{formatDate(s.created_at)}</span>
+                                    <div>
+                                      <span className="text-gray-800 font-medium">{s.name || "Sem nome"}</span>
+                                      {s.query_theme && <span className="ml-1.5 text-gray-500">— {s.query_theme}</span>}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Leads Scans */}
+                          <div className="bg-white rounded-lg border border-gray-200 p-4">
+                            <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                              Scans de Leads ({activity.leadsScans.length})
+                            </h4>
+                            {activity.leadsScans.length === 0 ? (
+                              <p className="text-xs text-gray-400">Nenhum scan</p>
+                            ) : (
+                              <div className="space-y-2">
+                                {activity.leadsScans.map((s) => (
+                                  <div key={s.id} className="text-xs border-b border-gray-100 pb-1.5 last:border-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-gray-400 whitespace-nowrap">{formatDate(s.created_at)}</span>
+                                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${s.status === "complete" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>{s.status}</span>
+                                      <span className="text-gray-600">{s.matched_leads ?? 0} leads / {s.total_engagers ?? 0} engajadores</span>
+                                    </div>
+                                    {s.icp_job_titles?.length > 0 && (
+                                      <div className="mt-1 flex flex-wrap gap-1">
+                                        {s.icp_job_titles.slice(0, 5).map((t) => (
+                                          <span key={t} className="bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0.5 rounded">{t}</span>
+                                        ))}
+                                        {s.icp_company_size && <span className="bg-purple-50 text-purple-700 text-[10px] px-1.5 py-0.5 rounded">{s.icp_company_size}</span>}
+                                      </div>
+                                    )}
+                                    {s.post_urls?.length > 0 && (
+                                      <p className="text-[10px] text-gray-400 mt-0.5">{s.post_urls.length} post(s) analisados</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Profiles */}
+                          <div className="bg-white rounded-lg border border-gray-200 p-4">
+                            <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                              Perfis Analisados ({activity.lgProfiles.length})
+                            </h4>
+                            {activity.lgProfiles.length === 0 ? (
+                              <p className="text-xs text-gray-400">Nenhum perfil</p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {activity.lgProfiles.map((p) => (
+                                  <div key={p.id} className="flex items-start gap-2 text-xs">
+                                    <span className="text-gray-400 whitespace-nowrap shrink-0">{formatDate(p.created_at)}</span>
+                                    <div>
+                                      <span className="text-gray-800 font-medium">{p.name || "Sem nome"}</span>
+                                      {p.headline && <span className="ml-1.5 text-gray-500 text-[10px]">— {p.headline.slice(0, 60)}</span>}
+                                      {p.linkedin_url && <p className="text-[10px] text-blue-500 truncate max-w-[250px]">{p.linkedin_url}</p>}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Costs */}
+                          <div className="bg-white rounded-lg border border-gray-200 p-4">
+                            <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                              Custos API — Total: ${activity.totalCost.toFixed(4)} (R${(activity.totalCost * 5).toFixed(2)})
+                            </h4>
+                            {Object.keys(activity.costsByProvider).length === 0 ? (
+                              <p className="text-xs text-gray-400">Sem custos registrados</p>
+                            ) : (
+                              <div className="space-y-2">
+                                <div className="flex gap-3 mb-2">
+                                  {Object.entries(activity.costsByProvider).map(([prov, cost]) => (
+                                    <span key={prov} className="text-xs">
+                                      <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium mr-1 ${prov === "apify" ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"}`}>{prov}</span>
+                                      ${cost.toFixed(4)}
+                                    </span>
+                                  ))}
+                                </div>
+                                {activity.recentCosts.slice(0, 5).map((c, i) => (
+                                  <div key={i} className="flex items-start gap-2 text-xs border-b border-gray-100 pb-1 last:border-0">
+                                    <span className="text-gray-400 whitespace-nowrap shrink-0">{formatDate(c.created_at)}</span>
+                                    <span className="text-gray-600 font-mono">{c.operation}</span>
+                                    <span className="text-gray-800">${Number(c.estimated_cost).toFixed(4)}</span>
+                                    {c.metadata && (
+                                      <span className="text-gray-400 text-[10px] truncate max-w-[200px]">
+                                        {Object.entries(c.metadata).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(", ")}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
             {users.length === 0 && (

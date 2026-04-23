@@ -612,9 +612,13 @@ export default function Home() {
               )
             )}
           </div>
-          <p className="text-sm text-gray-600">
-            © {new Date().getFullYear()} BubbleIn. Todos os direitos reservados.
-          </p>
+          <div className="flex items-center gap-3 text-sm text-gray-600">
+            <span>© {new Date().getFullYear()} BubbleIn. Todos os direitos reservados.</span>
+            <span className="text-gray-700">·</span>
+            <a href="/termos-de-uso" className="hover:text-[#E91E8C] transition-colors">Termos de Uso</a>
+            <span className="text-gray-700">·</span>
+            <a href="/politica-de-privacidade" className="hover:text-[#E91E8C] transition-colors">Política de Privacidade</a>
+          </div>
         </div>
       </footer>
 

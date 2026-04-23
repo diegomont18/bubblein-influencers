@@ -6,16 +6,19 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+const navTop = [
+  { label: "Overview", href: "/dashboard" },
+  { label: "Users", href: "/dashboard/users" },
+  { label: "API Costs", href: "/dashboard/api-costs" },
+];
+
 const navItems = [
-  { label: "Overview", href: "/dashboard", soon: false },
+  { label: "Casting", href: "/dashboard/casting", soon: false },
   { label: "Checker", href: "/dashboard/checker", soon: false },
   { label: "Profile Enricher", href: "/dashboard/enricher", soon: false },
-  { label: "Casting", href: "/dashboard/casting", soon: false },
-  { label: "Monitoring", href: "/dashboard/monitoring", soon: true },
-  { label: "Blog Posts", href: "/dashboard/blog-posts", soon: false },
-  { label: "Users", href: "/dashboard/users", soon: false },
-  { label: "API Costs", href: "/dashboard/api-costs", soon: false },
   { label: "Buscas", href: "/dashboard/buscas", soon: false },
+  { label: "Blog Posts", href: "/dashboard/blog-posts", soon: false },
+  { label: "Monitoring", href: "/dashboard/monitoring", soon: true },
 ];
 
 export default function DashboardLayout({
@@ -33,21 +36,35 @@ export default function DashboardLayout({
           height={50}
           className="mb-6"
         />
-        <nav className="space-y-1 flex-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-gray-800 transition-colors"
-            >
-              {item.label}
-              {item.soon && (
-                <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white leading-none">
-                  Soon
-                </span>
-              )}
-            </Link>
-          ))}
+        <nav className="flex-1">
+          <div className="space-y-1">
+            {navTop.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-gray-800 transition-colors"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+          <div className="border-t border-gray-700 my-3" />
+          <div className="space-y-1">
+            {navItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-gray-800 transition-colors"
+              >
+                {item.label}
+                {item.soon && (
+                  <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white leading-none">
+                    Soon
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
         </nav>
         <div className="border-t border-gray-700 pt-4">
           <SignOutButton />

@@ -92,7 +92,7 @@ export async function GET(request: Request) {
       });
     }
   }
-  const grouped = Array.from(groupedMap.values()).sort((a, b) => b.total_cost - a.total_cost);
+  const grouped = Array.from(groupedMap.values()).sort((a, b) => new Date(b.last_used).getTime() - new Date(a.last_used).getTime());
 
   return NextResponse.json({ costs, total: count ?? 0, page, totals, grouped });
 }
