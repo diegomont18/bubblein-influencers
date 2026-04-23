@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import Navbar from "@/components/navbar";
+import { NAV_ANALYSIS, NAV_CONTENT, NAV_SECTIONS, HIGHLIGHT_POSTS, COLLAB_DATA, COMPANY_COLORS } from "./data";
+import InfluencersTab from "./influencers-tab";
+import PostsTab from "./posts-tab";
 
 /* ========== SHARED COMPONENTS ========== */
 
@@ -116,21 +119,6 @@ function ContentBar({ label, segments }: { label: string; segments: { name: stri
 
 /* ========== REPORT NAV ========== */
 
-const NAV_ANALYSIS = [
-  { id: "insights", label: "Insights" },
-  { id: "recomendacoes", label: "Recomendações" },
-  { id: "alerta", label: "Movimentos" },
-  { id: "traducao", label: "Tradução Negócio" },
-];
-
-const NAV_CONTENT = [
-  { id: "ranking", label: "Ranking" },
-  { id: "analise", label: "Análise Conteúdo" },
-  { id: "colaboradores", label: "Colaboradores" },
-  { id: "decisores", label: "Decisores" },
-];
-
-const NAV_SECTIONS = [...NAV_ANALYSIS, ...NAV_CONTENT];
 
 function ReportNav({ activeId, sections }: { activeId: string; sections: Array<{ id: string; label: string }> }) {
   return (
@@ -148,75 +136,6 @@ function ReportNav({ activeId, sections }: { activeId: string; sections: Array<{
   );
 }
 
-/* ========== DATA ========== */
-
-const HIGHLIGHT_POSTS: Record<string, { positive: { title: string; author: string; rer: number; reactions: number; comments: number; why: string }; negative: { title: string; author: string; rer: number; reactions: number; comments: number; why: string }; unexpected: { title: string; author: string; reactions: number; detail: string; why: string } }> = {
-  TOTVS: {
-    positive: { title: "Reforma tributária: os 3 erros que já vemos nas empresas grandes", author: "Dennis Herszkowicz (CEO TOTVS)", rer: 51, reactions: 2347, comments: 89, why: "Tese específica, acionável, ancorada em autoridade de quem tem contexto. Replicar o formato \"N erros que vemos\" em outros temas." },
-    negative: { title: "Integração nativa ERP-CRM: como nossa plataforma resolve", author: "Juliano Tubino (VP Comercial TOTVS)", rer: 12, reactions: 84, comments: 6, why: "Tom institucional (\"nossa plataforma resolve\"), sem dor específica do leitor, sem dado, sem case. Audiência de decisor ignora comunicação de venda." },
-    unexpected: { title: "TOTVS 42 anos — o que aprendemos nessas 4 décadas", author: "Página oficial TOTVS", reactions: 1847, detail: "4x a média", why: "A audiência está aquecida para conteúdo humano/identitário e fria para tese técnica. Sinal de que o mix de conteúdo está desbalanceado." },
-  },
-  "SAP Brasil": {
-    positive: { title: "Como IA generativa está redefinindo o planejamento de supply chain", author: "Marcos Vidal (VP Inovação SAP Brasil)", rer: 48, reactions: 1890, comments: 72, why: "Tese com caso concreto de aplicação, dados de resultado e posicionamento claro. Formato que atrai CIOs e diretores de operações." },
-    negative: { title: "Estamos contratando! Venha fazer parte do time de IA da SAP", author: "SAP Brasil (Página oficial)", rer: 8, reactions: 320, comments: 12, why: "Post de vaga disfarçado de thought leadership. Engajamento alto em volume (funcionários curtindo), mas RER mínimo — decisores ignoram." },
-    unexpected: { title: "Meu primeiro ano como estagiário na SAP: o que aprendi sobre enterprise software", author: "Lucas Mendonça (Estagiário SAP)", reactions: 2100, detail: "5x a média de VP", why: "Autenticidade e vulnerabilidade vencem polish corporativo. Post humaniza a marca de forma que a comunicação oficial não consegue." },
-  },
-  Oracle: {
-    positive: { title: "Migramos 100% do ERP do Bradesco para cloud em 8 meses — o que aprendemos", author: "Ricardo Torres (CTO Oracle Brasil)", rer: 44, reactions: 1650, comments: 58, why: "Case real com cliente de peso, números específicos e timeline. Formato que gera confiança com buyers enterprise." },
-    negative: { title: "5 razões para migrar seu ERP para a nuvem em 2026", author: "Oracle Brasil (Página oficial)", rer: 10, reactions: 180, comments: 8, why: "Whitepaper genérico reciclado como post. Sem ponto de vista, sem dado original, sem voz humana. Decisores já viram esse conteúdo 100 vezes." },
-    unexpected: { title: "Por que a SAP está certa sobre IA em ERP (e o que falta no argumento deles)", author: "Roberto Lima (CEO Oracle Brasil)", reactions: 1500, detail: "3x a média", why: "CEO elogiando competitor gera curiosidade e debate. Posicionamento de maturidade que atrai decisores seniores." },
-  },
-};
-
-const COLLAB_DATA: Record<string, Array<{ name: string; role: string; posts: number; engPct: string; cat: string; badge: string; badgeColor: string; note: string }>> = {
-  TOTVS: [
-    { name: "TOTVS", role: "Página oficial", posts: 6, engPct: "21%", cat: "Institucional/Vagas", badge: "Média", badgeColor: "text-yellow-400 bg-yellow-400/10", note: "Alto volume mas baixo RER — conteúdo institucional" },
-    { name: "Dennis Herszkowicz", role: "CEO", posts: 12, engPct: "52%", cat: "Reforma Tributária", badge: "Alta", badgeColor: "text-green-400 bg-green-400/10", note: "RER 51% no post sobre reforma" },
-    { name: "Juliano Tubino", role: "VP Comercial", posts: 8, engPct: "19%", cat: "Produto/Plataforma", badge: "Média", badgeColor: "text-yellow-400 bg-yellow-400/10", note: "Tom institucional reduz impacto" },
-    { name: "Gustavo Bastos", role: "CFO", posts: 4, engPct: "8%", cat: "Gestão Financeira", badge: "Alta", badgeColor: "text-green-400 bg-green-400/10", note: "Engaja CFOs e Controllers" },
-    { name: "Marcelo Cosentino", role: "VP Tecnologia", posts: 0, engPct: "0%", cat: "—", badge: "Inativo 45d", badgeColor: "text-gray-500 bg-gray-500/10", note: "Voz técnica ausente (CIO/CTO)" },
-    { name: "Sergio Campos", role: "VP Produto", posts: 0, engPct: "0%", cat: "—", badge: "Inativo 60d", badgeColor: "text-gray-500 bg-gray-500/10", note: "Território de produto sem voz" },
-  ],
-  "SAP Brasil": [
-    { name: "SAP Brasil", role: "Página oficial", posts: 4, engPct: "12%", cat: "Institucional/Vagas", badge: "Baixa", badgeColor: "text-red-400 bg-red-400/10", note: "Vagas e institucional, RER abaixo da média" },
-    { name: "Maria Santos", role: "VP Inovação", posts: 15, engPct: "22%", cat: "IA + Cloud", badge: "Alta", badgeColor: "text-green-400 bg-green-400/10", note: "Principal voz em IA" },
-    { name: "Carlos Ferreira", role: "Dir. Produto", posts: 12, engPct: "18%", cat: "Produto", badge: "Alta", badgeColor: "text-green-400 bg-green-400/10", note: "Conteúdo técnico consistente" },
-    { name: "Ana Rodrigues", role: "Head Marketing", posts: 10, engPct: "15%", cat: "Institucional", badge: "Média", badgeColor: "text-yellow-400 bg-yellow-400/10", note: "Foco institucional, baixo RER" },
-    { name: "Pedro Almeida", role: "Dir. Engenharia", posts: 8, engPct: "13%", cat: "Tech/Cloud", badge: "Alta", badgeColor: "text-green-400 bg-green-400/10", note: "Engaja público técnico CTO" },
-    { name: "Lucas Mendes", role: "Head CS", posts: 6, engPct: "10%", cat: "Cases", badge: "Alta", badgeColor: "text-green-400 bg-green-400/10", note: "Cases reais com clientes" },
-  ],
-  Oracle: [
-    { name: "Oracle Brasil", role: "Página oficial", posts: 2, engPct: "8%", cat: "Institucional", badge: "Baixa", badgeColor: "text-red-400 bg-red-400/10", note: "Pouca atividade na página oficial" },
-    { name: "Roberto Lima", role: "CEO", posts: 14, engPct: "71%", cat: "ERP Cloud", badge: "Alta", badgeColor: "text-green-400 bg-green-400/10", note: "Concentração extrema de engajamento" },
-    { name: "Fernanda Costa", role: "Dir. Comercial", posts: 3, engPct: "18%", cat: "Vendas", badge: "Média", badgeColor: "text-yellow-400 bg-yellow-400/10", note: "Poucos posts, foco comercial" },
-    { name: "André Souza", role: "Head Tech", posts: 1, engPct: "11%", cat: "Cloud", badge: "Baixa", badgeColor: "text-red-400 bg-red-400/10", note: "Quase inativo, baixa aderência" },
-  ],
-};
-
-/* ========== POSTS DATA ========== */
-const ALL_POSTS = [
-  { company: "TOTVS", text: "Reforma tributária: os 3 erros que já vemos nas empresas grandes. Depois de acompanhar mais de 200 empresas na transição, identificamos três padrões que se repetem: (1) subestimar o impacto no fluxo de caixa da transição de créditos, (2) não revisar contratos com fornecedores que terão carga tributária alterada, e (3) deixar para atualizar o ERP nos últimos 60 dias. O erro #3 é o mais caro — empresas que começam a adaptar agora economizam em média 40% no custo da migração.", author: "Dennis Herszkowicz", role: "CEO", category: "Produto e negócio", engagement: 2436, rer: 51 },
-  { company: "TOTVS", text: "TOTVS 42 anos — o que aprendemos nessas 4 décadas. Quando começamos em 1983, software de gestão era coisa de multinacional. Hoje, mais de 70 mil empresas brasileiras rodam na nossa plataforma. O que aprendemos: tecnologia brasileira precisa resolver problemas brasileiros. Não adianta copiar modelo americano. A complexidade fiscal daqui não existe em nenhum outro lugar do mundo. É isso que nos faz únicos — e é isso que vamos continuar fazendo pelos próximos 42 anos.", author: "Página oficial", role: "", official: true, category: "Institucional", engagement: 1847, rer: 15 },
-  { company: "TOTVS", text: "Integração nativa ERP-CRM: como nossa plataforma resolve o desafio que toda empresa enfrenta. Com a integração nativa, eliminamos a necessidade de middleware e reduzimos o tempo de implementação em 60%. Nossa plataforma conecta vendas, financeiro e operações em um único ambiente, sem fricção de dados entre sistemas. Conheça mais sobre como podemos ajudar sua empresa a crescer com eficiência.", author: "Juliano Tubino", role: "VP Comercial", category: "Produto e negócio", engagement: 90, rer: 12 },
-  { company: "TOTVS", text: "Estamos contratando! Vagas abertas em tecnologia na TOTVS. Procuramos desenvolvedores Python, engenheiros de dados e especialistas em IA para nosso time de inovação. Oferecemos trabalho remoto, plano de carreira acelerado e a chance de impactar milhares de empresas brasileiras. Se você quer construir tecnologia que transforma negócios reais, venha fazer parte do nosso time. Inscreva-se pelo link na bio.", author: "Página oficial", role: "", official: true, category: "Vagas e RH", engagement: 520, rer: 5 },
-  { company: "TOTVS", text: "O futuro da gestão financeira no Brasil passa por três pilares: automação fiscal inteligente, real-time analytics e compliance preditivo. Na última década, o CFO deixou de ser o guardião dos números para se tornar o estrategista do crescimento. Empresas que adotam essas três capacidades estão crescendo 2,3x mais rápido que a média do setor. Como CFO, vejo isso acontecer todos os dias nos nossos clientes.", author: "Gustavo Bastos", role: "CFO", category: "Produto e negócio", engagement: 380, rer: 44 },
-  { company: "TOTVS", text: "TOTVS no evento SAP Sapphire — o que aprendemos observando a concorrência. Passamos 3 dias imersos no evento da SAP e voltamos com insights valiosos. Primeiro: eles estão apostando pesado em IA generativa, mas ainda sem cases concretos no Brasil. Segundo: o discurso de plataforma global não ressoa com o mid-market brasileiro. Terceiro: a oportunidade para ERPs brasileiros nunca foi tão clara.", author: "Dennis Herszkowicz", role: "CEO", category: "Institucional", engagement: 890, rer: 28 },
-  { company: "TOTVS", text: "Resultado do 4T25: crescimento de 18% em receita recorrente, superando guidance. A receita recorrente atingiu R$ 1,2 bilhão no trimestre, impulsionada pela migração de clientes para cloud e pela expansão da base de PMEs. O churn caiu para 0,8% — o menor da história. Estamos confiantes que 2026 será o ano de maior crescimento orgânico da TOTVS, com foco em IA aplicada e reforma tributária.", author: "Página oficial", role: "", official: true, category: "Institucional", engagement: 1200, rer: 22 },
-  { company: "SAP Brasil", text: "Como IA generativa está redefinindo o planejamento de supply chain. Na semana passada, apresentamos para um cliente do setor automotivo como nosso módulo de IA generativa reduziu o tempo de planejamento de demanda de 5 dias para 4 horas. O modelo analisa 340 variáveis simultaneamente — clima, câmbio, sazonalidade, redes sociais — e gera cenários probabilísticos que nenhum analista humano conseguiria produzir. Isso não é futuro. É agora.", author: "Marcos Vidal", role: "VP Inovação", category: "Produto e negócio", engagement: 1962, rer: 48 },
-  { company: "SAP Brasil", text: "Estamos contratando! Venha fazer parte do time de IA da SAP Brasil. Buscamos cientistas de dados, engenheiros de ML e product managers para nosso hub de inovação em São Paulo. Trabalhe com os maiores datasets de gestão empresarial do mundo e ajude a construir o futuro do ERP inteligente. Benefícios globais, cultura de inovação e impacto real em milhares de empresas.", author: "Página oficial", role: "", official: true, category: "Vagas e RH", engagement: 332, rer: 8 },
-  { company: "SAP Brasil", text: "Meu primeiro ano como estagiário na SAP: o que aprendi sobre enterprise software. Entrei achando que ERP era só planilha glorificada. Saí entendendo que por trás de cada linha de código existe uma empresa real, com pessoas reais tomando decisões que afetam empregos e famílias. O que mais me surpreendeu: a complexidade do mercado brasileiro. Cada estado tem regras diferentes, cada setor tem particularidades. Nunca mais vou subestimar um sistema de gestão.", author: "Lucas Mendonça", role: "Estagiário", category: "Outros", engagement: 2100, rer: 6 },
-  { company: "SAP Brasil", text: "O papel da IA preditiva na gestão de inventário: resultados reais de 3 clientes brasileiros. Cliente 1 (varejo): redução de 34% em ruptura de estoque. Cliente 2 (indústria): diminuição de 28% em capital imobilizado. Cliente 3 (distribuição): aumento de 19% no giro de estoque. Em todos os casos, o ROI foi positivo em menos de 6 meses. IA não é buzzword quando tem número real por trás.", author: "Maria Santos", role: "VP Inovação", category: "Produto e negócio", engagement: 1450, rer: 42 },
-  { company: "SAP Brasil", text: "SAP Sapphire 2026: 3 tendências que vão mudar o ERP para sempre. Tendência 1: Business AI — IA embutida em cada transação, não como módulo separado. Tendência 2: Green Ledger — contabilidade de carbono integrada ao financeiro. Tendência 3: Composable ERP — empresas montam seu ERP como Lego, escolhendo módulos best-of-breed. O futuro do ERP não é monolítico. É inteligente, sustentável e modular.", author: "Carlos Ferreira", role: "Dir. Produto", category: "Produto e negócio", engagement: 980, rer: 38 },
-  { company: "SAP Brasil", text: "Customer success: como ajudamos a Ambev a transformar sua operação fiscal em 90 dias. O desafio: 14 plantas, 27 estados, milhares de SKUs com regras tributárias diferentes. A solução: automação fiscal com IA que classifica automaticamente cada operação. O resultado: 92% de redução em erros de classificação e R$ 12M economizados em contingências fiscais no primeiro ano. Esse é o tipo de impacto que nos motiva.", author: "Lucas Mendes", role: "Head CS", category: "Produto e negócio", engagement: 720, rer: 35 },
-  { company: "SAP Brasil", text: "Diversidade na SAP: nosso relatório anual de inclusão revela avanços e desafios. Em 2025, atingimos 42% de mulheres em cargos de liderança no Brasil — acima da meta de 40%. Pessoas negras representam 28% do quadro total, com programa de aceleração de carreira que já formou 150 profissionais. Ainda temos muito a evoluir, mas acreditamos que transparência é o primeiro passo.", author: "Ana Rodrigues", role: "Head Marketing", category: "Institucional", engagement: 1100, rer: 12 },
-  { company: "Oracle", text: "Migramos 100% do ERP do Bradesco para cloud em 8 meses — o que aprendemos nessa jornada. Foram 2.400 processos mapeados, 180 integrações reconfiguradas e zero downtime na virada. A chave foi a abordagem lift-and-shift no primeiro momento, seguida de otimização cloud-native nos 6 meses seguintes. O resultado: 45% de redução no TCO e performance 3x maior nos fechamentos contábeis. Enterprise migration não precisa levar 3 anos.", author: "Ricardo Torres", role: "CTO", category: "Produto e negócio", engagement: 1708, rer: 44 },
-  { company: "Oracle", text: "5 razões para migrar seu ERP para a nuvem em 2026. Razão 1: custo de infraestrutura on-premise só aumenta. Razão 2: atualizações automáticas eliminam projetos de upgrade. Razão 3: escalabilidade elástica para picos de demanda. Razão 4: segurança enterprise-grade sem investimento adicional. Razão 5: acesso a IA e analytics nativos da plataforma. A pergunta não é se você vai migrar, mas quando.", author: "Página oficial", role: "", official: true, category: "Produto e negócio", engagement: 188, rer: 10 },
-  { company: "Oracle", text: "Por que a SAP está certa sobre IA em ERP (e o que falta no argumento deles). Concordo com a tese da SAP de que IA vai transformar o ERP. Mas tem um ponto cego: eles falam de IA generativa como se fosse mágica, sem discutir governança de dados, viés algorítmico e compliance regulatório. IA em ERP é poderosa, mas precisa de guardrails que ninguém está discutindo. Esse é o debate adulto que o mercado precisa ter.", author: "Roberto Lima", role: "CEO", category: "Produto e negócio", engagement: 1500, rer: 32 },
-  { company: "Oracle", text: "Oracle Cloud World: keynotes e novidades para o Brasil. Destaques do evento: lançamento do Oracle Fusion AI para mercado brasileiro, parceria com Embratel para cloud soberana, e programa de aceleração para ISVs locais. O Brasil é o 4º maior mercado da Oracle globalmente e estamos investindo R$ 500M em infraestrutura local nos próximos 2 anos. Cloud enterprise no Brasil vai ser diferente.", author: "Fernanda Costa", role: "Dir. Comercial", category: "Institucional", engagement: 450, rer: 18 },
-];
-
-const CATEGORIES = ["Todas", "Produto e negócio", "Institucional", "Vagas e RH", "Outros"];
-const COMPANY_COLORS: Record<string, string> = { TOTVS: "text-[#E91E8C] bg-[#E91E8C]/10", "SAP Brasil": "text-blue-400 bg-blue-400/10", Oracle: "text-orange-400 bg-orange-400/10" };
 
 function LikeDislike({ id, votes, setVotes }: { id: number; votes: Record<number, "like" | "dislike" | null>; setVotes: React.Dispatch<React.SetStateAction<Record<number, "like" | "dislike" | null>>> }) {
   const v = votes[id] ?? null;
@@ -238,86 +157,15 @@ function LikeDislike({ id, votes, setVotes }: { id: number; votes: Record<number
   );
 }
 
-/* ========== POSTS TAB ========== */
-function PostsTab() {
-  const [companyFilter, setCompanyFilter] = useState("Todos");
-  const [categoryFilter, setCategoryFilter] = useState("Todas");
-  const [sortBy, setSortBy] = useState<"engagement" | "rer">("engagement");
-  const [expandedPost, setExpandedPost] = useState<number | null>(null);
-
-  const companies = ["Todos", "TOTVS", "SAP Brasil", "Oracle", "Perfil oficial"];
-
-  const filtered = ALL_POSTS
-    .filter((p) => companyFilter === "Todos" ? true : companyFilter === "Perfil oficial" ? !!(p as Record<string, unknown>).official : p.company === companyFilter)
-    .filter((p) => categoryFilter === "Todas" || p.category === categoryFilter)
-    .sort((a, b) => sortBy === "engagement" ? b.engagement - a.engagement : b.rer - a.rer);
-
-  return (
-    <div className="space-y-6">
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex gap-1 bg-[#0B0B1A] border border-[#1E1E3A] rounded-full p-0.5">
-          {companies.map((c) => (
-            <button key={c} onClick={() => setCompanyFilter(c)} className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${companyFilter === c ? "bg-[#E91E8C]/20 text-[#E91E8C]" : "text-gray-500 hover:text-gray-300"}`}>{c}</button>
-          ))}
-        </div>
-        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="bg-[#0B0B1A] border border-[#1E1E3A] rounded-lg px-3 py-1.5 text-xs text-gray-300">
-          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "engagement" | "rer")} className="bg-[#0B0B1A] border border-[#1E1E3A] rounded-lg px-3 py-1.5 text-xs text-gray-300">
-          <option value="engagement">Ordenar por Engajamento</option>
-          <option value="rer">Ordenar por RER</option>
-        </select>
-        <span className="text-xs text-gray-500">{filtered.length} posts</span>
-      </div>
-
-      {/* Post list */}
-      <div className="space-y-2">
-        {filtered.map((post, i) => {
-          const rerColor = post.rer >= 30 ? "text-green-400 bg-green-400/10" : post.rer >= 15 ? "text-yellow-400 bg-yellow-400/10" : "text-orange-400 bg-orange-400/10";
-          const isExpanded = expandedPost === i;
-          const preview = post.text.length > 100 ? post.text.slice(0, 100) + "..." : post.text;
-          return (
-            <div
-              key={i}
-              className={`bg-[#12122A] border rounded-xl px-5 py-3.5 cursor-pointer transition-colors ${isExpanded ? "border-[#E91E8C]/30" : "border-[#1E1E3A] hover:border-[#E91E8C]/20"}`}
-              onClick={() => setExpandedPost(isExpanded ? null : i)}
-            >
-              <div className="flex items-center gap-4">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform shrink-0 text-gray-500 ${isExpanded ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${COMPANY_COLORS[post.company]}`}>{post.company}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white">{isExpanded ? "" : preview}</p>
-                  <p className="text-[10px] text-gray-500 mt-0.5">{post.author}{post.role ? `, ${post.role}` : ""}</p>
-                </div>
-                <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded shrink-0 hidden sm:inline">{post.category}</span>
-                <span className="text-sm text-gray-300 font-medium tabular-nums w-16 text-right shrink-0">{post.engagement.toLocaleString("pt-BR")}</span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${rerColor}`}>RER {post.rer}%</span>
-                <a href="#" onClick={(e) => e.stopPropagation()} className="text-gray-500 hover:text-[#E91E8C] transition-colors shrink-0" title="Ver post no LinkedIn">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                </a>
-              </div>
-              {isExpanded && (
-                <div className="mt-3 pl-8 border-t border-[#1E1E3A] pt-3">
-                  <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{post.text}</p>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 /* ========== NEW REPORT ========== */
 function NewReport() {
-  const [reportTab, setReportTab] = useState<"analysis" | "content" | "posts">("analysis");
+  const [reportTab, setReportTab] = useState<"analysis" | "content" | "posts" | "influencers">("analysis");
   const [headerExpanded, setHeaderExpanded] = useState(false);
   const [highlightTab, setHighlightTab] = useState("TOTVS");
   const [collabTab, setCollabTab] = useState("TOTVS");
   const [activeSection, setActiveSection] = useState("insights");
-  const [chartTab, setChartTab] = useState<"share" | "engagement" | "posts">("share");
+  const [chartTab, setChartTab] = useState<"share" | "sov" | "engagement" | "posts">("share");
   const [recVotes, setRecVotes] = useState<Record<number, "like" | "dislike" | null>>({});
 
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -418,12 +266,12 @@ function NewReport() {
 
       {/* Report tabs */}
       <div className="flex border-b border-[#1E1E3A] mb-6">
-        {([["analysis", "Análise"], ["content", "Conteúdo"], ["posts", "Posts"]] as const).map(([key, label]) => (
+        {([["analysis", "Análise"], ["content", "Conteúdo"], ["posts", "Posts"], ["influencers", "Influencers"]] as const).map(([key, label]) => (
           <button key={key} onClick={() => setReportTab(key)} className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${reportTab === key ? "border-[#E91E8C] text-[#E91E8C]" : "border-transparent text-gray-500 hover:text-gray-300"}`}>{label}</button>
         ))}
       </div>
 
-      {reportTab === "posts" ? <PostsTab /> : (
+      {reportTab === "posts" ? <PostsTab /> : reportTab === "influencers" ? <InfluencersTab /> : (
       <div className="lg:grid lg:grid-cols-[180px_1fr] lg:gap-8">
         <ReportNav activeId={activeSection} sections={reportTab === "content" ? NAV_CONTENT : NAV_ANALYSIS} />
         <div className="space-y-8 min-w-0">
@@ -439,6 +287,11 @@ function NewReport() {
                 { name: "TOTVS", value: 1100000, highlight: true },
                 { name: "Oracle", value: 600000, highlight: false },
               ],
+              sov: [
+                { name: "SAP Brasil", value: 6, highlight: false },
+                { name: "TOTVS", value: 5, highlight: true },
+                { name: "Oracle", value: 4, highlight: false },
+              ],
               engagement: [
                 { name: "SAP Brasil", value: 44970, highlight: false },
                 { name: "TOTVS", value: 29376, highlight: true },
@@ -450,7 +303,8 @@ function NewReport() {
                 { name: "Oracle", value: 58, highlight: false },
               ],
             };
-            const tabs: Array<{ key: "share" | "engagement" | "posts"; label: string; tip: string }> = [
+            const tabs: Array<{ key: "share" | "sov" | "engagement" | "posts"; label: string; tip: string }> = [
+              { key: "sov", label: "Share of Voice", tip: "Posts de terceiros mencionando a marca." },
               { key: "share", label: "Share of LinkedIn", tip: "Índice composto que mede a presença qualificada da marca. Calculado como: Posts engajados × RER (% de decisores) × Engajamentos totais. Quanto maior, mais a marca está dominando as conversas relevantes." },
               { key: "engagement", label: "Engajamento", tip: "Volume total de engajamento (curtidas, comentários, compartilhamentos) gerado pelos perfis monitorados de cada empresa. Não filtra por decisores — mede alcance bruto." },
               { key: "posts", label: "Número de Posts", tip: "Total de posts publicados no período pelos perfis monitorados (oficial + colaboradores). Exclui reposts sem comentário." },
@@ -496,6 +350,13 @@ function NewReport() {
                     </div>
                   ))}
                 </div>
+                {chartTab === "sov" && (
+                  <div className="mt-4 pt-3 border-t border-[#1E1E3A] flex flex-wrap gap-4 text-xs text-gray-500">
+                    <span>SAP: <span className="text-green-400">+3</span> <span className="text-yellow-400">~1</span> <span className="text-red-400">-2</span></span>
+                    <span>TOTVS: <span className="text-green-400">+3</span> <span className="text-yellow-400">~1</span> <span className="text-red-400">-1</span></span>
+                    <span>Oracle: <span className="text-green-400">+2</span> <span className="text-yellow-400">~1</span> <span className="text-red-400">-1</span></span>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -515,8 +376,12 @@ function NewReport() {
                   <p className="text-xs text-gray-400">Post do Dennis Herszkowicz sobre os 3 erros da reforma tributária foi o post com maior RER do mês em todo o set competitivo (51%, 2.347 reações, 89 comentários de decisores). Nenhum concorrente publicou sobre o tema com engajamento comparável. A TOTVS é a referência percebida neste território.</p>
                 </div>
                 <div>
-                  <p className="text-sm text-white font-semibold">Domínio no buyer financeiro (CFO/Controller)</p>
-                  <p className="text-xs text-gray-400">6 dos 8 decisores que engajaram com a TOTVS no mês são do setor financeiro (CFOs, Controllers, Heads Fiscais). Empresas como Gerdau, Ambev, Raízen e Vale tiveram decisores financeiros ativos em nosso conteúdo. Este é o canal de pipeline mais qualificado da marca.</p>
+                  <p className="text-sm text-white font-semibold">Dominio no buyer financeiro (CFO/Controller)</p>
+                  <p className="text-xs text-gray-400">6 dos 8 decisores engajados sao financeiros. Gerdau, Ambev, Raizen e Vale ativos.</p>
+                </div>
+                <div>
+                  <p className="text-sm text-white font-semibold">Share of Voice positivo (8 de 15)</p>
+                  <p className="text-xs text-gray-400">8 de 15 mencoes externas positivas. TOTVS citada por tributaristas. 4 influenciadores com alto potencial.</p>
                 </div>
               </div>
             </div>
@@ -534,7 +399,11 @@ function NewReport() {
                 </div>
                 <div>
                   <p className="text-sm text-white font-semibold">Oracle construindo autoridade em ERP Cloud sem resposta</p>
-                  <p className="text-xs text-gray-400">Oracle publicou 18 posts sobre ERP Cloud Enterprise, todos com RER acima de 35%. O CEO fez um post provocativo elogiando a SAP que gerou 1.500 reações e posicionou a Oracle como voz madura no debate. A TOTVS não tem nenhum colaborador ativo publicando sobre cloud enterprise.</p>
+                  <p className="text-xs text-gray-400">Oracle: 18 posts ERP Cloud, RER acima de 35%. TOTVS sem colaborador ativo em cloud.</p>
+                </div>
+                <div>
+                  <p className="text-sm text-white font-semibold">SAP acumula mencoes negativas</p>
+                  <p className="text-xs text-gray-400">2 mencoes negativas (custo e complexidade). Monitorar padrao.</p>
                 </div>
               </div>
             </div>
@@ -552,7 +421,8 @@ function NewReport() {
               { id: 4, title: "Responder Oracle em ERP Cloud Enterprise", tag: "OFENSIVA", tagColor: "text-amber-400 bg-amber-400/10 border-amber-400/20", urgency: "média urgência", desc: "Publicar cases reais de migração cloud em clientes enterprise brasileiros. Contestar narrativa da Oracle com dados concretos.", who: "Marcelo Cosentino (VP Tech) + cliente enterprise", details: "Tópicos sugeridos:\n• Diferenças estruturais entre ERP on-premise e cloud enterprise\n• Custos escondidos na migração com vendor lock-in\n• Cases reais de migração cloud em clientes brasileiros\n• Compliance e soberania de dados em ERP cloud" },
               { id: 5, title: "ERP para PME ≠ ERP enterprise menor", tag: "CONTEÚDO", tagColor: "text-blue-400 bg-blue-400/10 border-blue-400/20", urgency: "média urgência", desc: "Diferenças estruturais de produto, operação e custo. Entrar no território que Oracle construiu sem resposta.", who: "Ana Paula Motta (Dir. PMEs) + líder de cliente PME", details: "Justificativa: Oracle construiu 6 meses de autoridade no tema sem resposta nossa. Entrar agora corta crescimento deles e recupera território." },
               { id: 6, title: "IA em ERP: o que é real e o que é marketing", tag: "CONTEÚDO", tagColor: "text-blue-400 bg-blue-400/10 border-blue-400/20", urgency: "média urgência", desc: "Tese provocativa — ceticismo maduro que funciona com CIO/CTO. Responde ao aumento de 3,2x nos posts de IA da SAP.", who: "Marcelo Cosentino (VP Tech — reativação)", details: "Justificativa: Responde diretamente ao aumento de 3,2x nos posts de IA da SAP. Posicionamento de ceticismo maduro funciona com buyer técnico (CIO/CTO — público que não estamos capturando)." },
-              { id: 7, title: "Manter cadência Reforma Tributária", tag: "CONSOLIDAÇÃO", tagColor: "text-green-400 bg-green-400/10 border-green-400/20", urgency: "baixa urgência", desc: "Atualizações mensais + checklists + série por setor. Território já dominado — manter, não intensificar.", who: "Ricardo Oliveira (Head Fiscal) + Dennis 1x/mês", details: "Tópicos sugeridos:\n• Atualizações mensais sobre regulamentação\n• Checklists de decisões com prazo\n• O que muda para cada setor (varejo, indústria, serviços)\n• Perguntas que os CFOs estão fazendo e respostas práticas" },
+              { id: 7, title: "Manter cadencia Reforma Tributaria", tag: "CONSOLIDACAO", tagColor: "text-green-400 bg-green-400/10 border-green-400/20", urgency: "baixa", desc: "Atualizacoes mensais + checklists.", who: "Ricardo Oliveira + Dennis", details: "Topicos: regulamentacao, checklists, serie por setor" },
+              { id: 8, title: "Ativar influenciadores-chave", tag: "RELACIONAMENTO", tagColor: "text-purple-400 bg-purple-400/10 border-purple-400/20", urgency: "media", desc: "Ricardo Amorim (85k) e Fernando Gomes (18k) mencionam TOTVS.", who: "Marketing + Parcerias", details: "Top: R.Amorim 85k, F.Gomes 18k, J.Santos 20k, P.Andrade 28k" },
             ].map((rec) => (
               <div key={rec.id} className="bg-[#0B0B1A] border border-[#1E1E3A] rounded-xl p-4">
                 <div className="flex items-start gap-3">
