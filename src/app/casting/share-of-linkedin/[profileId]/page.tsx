@@ -201,6 +201,7 @@ export default function LeadsGenerationOptionsPage() {
           competitors: data.options.competitors ?? [],
           employee_profiles: data.options.employee_profiles ?? [],
           icp_description: data.options.icp_description ?? "",
+          ai_response: data.options.ai_response ?? {},
         } : null);
       }
 
