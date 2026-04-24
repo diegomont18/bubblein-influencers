@@ -24,9 +24,9 @@ const beVietnamPro = Be_Vietnam_Pro({
   variable: "--font-be-vietnam-pro",
 });
 
-const SITE_NAME = "BubbleIn - Creators B2B no LinkedIn";
+const SITE_NAME = "BubbleIn - Plataforma B2B para LinkedIn";
 const SITE_DESCRIPTION =
-  "Conectamos sua marca a creators B2B relevantes no LinkedIn. Ganhe visibilidade, gere demanda e construa confiança.";
+  "A plataforma para impulsionar empresas B2B no LinkedIn. Mapeie o cenário competitivo com Share of LinkedIn e amplifique sua marca com Inteligência de Casting de Influencers.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://bubblein.com.br"),

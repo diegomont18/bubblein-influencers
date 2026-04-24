@@ -6,10 +6,8 @@ import Image from "next/image";
 
 const NAV_LINKS = [
   { label: "Share of LinkedIn", href: "/share-of-linkedin" },
-  { label: "Benefícios", href: "/#beneficios" },
-  { label: "Como Funciona", href: "/#processo" },
-  { label: "Modelos", href: "/#modelos" },
-  { label: "FAQ", href: "/#faq" },
+  { label: "Casting de Influencers", href: "/#casting" },
+  { label: "Planos", href: "/#planos" },
   { label: "Blog", href: "/blog" },
 ];
 
@@ -35,7 +33,7 @@ export default function Navbar() {
         <Link href="/">
           <Image
             src="/logo.png"
-            alt="BubbleIn - Creators B2B no LinkedIn"
+            alt="BubbleIn - Plataforma B2B para LinkedIn"
             width={120}
             height={43}
             priority
