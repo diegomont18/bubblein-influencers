@@ -158,7 +158,27 @@ export default function LeadsGenerationPage() {
             />
           </div>
 
-          <div className="flex items-center gap-2 mb-4">
+          {error && <p className="text-[#ff6e84] text-sm mb-4">{error}</p>}
+
+          <button
+            id="analyze-btn"
+            onClick={handleAnalyze}
+            disabled={loading}
+            className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <span className="animate-pulse">Mapeando empresa... (pode levar ate 3 minutos)</span>
+              </>
+            ) : (
+              <>
+                Mapear Empresa
+                <span className="text-lg">→</span>
+              </>
+            )}
+          </button>
+
+          <div className="flex items-center gap-2 mt-4">
             <label className="text-xs text-white/40 shrink-0">País:</label>
             <select value={country} onChange={(e) => setCountry(e.target.value)} className="bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#ca98ff]/40 transition-colors">
               <option value="br">Brasil</option>
@@ -179,26 +199,6 @@ export default function LeadsGenerationPage() {
               <option value="">Global (sem filtro)</option>
             </select>
           </div>
-
-          {error && <p className="text-[#ff6e84] text-sm mb-4">{error}</p>}
-
-          <button
-            id="analyze-btn"
-            onClick={handleAnalyze}
-            disabled={loading}
-            className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>
-                <span className="animate-pulse">Mapeando empresa... (pode levar ate 3 minutos)</span>
-              </>
-            ) : (
-              <>
-                Mapear Empresa
-                <span className="text-lg">→</span>
-              </>
-            )}
-          </button>
         </div>
 
         <p className="text-center text-[10px] text-white/20 mt-4">

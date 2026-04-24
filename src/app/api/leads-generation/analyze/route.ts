@@ -397,7 +397,13 @@ export async function POST(request: Request) {
         employee_profiles: employeeProfiles,
         icp_description: "",
         company_posts_per_month: companyPostsPerMonth,
-        proprietary_brands: aiResult?.brands ?? [],
+        proprietary_brands: (() => {
+          const brandName = companyInfo?.name ?? slug.replace(/-/g, " ");
+          const aiBrands = (aiResult?.brands ?? []).filter(
+            (b) => b.toLowerCase() !== brandName.toLowerCase()
+          );
+          return [brandName, ...aiBrands];
+        })(),
         job_titles: [],
         departments: [],
         company_sizes: [],

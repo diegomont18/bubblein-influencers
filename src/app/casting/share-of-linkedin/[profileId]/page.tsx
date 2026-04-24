@@ -36,6 +36,7 @@ interface Profile {
   name: string;
   headline: string;
   linkedin_url: string;
+  profile_photo?: string | null;
 }
 
 interface LeadResult {
@@ -513,9 +514,6 @@ export default function LeadsGenerationOptionsPage() {
           ) : (
             <span className="text-lg font-semibold text-white">{profile?.name}</span>
           )}
-          {isCompanyProfile && options?.company_posts_per_month != null && (
-            <PostsFreqBadge ppm={options.company_posts_per_month} size="md" />
-          )}
           {profile?.headline && <span className="text-sm text-white/40">— {profile.headline}</span>}
           {profile && (
             <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-[#ca98ff] hover:text-[#e197fc] transition-colors" title="Ver perfil no LinkedIn">
@@ -589,6 +587,43 @@ export default function LeadsGenerationOptionsPage() {
             </h2>
 
             <div className="space-y-8 relative z-10">
+              {/* Section 0: Marca (empresa analisada) */}
+              {profile && (() => {
+                const brandSlug = profile.linkedin_url.match(/\/company\/([^/?#]+)/)?.[1] ?? "";
+                const brandColor = ["#ca98ff","#a2f31f","#ff946e","#5b9bff","#f472b6","#34d399"][(profile.name.charCodeAt(0)||0) % 6];
+                return (
+                  <div className="space-y-3">
+                    <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">Marca</label>
+                    <div className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden relative" style={{ backgroundColor: brandColor + "15" }}>
+                        <span style={{ color: brandColor }} className="text-base font-extrabold">{profile.name[0]?.toUpperCase()}</span>
+                        {profile.profile_photo && (
+                          <img
+                            src={profile.profile_photo}
+                            alt=""
+                            className="absolute inset-0 w-10 h-10 rounded-xl object-cover"
+                            onError={(e) => { e.currentTarget.style.display = "none"; }}
+                          />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-white font-medium truncate capitalize">{profile.name}</p>
+                          {options.company_posts_per_month != null && (
+                            <PostsFreqBadge ppm={options.company_posts_per_month} size="md" />
+                          )}
+                        </div>
+                        {brandSlug && (
+                          <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">
+                            {brandSlug}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Section 1: Colaboradores Ativos */}
               <div className="space-y-3">
                 <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">
@@ -766,7 +801,7 @@ export default function LeadsGenerationOptionsPage() {
                 {(options.proprietary_brands ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {(options.proprietary_brands ?? []).map((brand, i) => (
-                      <span key={`${brand}-${i}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-xs text-[#ca98ff] group/brand">
+                      <span key={`${brand}-${i}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-xs text-[#ca98ff]">
                         <span className="font-medium">{brand}</span>
                         <button
                           type="button"
@@ -774,7 +809,7 @@ export default function LeadsGenerationOptionsPage() {
                             ...options,
                             proprietary_brands: (options.proprietary_brands ?? []).filter((_, j) => j !== i),
                           })}
-                          className="text-[#ca98ff]/50 hover:text-[#ff946e] opacity-0 group-hover/brand:opacity-100 transition-opacity text-sm leading-none"
+                          className="text-[#ca98ff]/60 hover:text-[#ff946e] transition-colors text-sm leading-none"
                           title="Remover"
                         >
                           &times;
