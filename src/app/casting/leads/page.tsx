@@ -80,7 +80,7 @@ export default function LeadsPage() {
   const [enriched, setEnriched] = useState(false);
   const [enriching, setEnriching] = useState(false);
   const [showEnrichModal, setShowEnrichModal] = useState(false);
-  const isAdmin = userCredits === -1;
+  const isAdmin = userCredits === Infinity || userCredits === -1;
   const [inputMode, setInputMode] = useState<"posts" | "profile">("posts");
   const [profileUrl, setProfileUrl] = useState("");
   const [profilePosts, setProfilePosts] = useState<ProfilePost[]>([]);
@@ -187,9 +187,11 @@ export default function LeadsPage() {
   }, [activeScanId, leads.length]);
 
   // Detect if leads already have company_size data (previously enriched)
+  const hasAnyEnriched = leads.some((l) => l.company_size);
+  const allEnriched = leads.length > 0 && leads.every((l) => l.company_size);
   useEffect(() => {
-    setEnriched(leads.some((l) => l.company_size));
-  }, [leads]);
+    setEnriched(hasAnyEnriched);
+  }, [hasAnyEnriched]);
 
   useEffect(() => {
     Promise.all([loadIcpProfiles(), loadUrlProfiles(), loadPastScans()]).finally(() => setPageLoading(false));
@@ -442,30 +444,49 @@ export default function LeadsPage() {
   }
 
   async function handleEnrich() {
-    if (!activeScanId || enriching) return;
+    console.log("[enrich-btn] handleEnrich called. enriching:", enriching, "activeScanId:", activeScanId, "pastScans:", pastScans.length, "leads:", leads.length, "enriched:", enriched);
+    if (enriching) { console.log("[enrich-btn] Already enriching, returning"); return; }
+    const scanId = activeScanId || (pastScans.length > 0 ? pastScans[0].id : null);
+    console.log("[enrich-btn] Using scanId:", scanId);
+    if (!scanId) {
+      console.log("[enrich-btn] No scanId found!");
+      setError("Nenhum scan selecionado. Selecione um scan antes de fazer enrich.");
+      return;
+    }
     setEnriching(true);
     setShowEnrichModal(false);
+    setError(null);
     try {
+      console.log("[enrich-btn] POST /api/leads/enrich with scanId:", scanId);
       const res = await fetch("/api/leads/enrich", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scanId: activeScanId }),
+        body: JSON.stringify({ scanId }),
       });
+      console.log("[enrich-btn] Response status:", res.status);
+      const result = await res.json();
+      console.log("[enrich-btn] Response body:", JSON.stringify(result));
       if (res.ok) {
-        // Reload leads to get updated company_size
+        console.log("[enrich-btn] Enrich OK, reloading leads...");
         const scansRes = await fetch("/api/leads/scans");
         if (scansRes.ok) {
           const scansData = await scansRes.json();
-          const scan = (scansData.scans ?? []).find((s: { id: string }) => s.id === activeScanId);
+          const scan = (scansData.scans ?? []).find((s: { id: string }) => s.id === scanId);
           if (scan) {
+            console.log("[enrich-btn] Reloaded scan, leads count:", (scan.leads ?? []).length);
             setLeads((scan.leads ?? []).filter((l: Lead) => l.name && l.name !== "Unknown" && l.name.length >= 2));
+          } else {
+            console.log("[enrich-btn] Scan not found in reload!");
           }
         }
       } else {
-        const errData = await res.json();
-        setError(errData.error || "Falha no enrich");
+        console.log("[enrich-btn] Enrich failed:", result.error);
+        setError(result.error || "Falha no enrich");
       }
-    } catch { setError("Falha no enrich"); }
+    } catch (err) {
+      console.error("[enrich-btn] Exception:", err);
+      setError("Falha no enrich: " + (err as Error).message);
+    }
     finally { setEnriching(false); }
   }
 
@@ -990,16 +1011,16 @@ export default function LeadsPage() {
             >
               Exportar CSV
             </button>
-            {isAdmin && !enriched && leads.length > 0 && (
+            {isAdmin && leads.length > 0 && (
               <button
                 onClick={() => setShowEnrichModal(true)}
                 disabled={enriching}
-                className="rounded-full bg-red-600 px-4 py-2 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 transition-colors font-[family-name:var(--font-lexend)]"
+                className={`rounded-full px-4 py-2 text-xs font-medium transition-colors font-[family-name:var(--font-lexend)] disabled:opacity-50 ${allEnriched ? "bg-[#20201f] text-[#adaaaa] hover:text-white hover:bg-[#262626]" : "bg-red-600 text-white hover:bg-red-700"}`}
               >
-                {enriching ? "Processando..." : "Fazer Enrich"}
+                {enriching ? "Processando..." : allEnriched ? "Re-enrich" : `Fazer Enrich${hasAnyEnriched ? ` (${leads.filter(l => !l.company_size).length} restantes)` : ""}`}
               </button>
             )}
-            {enriched && (
+            {allEnriched && (
               <span className="text-[10px] text-green-400 bg-green-400/10 px-2.5 py-1 rounded-full font-medium">Enrich completo</span>
             )}
           </div>
@@ -1266,24 +1287,31 @@ export default function LeadsPage() {
           {(() => {
             const totalPages = Math.ceil(filteredLeads.length / LEADS_PER_PAGE);
             if (totalPages <= 1) return null;
+            const btnClass = "rounded-full bg-[#20201f] px-3 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] disabled:opacity-30 transition-colors";
             return (
-              <div className="flex items-center justify-center py-4 gap-3">
-                <button
-                  onClick={() => setLeadsPage((p) => Math.max(1, p - 1))}
-                  disabled={leadsPage === 1}
-                  className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] disabled:opacity-50 transition-colors"
-                >
+              <div className="flex items-center justify-center py-4 gap-2">
+                <button onClick={() => setLeadsPage(1)} disabled={leadsPage === 1} className={btnClass} title="Primeira página">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+                </button>
+                <button onClick={() => setLeadsPage((p) => Math.max(1, p - 1))} disabled={leadsPage === 1} className={btnClass}>
                   Anterior
                 </button>
-                <span className="px-4 py-2 text-xs font-medium text-[#adaaaa]">
-                  Página {leadsPage} de {totalPages}
-                </span>
-                <button
-                  onClick={() => setLeadsPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={leadsPage === totalPages}
-                  className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] disabled:opacity-50 transition-colors"
-                >
+                <div className="flex items-center gap-1.5 px-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    value={leadsPage}
+                    onChange={(e) => { const v = Number(e.target.value); if (v >= 1 && v <= totalPages) setLeadsPage(v); }}
+                    className="w-12 rounded-lg bg-[#20201f] border border-[#333] px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:border-[#E91E8C] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <span className="text-xs text-[#adaaaa]">de {totalPages}</span>
+                </div>
+                <button onClick={() => setLeadsPage((p) => Math.min(totalPages, p + 1))} disabled={leadsPage === totalPages} className={btnClass}>
                   Próxima
+                </button>
+                <button onClick={() => setLeadsPage(totalPages)} disabled={leadsPage === totalPages} className={btnClass} title="Última página">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
                 </button>
               </div>
             );
