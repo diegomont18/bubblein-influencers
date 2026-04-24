@@ -70,7 +70,7 @@ function ResetPasswordForm() {
       <div className="w-full max-w-md px-6">
         <div className="rounded-2xl bg-[#1a1a1a] p-8 space-y-6">
           <div className="text-center">
-            <img src="/logo.png" alt="BubbleIn" width={160} height={57} className="mx-auto" />
+            <img src="/bubblein-logo-transparente.png" alt="BubbleIn" width={214} height={57} className="mx-auto" />
             <p className="mt-4 text-sm text-[#adaaaa] font-[family-name:var(--font-lexend)]">
               Redefinir senha
             </p>

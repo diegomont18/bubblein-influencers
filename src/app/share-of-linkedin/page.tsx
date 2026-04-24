@@ -572,7 +572,7 @@ export default function ShareOfLinkedInPage() {
       {/* Footer */}
       <footer className="border-t border-[#1E1E3A] py-10">
         <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
-          <Image src="/logo.png" alt="BubbleIn" width={100} height={36} />
+          <Image src="/bubblein-logo-transparente.png" alt="BubbleIn" width={135} height={36} />
           <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
             <span>&copy; {new Date().getFullYear()} BubbleIn. Todos os direitos reservados.</span>
             <span className="text-gray-700">·</span>

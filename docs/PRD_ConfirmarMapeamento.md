@@ -386,67 +386,191 @@ Todos os campos JSON da IA seguem o formato definido em `/share-of-linkedin-exem
 
 ---
 
-## Etapas de implementação
+## Infraestrutura — Coolify
 
-### Fase 1: Infraestrutura de dados
-- [ ] Migration: criar tabelas `sol_reports`, `sol_posts`, campo `confirmed_at`
-- [ ] API: endpoint POST `/api/sol/generate` que inicia coleta
-- [ ] API: endpoint GET `/api/sol/reports?profileId=X` que lista relatórios
-- [ ] API: endpoint POST `/api/sol/cancel` que cancela processamento
-- [ ] Background function: `netlify/functions/sol-generate.ts`
-- **Verificação:** Chamar API manualmente → `sol_reports` criado com status "processing"
+Todo o sistema deve rodar no Coolify (self-hosted). Configurações necessárias:
 
-### Fase 2: Coleta de posts (empresa + colaboradores)
-- [ ] Buscar posts de páginas de empresa (3 empresas)
-- [ ] Buscar posts de todos os colaboradores mapeados
-- [ ] Filtrar por período (mês anterior)
-- [ ] Armazenar em `sol_posts`
-- **Verificação:** Query `SELECT count(*) FROM sol_posts WHERE report_id = ?` retorna posts do período
+### Variáveis de ambiente (Coolify → Settings → Environment)
 
-### Fase 3: Análise de engajamento
-- [ ] Amostrar 10-20 engajadores por post
-- [ ] Classificar decisores via headline (regex, sem IA)
-- [ ] Calcular RER estimado por post
-- [ ] Adicionar disclaimer de amostragem
-- **Verificação:** `sol_posts.rer_estimate` preenchido. Disclaimer visível na UI
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+APIFY_API_TOKEN=...
+OPENROUTER_API_KEY=...
+RESEND_API_KEY=...
+FIRECRAWL_API_KEY=...
+```
 
-### Fase 4: Classificação e métricas
-- [ ] Classificar tema de cada post (IA, formato JSON)
-- [ ] Classificar tipo de conteúdo (institucional/vagas/produto/outros)
-- [ ] Toggle "Mostrar vagas de RH" no frontend
-- [ ] Calcular SOL, ranking competitivo
-- [ ] Buscar Share of Voice via actor Apify (com fallback SERP)
-- **Verificação:** Relatório mostra barras de composição. Toggle de vagas funciona
+### Background jobs (substituir Netlify Functions)
 
-### Fase 5: Recomendações
-- [ ] Gerar recomendações via IA (formato JSON compatível com exemplo)
-- [ ] Gerar insights estratégicos (positivos + atenção)
-- [ ] Gerar movimentos estratégicos observados
-- **Verificação:** Aba "Análise" do relatório mostra recomendações e insights
+No Coolify, não há Netlify Functions. O processamento em background deve usar:
 
-### Fase 6: Frontend — Relatório real
-- [ ] Página `/casting/share-of-linkedin/[profileId]/report/[reportId]`
-- [ ] Mesma estrutura do `/share-of-linkedin-exemplo` mas com dados de `sol_reports` + `sol_posts`
-- [ ] Disclaimer de amostragem no RER (discreto)
-- [ ] Toggle "Mostrar vagas de RH"
-- **Verificação:** Acessar relatório → dados reais das 3 empresas
+**Opção: API Routes com processamento assíncrono**
+- POST `/api/sol/generate` inicia processamento e retorna imediatamente com `reportId`
+- O processamento roda como `waitUntil()` ou via fila interna
+- Status consultado via GET `/api/sol/reports/[reportId]/status`
 
-### Fase 7: Botão Confirmar + Modal + Background
-- [ ] Modal de confirmação (sem custos visíveis)
-- [ ] Processamento em background (continua se user sair)
-- [ ] Status na página: "Gerando... pode sair da página"
-- [ ] Botão "Cancelar análise"
-- [ ] Botão muda para "Ver Relatório" após geração
-- [ ] Email de notificação quando pronto
-- **Verificação:** Confirmar → sair da página → voltar → relatório gerado
+**Cron mensal:**
+- Usar Coolify Cron Job ou API externa (ex: cron-job.org) que chama `POST /api/sol/cron-monthly`
+- O endpoint verifica auth via header secret: `X-Cron-Secret: ${CRON_SECRET}`
+- Variável `CRON_SECRET` configurada no Coolify
 
-### Fase 8: Cron mensal + Histórico
-- [ ] `netlify/functions/sol-monthly-report.ts`
-- [ ] Busca mapeamentos confirmados e gera relatório do mês anterior
-- [ ] Seção "Histórico de Relatórios" na página do perfil
-- [ ] Botão retroativo desabilitado com "Em breve"
-- [ ] Email de notificação quando relatório mensal está pronto
-- **Verificação:** Cron executa → novo relatório aparece na lista. Botão retroativo desabilitado
+### Docker / Build
+
+- Build command: `npm run build`
+- Start command: `npm start`
+- Port: 3021
+- Node version: 22
+
+---
+
+## Etapas de implementação (testáveis por navegação web)
+
+### Etapa 1: Botão Confirmar + Modal + Status
+
+**Escopo:** O botão "CONFIRMAR MAPEAMENTO" abre modal, salva confirmação no banco, e mostra status.
+
+**Implementar:**
+- Modal de confirmação com resumo do mapeamento (sem custos)
+- Mensagem: "Você pode sair da página. Será notificado quando estiver pronto."
+- PATCH `/api/leads-generation/options` → setar `confirmed_at`
+- POST `/api/sol/generate` → criar `sol_reports` com `status: "processing"`
+- Polling de status via GET `/api/sol/reports/[reportId]/status`
+- Na página do perfil, mostrar status: "Gerando relatório..." com animação
+- Botão "Cancelar análise" → POST `/api/sol/cancel`
+- Quando `status = "complete"`, botão muda para "VER RELATÓRIO"
+
+**Como testar no browser:**
+1. Abrir `/casting/share-of-linkedin/[profileId]`
+2. Clicar "CONFIRMAR MAPEAMENTO" → modal aparece com resumo
+3. Clicar "Confirmar" → modal fecha, aparece "Gerando relatório..."
+4. Sair da página e voltar → status continua mostrando "Gerando..."
+5. Clicar "Cancelar" → status muda para "Cancelado"
+6. No Supabase: `sol_reports` existe com `status = "processing"` ou `"cancelled"`
+
+---
+
+### Etapa 2: Coleta de posts + Página de relatório vazia
+
+**Escopo:** O background job coleta posts de todos os perfis, armazena no banco, e a página de relatório existe (mesmo que com poucos dados).
+
+**Implementar:**
+- Background: buscar posts das 3 páginas de empresa + todos os colaboradores
+- Filtrar posts do período (mês anterior)
+- Armazenar em `sol_posts`
+- Criar página `/casting/share-of-linkedin/[profileId]/report/[reportId]`
+- Aba "Posts" funcional: lista todos os posts coletados com filtros (empresa, tipo, colaborador)
+- Atualizar `sol_reports.status = "complete"` ao terminar
+
+**Como testar no browser:**
+1. Confirmar mapeamento → aguardar processamento
+2. Botão muda para "VER RELATÓRIO" → clicar
+3. Página do relatório abre na aba "Posts"
+4. Posts listados com filtro por empresa → trocar filtro → posts mudam
+5. Filtro "Perfil oficial" mostra só posts da página da empresa
+6. Cada post mostra: trecho do texto, autor, data, reações, comentários
+
+---
+
+### Etapa 3: Classificação temática + Composição de conteúdo
+
+**Escopo:** Posts classificados por tema e tipo via IA. Barras de composição de conteúdo na aba "Conteúdo".
+
+**Implementar:**
+- IA classifica cada post: tema + tipo (produto/institucional/vagas/outros)
+- Toggle "Mostrar vagas de RH" (oculto por padrão)
+- Aba "Conteúdo" → seção "Análise de Conteúdo por Empresa" com barras empilhadas
+- Posts em destaque (positivo, negativo, inesperado) por empresa — como no exemplo
+
+**Como testar no browser:**
+1. Abrir relatório → aba "Conteúdo"
+2. Barras de composição mostram % por categoria para cada empresa
+3. Posts de "vagas" NÃO aparecem nas barras (ou aparecem com baixa opacidade)
+4. Clicar "Mostrar vagas de RH" → barras atualizam incluindo vagas
+5. Posts em destaque: 3 cards (positivo ✅, negativo ❌, inesperado 🔄) por empresa
+6. Na aba "Posts", cada post tem badge de tema e tipo
+
+---
+
+### Etapa 4: Engajamento + RER + Gráfico SOL
+
+**Escopo:** Amostragem de engajadores, cálculo de RER, e gráfico Share of LinkedIn.
+
+**Implementar:**
+- Amostrar 10-20 engajadores por post
+- Verificar decisores por headline (regex local)
+- Calcular RER estimado por post
+- Calcular SOL por empresa (posts × RER × engajamento)
+- Gráfico de barras no topo do relatório (aba "Análise")
+- Disclaimer discreto de amostragem
+
+**Como testar no browser:**
+1. Abrir relatório → aba "Análise"
+2. Gráfico "Share of LinkedIn" mostra barras para 3 empresas com valores
+3. Trocar para aba "Engajamento" → barras de engajamento total
+4. Trocar para "Posts" → número de posts por empresa
+5. Na aba "Posts", cada post tem badge "RER XX%" com cor
+6. Hover no RER → tooltip "Estimativa baseada em amostragem..."
+7. Na aba "Conteúdo" → seção "Ranking Competitivo" com tabela SOL, RER, Posts, Decisores
+
+---
+
+### Etapa 5: Share of Voice + Influencers
+
+**Escopo:** Busca de menções externas, análise de sentimento, aba Influencers.
+
+**Implementar:**
+- Buscar menções externas via actor Apify ou SERP
+- Classificar sentimento (positivo/neutro/negativo)
+- Gráfico SOV no topo (barras com cores de sentimento)
+- Aba "Influencers": pessoas externas que mencionam as marcas
+
+**Como testar no browser:**
+1. No gráfico do topo, aba "Share of Voice" mostra barras com sentimento
+2. Cores: verde (positivo), amarelo (neutro), vermelho (negativo)
+3. Aba "Influencers" lista pessoas que mencionaram as empresas
+4. Cada influenciador: nome, cargo, seguidores, sentimento
+5. Na aba "Posts", filtro "Menções externas" mostra posts de terceiros
+
+---
+
+### Etapa 6: Recomendações + Insights + Movimentos
+
+**Escopo:** IA gera recomendações estratégicas, insights e movimentos observados.
+
+**Implementar:**
+- IA analisa todos os dados e gera: insights (positivos + atenção), recomendações priorizadas, movimentos estratégicos
+- Formato JSON compatível com `/share-of-linkedin-exemplo`
+- Like/dislike em cada recomendação
+- Seção "Desempenho dos Colaboradores" com tabela por empresa
+
+**Como testar no browser:**
+1. Aba "Análise" → seção "Insights Estratégicos" com positivos e atenção
+2. Seção "Recomendações Estratégicas" com 5-8 itens priorizados
+3. Cada recomendação tem tag (DEFENSIVA/CONTEÚDO/OFENSIVA), like/dislike
+4. Seção "Movimentos Estratégicos" com observações por empresa
+5. Aba "Conteúdo" → "Desempenho dos Colaboradores" com tabela e abas por empresa
+
+---
+
+### Etapa 7: Cron mensal + Histórico + Email
+
+**Escopo:** Automação mensal, lista de relatórios por mês, notificações.
+
+**Implementar:**
+- Endpoint `/api/sol/cron-monthly` protegido por `X-Cron-Secret`
+- Gera relatório do mês anterior para todos os mapeamentos confirmados
+- Seção "Histórico de Relatórios" na página do perfil
+- Botão retroativo desabilitado "Em breve"
+- Email via Resend quando relatório mensal está pronto
+
+**Como testar no browser:**
+1. Na página do perfil, seção "Relatórios" lista meses com relatórios
+2. Clicar em um mês → abre o relatório daquele mês
+3. Meses sem relatório: botão desabilitado "Em breve" com tooltip
+4. Chamar endpoint cron manualmente → novo relatório gerado
+5. Email recebido com link para o relatório
 
 ---
 

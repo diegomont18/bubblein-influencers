@@ -80,7 +80,7 @@ function AuthForm() {
         {/* Left: Auth form */}
         <div className="bg-[#1a1a1a] p-10 md:p-12 flex flex-col">
           <div className="mb-8">
-            <Image src="/logo.png" alt="BubbleIn" width={120} height={43} />
+            <Image src="/bubblein-logo-transparente.png" alt="BubbleIn" width={161} height={43} />
             <p className="text-[#adaaaa] text-sm mt-3">
               {mode === "login" ? "Acesse sua análise de LinkedIn" : "Crie sua conta gratuita"}
             </p>

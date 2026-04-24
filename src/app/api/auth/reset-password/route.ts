@@ -67,7 +67,7 @@ Se você não solicitou a redefinição, ignore este email.
 Atenciosamente,
 Equipe BubbleIn`,
       html: `<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
-  <img src="https://bubblein.com.br/logo.png" alt="BubbleIn" width="140" style="margin-bottom: 24px;" />
+  <img src="https://bubblein.com.br/bubblein-logo-transparente.png" alt="BubbleIn" width="188" style="margin-bottom: 24px;" />
   <h2 style="color: #1a1a1a; margin-bottom: 16px;">Redefinir sua senha</h2>
   <p style="color: #555; line-height: 1.6;">Recebemos uma solicitação para redefinir sua senha no BubbleIn.</p>
   <p style="color: #555; line-height: 1.6;">Clique no botão abaixo para criar uma nova senha:</p>

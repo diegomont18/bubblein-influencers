@@ -84,7 +84,7 @@ export default function SharedPage() {
       {/* Header */}
       <header className="border-b border-[#262626] bg-[#131313]">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Image src="/logo.png" alt="BubbleIn" width={120} height={28} />
+          <Image src="/bubblein-logo-transparente.png" alt="BubbleIn" width={105} height={28} />
           <span className="text-xs text-[#adaaaa] font-[family-name:var(--font-lexend)]">
             Compartilhado via BubbleIn
           </span>

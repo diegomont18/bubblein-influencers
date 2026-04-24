@@ -579,7 +579,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-[#1E1E3A] py-10">
         <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
-          <Image src="/logo.png" alt="BubbleIn" width={100} height={36} />
+          <Image src="/bubblein-logo-transparente.png" alt="BubbleIn" width={135} height={36} />
           <div className="flex items-center gap-6 text-sm text-gray-500">
             <Link href="/share-of-linkedin" className="hover:text-gray-300 transition-colors">Share of LinkedIn</Link>
             <a href="/#casting" className="hover:text-gray-300 transition-colors">Casting</a>
@@ -606,7 +606,7 @@ export default function Home() {
               "@type": "Organization",
               name: "BubbleIn",
               url: "https://bubblein.com.br",
-              logo: "https://bubblein.com.br/logo.png",
+              logo: "https://bubblein.com.br/bubblein-logo-transparente.png",
               description: "Plataforma B2B para LinkedIn: inteligência competitiva (Share of LinkedIn) e descoberta de creators B2B (Inteligência de Casting) em um só lugar.",
               contactPoint: {
                 "@type": "ContactPoint",

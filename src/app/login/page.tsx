@@ -84,9 +84,9 @@ function LoginForm() {
         <div className="rounded-2xl bg-[#1a1a1a] p-8 space-y-6">
           <div className="text-center">
             <img
-              src="/logo.png"
+              src="/bubblein-logo-transparente.png"
               alt="BubbleIn"
-              width={160}
+              width={214}
               height={57}
               className="mx-auto"
             />

@@ -52,7 +52,7 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <Link href="/casting">
-              <img src="/logo.png" alt="BubbleIn" width={120} height={43} />
+              <img src="/bubblein-logo-transparente.png" alt="BubbleIn" width={161} height={43} />
             </Link>
             {isAdmin && (
               <Link

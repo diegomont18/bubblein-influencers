@@ -4,7 +4,7 @@ import Image from "next/image";
 export default function NotFound() {
   return (
     <div className="min-h-screen bg-[#0B0B1A] text-white flex flex-col items-center justify-center px-6">
-      <Image src="/logo.png" alt="BubbleIn" width={120} height={43} className="mb-10" />
+      <Image src="/bubblein-logo-transparente.png" alt="BubbleIn" width={161} height={43} className="mb-10" />
 
       <div className="text-center max-w-md">
         <h1 className="text-7xl font-extrabold bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent mb-4">
