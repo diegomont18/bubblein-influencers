@@ -547,7 +547,7 @@ export async function analyzeCompanyForShareOfLinkedin(
   employeeTitles: string[],
   siteContent?: string,
   country?: string,
-): Promise<{ themes: string } | null> {
+): Promise<{ themes: string; brands: string[] } | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
 
@@ -557,15 +557,15 @@ export async function analyzeCompanyForShareOfLinkedin(
 
   const siteCtx = siteContent ? `\nWebsite: ${siteContent.slice(0, 600)}` : "";
 
-  const prompt = `Identify the key market themes for this company. Return JSON only, no markdown.
+  const prompt = `Identify market themes AND proprietary product/brand names for this company. Return JSON only, no markdown.
 
 Company: ${companyName} | ${industry} | ${specialties}${countryCtx}
 ${description.slice(0, 300)}${siteCtx}
 
-Return 5-10 B2B market themes this company discusses on LinkedIn.
-Write in Portuguese if the company is Brazilian.
+1) "themes": 5-10 B2B market themes this company discusses on LinkedIn. Comma-separated. Write in Portuguese if the company is Brazilian.
+2) "brands": array of proprietary product/brand names owned by this company (e.g. for HubSpot: ["HubSpot Marketing Hub","HubSpot CRM","HubSpot Service Hub"]). Keep the original product names even for Brazilian companies. Empty array if the company has no distinct product lines.
 
-{"themes":"tema1, tema2, tema3, tema4, tema5"}`;
+{"themes":"tema1, tema2, tema3, tema4, tema5","brands":["Produto A","Produto B"]}`;
 
   try {
     let content = "";
@@ -600,12 +600,19 @@ Write in Portuguese if the company is Brazilian.
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
     try {
-      const parsed = JSON.parse(jsonMatch[0]) as { themes?: string };
-      return { themes: parsed.themes ?? "" };
+      const parsed = JSON.parse(jsonMatch[0]) as { themes?: string; brands?: unknown };
+      const brands = Array.isArray(parsed.brands)
+        ? parsed.brands.filter((b): b is string => typeof b === "string" && b.trim().length > 0).map((b) => b.trim())
+        : [];
+      return { themes: parsed.themes ?? "", brands };
     } catch {
       const raw = jsonMatch[0];
       const themesMatch = raw.match(/"themes"\s*:\s*"([^"]+)"/);
-      if (themesMatch) return { themes: themesMatch[1] };
+      const brandsMatch = raw.match(/"brands"\s*:\s*\[([^\]]*)\]/);
+      const brands: string[] = brandsMatch
+        ? (brandsMatch[1].match(/"([^"]+)"/g) ?? []).map((s) => s.replace(/^"|"$/g, "").trim()).filter(Boolean)
+        : [];
+      if (themesMatch) return { themes: themesMatch[1], brands };
       return null;
     }
   } catch (err) {

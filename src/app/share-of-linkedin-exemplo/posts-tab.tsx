@@ -30,8 +30,8 @@ export default function PostsTab() {
           ))}
         </div>
         <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="bg-[#0B0B1A] border border-[#1E1E3A] rounded-lg px-3 py-1.5 text-xs text-gray-300">
-          <option value="own">Proprias</option>
-          <option value="sov">Mencoes externas</option>
+          <option value="own">Próprias</option>
+          <option value="sov">Menções externas</option>
           <option value="all">Todas</option>
         </select>
         <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="bg-[#0B0B1A] border border-[#1E1E3A] rounded-lg px-3 py-1.5 text-xs text-gray-300">

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CompetitorEmployees from "./competitor-employees";
+import PostsFreqBadge from "./posts-freq-badge";
 
 const COMPANY_SIZES = ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001+"];
 const ITEMS_PER_PAGE = 10;
@@ -22,9 +23,11 @@ interface Options {
   departments: string[];
   company_sizes: string[];
   // Share of LinkedIn fields (company flow)
-  competitors?: Array<{ name: string; logoUrl?: string; url?: string; score?: number; reason?: string; selected?: boolean } | string>;
-  employee_profiles?: Array<{ name: string; slug: string; headline: string; linkedinUrl: string; profilePicUrl?: string }>;
+  competitors?: Array<{ name: string; logoUrl?: string; url?: string; score?: number; reason?: string; selected?: boolean; postsPerMonth?: number } | string>;
+  employee_profiles?: Array<{ name: string; slug: string; headline: string; linkedinUrl: string; profilePicUrl?: string; postsPerMonth?: number }>;
   icp_description?: string;
+  company_posts_per_month?: number | null;
+  proprietary_brands?: string[];
   ai_response?: Record<string, unknown>;
 }
 
@@ -201,6 +204,8 @@ export default function LeadsGenerationOptionsPage() {
           competitors: data.options.competitors ?? [],
           employee_profiles: data.options.employee_profiles ?? [],
           icp_description: data.options.icp_description ?? "",
+          company_posts_per_month: data.options.company_posts_per_month ?? null,
+          proprietary_brands: data.options.proprietary_brands ?? [],
           ai_response: data.options.ai_response ?? {},
         } : null);
       }
@@ -508,6 +513,9 @@ export default function LeadsGenerationOptionsPage() {
           ) : (
             <span className="text-lg font-semibold text-white">{profile?.name}</span>
           )}
+          {isCompanyProfile && options?.company_posts_per_month != null && (
+            <PostsFreqBadge ppm={options.company_posts_per_month} size="md" />
+          )}
           {profile?.headline && <span className="text-sm text-white/40">— {profile.headline}</span>}
           {profile && (
             <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-[#ca98ff] hover:text-[#e197fc] transition-colors" title="Ver perfil no LinkedIn">
@@ -564,7 +572,7 @@ export default function LeadsGenerationOptionsPage() {
                 <span>Colaboradores: <span className="text-white font-bold">{(options.employee_profiles ?? []).length}</span></span>
                 <span>Concorrentes: <span className="text-white font-bold">{(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).length}</span></span>
                 <span>Temas: <span className="text-white font-bold">{options.market_context ? "preenchido" : "vazio"}</span></span>
-                <span>Temas: <span className="text-white font-bold">{options.market_context ? "preenchido" : "vazio"}</span></span>
+                <span>Marcas: <span className="text-white font-bold">{(options.proprietary_brands ?? []).length}</span></span>
               </div>
               <span className="text-sm font-bold text-[#ca98ff] uppercase tracking-wider group-hover:translate-x-1 transition-transform">Editar mapeamento →</span>
             </button>
@@ -599,7 +607,7 @@ export default function LeadsGenerationOptionsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm text-white font-medium truncate">{emp.name}</p>
-                          {(emp as Record<string,unknown>).postsPerMonth != null && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 relative group/tip ${Number((emp as Record<string,unknown>).postsPerMonth) >= 4 ? "text-green-400 bg-green-400/10" : Number((emp as Record<string,unknown>).postsPerMonth) >= 2 ? "text-yellow-400 bg-yellow-400/10" : "text-red-400 bg-red-400/10"}`}>{Number((emp as Record<string,unknown>).postsPerMonth)}/mes<span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded bg-[#0B0B1A] border border-white/10 text-[9px] text-white/70 font-normal whitespace-nowrap opacity-0 group-hover/tip:opacity-100 pointer-events-none transition-opacity">Posts estimados por mes no LinkedIn</span></span>}
+                          <PostsFreqBadge ppm={(emp as Record<string,unknown>).postsPerMonth as number | undefined} size="md" />
                         </div>
                         <p className="text-[10px] text-white/40 truncate">{emp.headline}</p>
                         {emp.linkedinUrl && (
@@ -671,7 +679,10 @@ export default function LeadsGenerationOptionsPage() {
                         {logo ? <img src={logo} alt="" className="w-10 h-10 rounded-xl object-cover" onError={(e)=>{e.currentTarget.style.display="none"}}/> : <span style={{color:lc}} className="text-base font-extrabold">{nm[0]?.toUpperCase()}</span>}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white font-medium truncate capitalize">{nm}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-white font-medium truncate capitalize">{nm}</p>
+                          {isObj && comp.postsPerMonth != null && <PostsFreqBadge ppm={comp.postsPerMonth} size="md" />}
+                        </div>
                         {sl && <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">{sl}</a>}
                       </div>
                       <button onClick={() => { const u = (options.competitors??[]).map((c,j) => j===i && typeof c==="object" && c!==null ? {...c,selected:false} : c); autoSave({...options,competitors:u}); }} className="w-7 h-7 rounded-full bg-white/5 hover:bg-[#ff946e]/20 text-white/30 hover:text-[#ff946e] flex items-center justify-center text-base font-bold shrink-0 transition-colors opacity-0 group-hover/card:opacity-100" title="Remover">&times;</button>
@@ -745,6 +756,51 @@ export default function LeadsGenerationOptionsPage() {
                     placeholder="Temas que o mercado discute no LinkedIn..."
                   />
                 </div>
+              </div>
+
+              {/* Section 4: Marcas Proprietárias */}
+              <div className="space-y-3">
+                <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">
+                  Marcas Proprietárias ({(options.proprietary_brands ?? []).length})
+                </label>
+                {(options.proprietary_brands ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {(options.proprietary_brands ?? []).map((brand, i) => (
+                      <span key={`${brand}-${i}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-xs text-[#ca98ff] group/brand">
+                        <span className="font-medium">{brand}</span>
+                        <button
+                          type="button"
+                          onClick={() => autoSave({
+                            ...options,
+                            proprietary_brands: (options.proprietary_brands ?? []).filter((_, j) => j !== i),
+                          })}
+                          className="text-[#ca98ff]/50 hover:text-[#ff946e] opacity-0 group-hover/brand:opacity-100 transition-opacity text-sm leading-none"
+                          title="Remover"
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  type="text"
+                  placeholder="Adicionar marca (ex. HubSpot CRM) e pressionar Enter"
+                  className="w-full bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#ca98ff]/40 transition-colors"
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    const input = e.currentTarget;
+                    const val = input.value.trim();
+                    if (!val) return;
+                    const existing = options.proprietary_brands ?? [];
+                    if (existing.some((b) => b.toLowerCase() === val.toLowerCase())) {
+                      input.value = "";
+                      return;
+                    }
+                    autoSave({ ...options, proprietary_brands: [...existing, val] });
+                    input.value = "";
+                  }}
+                />
               </div>
 
               {/* ICP section removed — now handled at leads scan level */}

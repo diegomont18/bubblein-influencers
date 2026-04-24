@@ -7,7 +7,7 @@ import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { isApifyBlocked } from "@/lib/apify-usage";
 import { buildCompanyBlacklist } from "@/lib/company-match";
 import { notifyError } from "@/lib/error-notifier";
-import { findActiveEmployees } from "@/lib/find-employees";
+import { findActiveEmployees, computePostsPerMonth } from "@/lib/find-employees";
 import type { EmpCandidate } from "@/lib/find-employees";
 
 function extractPostUrl(post: Record<string, unknown>): string {
@@ -330,10 +330,42 @@ export async function POST(request: Request) {
       const topNames = new Set(sorted.slice(0, 2).filter((c) => c.score > 0).map((c) => c.name));
       for (const c of competitorsWithScores) { c.selected = topNames.has(c.name); }
 
-      // Build final competitors array (drop siteContent to save DB space)
-      const competitors = competitorsWithScores.map(({ siteContent: _, ...rest }) => rest);
+      // Build final competitors array (drop siteContent to save DB space).
+      // `postsPerMonth` is attached further below after fetching competitor posts.
+      type CompetitorEntry = Omit<typeof competitorsWithScores[number], "siteContent"> & { postsPerMonth?: number };
+      const competitors: CompetitorEntry[] = competitorsWithScores.map(({ siteContent: _, ...rest }) => rest);
       const selectedComps = competitors.filter((c) => c.selected);
       console.log(`[analyze] Company ${slug}: ${competitors.length} competitors, ${selectedComps.length} selected`);
+
+      // 7.5. Compute posts/month for the main company page (reuse rawPosts)
+      const companyPostsPerMonth = computePostsPerMonth(rawPosts);
+      console.log(`[analyze] Company ${slug}: companyPPM=${companyPostsPerMonth}`);
+
+      // 7.6. Fetch 3 posts per selected competitor to estimate their posting frequency
+      if (selectedComps.length > 0) {
+        const freqResults = await Promise.all(
+          selectedComps.map(async (c) => {
+            const url = String(c.url ?? "");
+            if (!url) return { name: String(c.name ?? ""), postsPerMonth: 0 };
+            const posts = await fetchProfilePosts(url, 3).catch(() => [] as Array<Record<string, unknown>>);
+            logApiCost({
+              userId: user.id,
+              source: "leads",
+              searchId: profile.id,
+              provider: "apify",
+              operation: "fetchProfilePosts",
+              estimatedCost: API_COSTS.apify.fetchProfilePosts,
+              metadata: { context: "competitor-frequency", competitor: c.name, postsFound: posts.length },
+            });
+            return { name: String(c.name ?? ""), postsPerMonth: computePostsPerMonth(posts) };
+          })
+        );
+        for (const r of freqResults) {
+          const match = competitors.find((c) => c.name === r.name);
+          if (match) match.postsPerMonth = r.postsPerMonth;
+        }
+        console.log(`[analyze] Company ${slug}: competitorPPM=${JSON.stringify(freqResults)}`);
+      }
 
       // 8. Find active employees for each selected competitor (in parallel)
       const competitorEmployees: Record<string, EmpCandidate[]> = {};
@@ -364,6 +396,8 @@ export async function POST(request: Request) {
         competitors,
         employee_profiles: employeeProfiles,
         icp_description: "",
+        company_posts_per_month: companyPostsPerMonth,
+        proprietary_brands: aiResult?.brands ?? [],
         job_titles: [],
         departments: [],
         company_sizes: [],
@@ -378,12 +412,14 @@ export async function POST(request: Request) {
 
       if (optError) {
         console.error(`[analyze] Company ${slug}: lg_options insert failed:`, optError.message);
-        // Check if new columns exist
         if (optError.message.includes("competitors") || optError.message.includes("employee_profiles") || optError.message.includes("icp_description")) {
           console.error(`[analyze] MIGRATION 038 NOT APPLIED — run migrations/038_lg_options_share_of_linkedin.sql in Supabase!`);
         }
+        if (optError.message.includes("company_posts_per_month") || optError.message.includes("proprietary_brands")) {
+          console.error(`[analyze] MIGRATION 043 NOT APPLIED — run migrations/043_posts_per_month_and_brands.sql in Supabase!`);
+        }
       } else {
-        console.log(`[analyze] Company ${slug}: options saved successfully — competitors=${savedOptions?.competitors?.length ?? 0}, employees=${(savedOptions?.employee_profiles as unknown[])?.length ?? 0}`);
+        console.log(`[analyze] Company ${slug}: options saved — competitors=${savedOptions?.competitors?.length ?? 0}, employees=${(savedOptions?.employee_profiles as unknown[])?.length ?? 0}, brands=${(savedOptions?.proprietary_brands as unknown[])?.length ?? 0}, companyPPM=${savedOptions?.company_posts_per_month ?? "null"}`);
       }
 
       return NextResponse.json({

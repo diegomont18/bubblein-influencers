@@ -12,8 +12,8 @@ export default function InfluencersTab() {
     <div className="space-y-6">
       <div className="bg-[#12122A] border border-[#1E1E3A] rounded-xl px-4 py-3">
         <p className="text-xs text-gray-400">
-          Pessoas externas que mencionam as marcas com frequencia e tem potencial de relacionamento.
-          Clique em cada influenciador para ver o historico de mencoes.
+          Pessoas externas que mencionam as marcas com frequência e têm potencial de relacionamento.
+          Clique em cada influenciador para ver o histórico de menções.
         </p>
       </div>
 
@@ -36,7 +36,7 @@ export default function InfluencersTab() {
           const pc =
             inf.potential === "alto"
               ? "text-green-400 bg-green-400/10"
-              : inf.potential === "medio"
+              : inf.potential === "médio"
                 ? "text-yellow-400 bg-yellow-400/10"
                 : "text-gray-400 bg-gray-400/10";
 
@@ -58,10 +58,10 @@ export default function InfluencersTab() {
                       <p className="text-xs text-gray-500">{inf.role} - {inf.company}</p>
                       <div className="flex flex-wrap gap-x-5 gap-y-1 mt-2 text-xs text-gray-400">
                         <span><strong className="text-white">{Math.round(inf.followers / 1000)}k</strong> seg.</span>
-                        <span><strong className="text-white">{inf.postsAbout}</strong> mencoes</span>
+                        <span><strong className="text-white">{inf.postsAbout}</strong> menções</span>
                         <span><strong className="text-white">{inf.avgEngagement}</strong> engaj.</span>
                         <span>RER <strong className="text-white">{inf.avgRer}%</strong></span>
-                        <span><strong className="text-white">{inf.frequency}</strong>/mes</span>
+                        <span><strong className="text-white">{inf.frequency}</strong>/mês</span>
                       </div>
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         {inf.brands.map((b) => (
@@ -73,7 +73,7 @@ export default function InfluencersTab() {
                   <button
                     onClick={(e) => e.stopPropagation()}
                     className="text-xs text-gray-500 border border-[#1E1E3A] rounded-lg px-3 py-1.5 hover:text-[#E91E8C] hover:border-[#E91E8C]/30 transition-colors shrink-0"
-                    title="Disponivel no plano Professional"
+                    title="Disponível no plano Professional"
                   >
                     Conectar
                   </button>
@@ -82,7 +82,7 @@ export default function InfluencersTab() {
 
               {isExpanded && mentions.length > 0 && (
                 <div className="px-5 pb-5 border-t border-[#1E1E3A] pt-4 ml-7">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-3">Historico de mencoes ({mentions.length})</p>
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-3">Histórico de menções ({mentions.length})</p>
                   <div className="space-y-3">
                     {mentions.map((m, i) => {
                       const sc = m.sentiment === "positivo" ? "border-green-500/20" : m.sentiment === "negativo" ? "border-red-500/20" : "border-yellow-500/20";

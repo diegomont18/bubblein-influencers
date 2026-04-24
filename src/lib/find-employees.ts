@@ -10,7 +10,7 @@ export interface EmpCandidate {
   postsPerMonth: number;
 }
 
-function extractPostDate(p: Record<string, unknown>): Date | null {
+export function extractPostDate(p: Record<string, unknown>): Date | null {
   const candidates = [p.postedAt, p.posted_at, p.postedDate, p.publishedAt, p.date, p.time, p.postedDateTimestamp];
   for (const c of candidates) {
     if (!c) continue;
@@ -19,6 +19,23 @@ function extractPostDate(p: Record<string, unknown>): Date | null {
     if (!isNaN(d.getTime())) return d;
   }
   return null;
+}
+
+/**
+ * Estimate posts-per-month from a handful of recent posts by measuring
+ * the span between newest and oldest and extrapolating to 30 days.
+ * Falls back to `posts.length` when we can't parse enough dates.
+ */
+export function computePostsPerMonth(posts: Array<Record<string, unknown>>): number {
+  if (posts.length === 0) return 0;
+  const dates = posts
+    .map((p) => extractPostDate(p))
+    .filter((d): d is Date => d !== null);
+  if (dates.length < 2) return posts.length;
+  const newest = Math.max(...dates.map((d) => d.getTime()));
+  const oldest = Math.min(...dates.map((d) => d.getTime()));
+  const spanDays = (newest - oldest) / (1000 * 60 * 60 * 24);
+  return spanDays > 0 ? Math.round((dates.length / spanDays) * 30 * 10) / 10 : dates.length;
 }
 
 // Only match executive/leadership roles — exclude junior analysts, engineers, consultants
@@ -168,15 +185,7 @@ export async function findActiveEmployees(
           return null;
         }
 
-        // Calculate posting frequency from the 3 posts we already fetched
-        const postDates = empPosts.map((p) => extractPostDate(p as Record<string, unknown>)).filter((d): d is Date => d !== null);
-        let postsPerMonth = empPosts.length; // fallback: assume 1 post = 1/month minimum
-        if (postDates.length >= 2) {
-          const newest = Math.max(...postDates.map((d) => d.getTime()));
-          const oldest = Math.min(...postDates.map((d) => d.getTime()));
-          const spanDays = (newest - oldest) / (1000 * 60 * 60 * 24);
-          postsPerMonth = spanDays > 0 ? Math.round((postDates.length / spanDays) * 30 * 10) / 10 : postDates.length;
-        }
+        const postsPerMonth = computePostsPerMonth(empPosts as Array<Record<string, unknown>>);
 
         // Photo
         const picCandidates = [d.profilePicture, d.picture, d.profile_photo, d.profile_pic_url];
