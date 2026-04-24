@@ -38,16 +38,16 @@ export async function findActiveEmployees(
   lite = false,
   country?: string,
 ): Promise<EmpCandidate[]> {
-  const slugName = companySlug.replace(/-/g, " ");
-  console.log(`[find-employees] Searching for ${companyName} (slug: ${companySlug}, max: ${maxCandidates}, lite: ${lite})`);
+  const searchName = companyName || companySlug.replace(/-/g, " ");
+  console.log(`[find-employees] Searching for ${searchName} (slug: ${companySlug}, max: ${maxCandidates}, lite: ${lite})`);
 
-  // SERP queries — lite mode uses 1 combined query instead of 3
+  // SERP queries — use company NAME (not slug) for better results
   const serpQueries = lite
-    ? [`site:linkedin.com/in "${slugName}" CEO OR CTO OR Director OR Head OR VP OR Founder OR manager OR gerente`]
+    ? [`site:linkedin.com/in "${searchName}" CEO OR CTO OR Director OR Head OR VP OR Founder OR manager OR gerente`]
     : [
-        `site:linkedin.com/in "${slugName}" CEO OR CTO OR Director OR Diretor OR Head OR VP OR Founder`,
+        `site:linkedin.com/in "${searchName}" CEO OR CTO OR Director OR Diretor OR Head OR VP OR Founder`,
         `site:linkedin.com/in "${companySlug}"`,
-        `site:linkedin.com/in "${slugName}" manager OR gerente OR lead OR senior OR architect OR engineer`,
+        `site:linkedin.com/in "${searchName}" manager OR gerente OR lead OR senior OR architect OR engineer`,
       ];
 
   const seenSlugs = new Set<string>();
