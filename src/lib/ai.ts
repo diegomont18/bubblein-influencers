@@ -551,21 +551,13 @@ export async function analyzeCompanyForShareOfLinkedin(
 
   const empSample = employeeTitles.slice(0, 20).join(", ");
 
-  const prompt = `You are a B2B market analyst specializing in the Brazilian/Latin American market. Analyze this company and identify its market themes and competitors.
+  const prompt = `Analyze this company. Return COMPACT JSON only, no markdown.
 
-COMPANY:
-- Name: ${companyName}
-- Industry: ${industry}
-- Specialties: ${specialties}
-- Description: ${description.slice(0, 800)}
-${empSample ? `- Sample employee titles: ${empSample}` : ""}
+${companyName} | ${industry} | ${specialties}
+${description.slice(0, 400)}
 
-Return a JSON object with exactly these fields:
-1. "themes": A comma-separated list of 5-10 market themes/topics this company and its competitors likely discuss on LinkedIn. Focus on B2B-relevant themes, not generic topics. Write in Portuguese (Brazil) if the company seems Brazilian, otherwise English.
-2. "competitors": An array of 5-8 company names that are direct competitors or operate in the same market segment. Use the companies' official names as they appear on LinkedIn.
-
-Respond ONLY with the JSON object, no markdown:
-{"themes":"...","competitors":["..."]}`;
+Return: {"themes":"5 short themes comma-separated in Portuguese","competitors":["5-8 direct competitor names"]}
+Keep themes under 5 words each. Use official LinkedIn company names for competitors.`;
 
   try {
     let content = "";
@@ -577,9 +569,9 @@ Respond ONLY with the JSON object, no markdown:
           model: "google/gemini-2.0-flash-lite-001",
           messages: [{ role: "user", content: prompt }],
           temperature: 0.3,
-          max_tokens: 600,
+          max_tokens: 1200,
         }),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(45_000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -599,11 +591,31 @@ Respond ONLY with the JSON object, no markdown:
     const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]) as { themes?: string; competitors?: string[] };
-    return {
-      themes: parsed.themes ?? "",
-      competitors: Array.isArray(parsed.competitors) ? parsed.competitors : [],
-    };
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as { themes?: string; competitors?: string[] };
+      return {
+        themes: parsed.themes ?? "",
+        competitors: Array.isArray(parsed.competitors) ? parsed.competitors : [],
+      };
+    } catch {
+      // Salvage truncated JSON
+      console.warn(`[ai] analyzeCompanyForShareOfLinkedin JSON parse failed, salvaging...`);
+      const raw = jsonMatch[0];
+      const themesMatch = raw.match(/"themes"\s*:\s*"([^"]+)"/);
+      const compArr: string[] = [];
+      const compRegex = /"competitors"\s*:\s*\[([^\]]*)/;
+      const cm = compRegex.exec(raw);
+      if (cm) {
+        const nameRegex = /"([^"]+)"/g;
+        let nm;
+        while ((nm = nameRegex.exec(cm[1])) !== null) compArr.push(nm[1]);
+      }
+      console.log(`[ai] analyzeCompanyForShareOfLinkedin salvaged: themes=${!!themesMatch}, competitors=${compArr.length}`);
+      if (themesMatch || compArr.length > 0) {
+        return { themes: themesMatch?.[1] ?? "", competitors: compArr };
+      }
+      return null;
+    }
   } catch (err) {
     console.error(`[ai] analyzeCompanyForShareOfLinkedin exception:`, err);
     return null;
