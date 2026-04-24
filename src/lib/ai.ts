@@ -546,24 +546,29 @@ export async function analyzeCompanyForShareOfLinkedin(
   industry: string,
   employeeTitles: string[],
   siteContent?: string,
+  country?: string,
 ): Promise<{ themes: string; competitors: string[] } | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
 
-  const empSample = employeeTitles.slice(0, 20).join(", ");
-  void empSample;
+  const countryNames: Record<string, string> = { br: "Brazil", us: "USA", pt: "Portugal", es: "Spain", mx: "Mexico", ar: "Argentina", co: "Colombia", cl: "Chile", uk: "UK", de: "Germany", fr: "France", it: "Italy", in: "India", ca: "Canada", au: "Australia" };
+  const countryName = country ? countryNames[country] ?? country.toUpperCase() : "";
+  const countryCtx = countryName ? `\nCountry: ${countryName}` : "";
 
   const siteCtx = siteContent ? `\nWebsite: ${siteContent.slice(0, 600)}` : "";
 
   const prompt = `Identify DIRECT COMPETITORS of this company. Return COMPACT JSON only, no markdown.
 
-${companyName} | ${industry} | ${specialties}
+${companyName} | ${industry} | ${specialties}${countryCtx}
 ${description.slice(0, 300)}${siteCtx}
 
-IMPORTANT: competitors must be companies of SIMILAR SIZE and SAME SERVICE TYPE.
-Do NOT list suppliers, cloud providers, or technology platforms (e.g. AWS, Microsoft, Google) as competitors.
-If the company is a consultancy/integrator, list other consultancies/integrators.
-If the company is a SaaS, list other SaaS companies in the same niche.
+CRITICAL RULES for competitors:
+- MUST be companies of SIMILAR SIZE operating in the SAME COUNTRY (${countryName || "same region"})
+- MUST offer the SAME type of service/product
+- Do NOT list suppliers, cloud providers, or global technology platforms
+- Do NOT list multinational giants if the company is a startup/SMB
+- Prioritize LOCAL competitors from ${countryName || "the same country"} first
+- If not enough local competitors exist, include regional ones
 
 Return: {"themes":"5 short market themes comma-separated in Portuguese","competitors":["5-8 direct competitor company names"]}
 Use official LinkedIn company names.`;
@@ -636,13 +641,17 @@ export async function scoreCompetitorAdherence(
   companyDescription: string,
   companySiteContent: string,
   competitors: Array<{ name: string; siteContent: string }>,
+  country?: string,
 ): Promise<{ enrichedThemes: string; scores: Array<{ name: string; score: number; reason: string }> } | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
 
+  const countryNames: Record<string, string> = { br: "Brazil", us: "USA", pt: "Portugal", es: "Spain", mx: "Mexico", ar: "Argentina", uk: "UK", de: "Germany", fr: "France" };
+  const countryName = country ? countryNames[country] ?? "" : "";
+
   const compSummaries = competitors.map((c, i) => `${i + 1}. ${c.name}: ${c.siteContent.slice(0, 300)}`).join("\n");
 
-  const prompt = `You are a B2B competitive analyst. Score each competitor's alignment with the target company.
+  const prompt = `Score each competitor's alignment with the target company. ${countryName ? `Target operates in ${countryName}. Prioritize competitors with local presence in ${countryName}. Penalize companies without operations there.` : ""}
 
 TARGET: ${companyName}. ${companyDescription.slice(0, 300)}
 Site: ${companySiteContent.slice(0, 500)}

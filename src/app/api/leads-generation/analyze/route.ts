@@ -221,6 +221,7 @@ export async function POST(request: Request) {
         companyInfo?.industry ?? "",
         allEmployees.map((e) => e.headline),
         companySiteContent,
+        country,
       );
       logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "openrouter", operation: "analyzeCompanyForShareOfLinkedin", estimatedCost: API_COSTS.openrouter.classifyTopics });
       console.log(`[analyze] Company ${slug}: AI returned themes="${(aiResult?.themes ?? "").slice(0, 80)}..." competitors=${JSON.stringify(aiResult?.competitors ?? [])}`);
@@ -272,6 +273,7 @@ export async function POST(request: Request) {
           companyInfo?.description ?? "",
           companySiteContent,
           allForScoring,
+          country,
         );
         logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "openrouter", operation: "scoreCompetitorAdherence", estimatedCost: API_COSTS.openrouter.classifyTopics });
 
