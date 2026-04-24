@@ -546,7 +546,7 @@ export default function LeadsGenerationOptionsPage() {
             </div>
             <div className="bg-white/[0.03] backdrop-blur-xl border border-[#a2f31f]/20 rounded-2xl p-5">
               <p className="text-[0.65rem] font-bold tracking-[0.2em] text-white/40 uppercase">Concorrentes</p>
-              <p className="text-4xl font-black text-[#a2f31f] font-[family-name:var(--font-lexend)] mt-2">{(options.competitors ?? []).length}</p>
+              <p className="text-4xl font-black text-[#a2f31f] font-[family-name:var(--font-lexend)] mt-2">{(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).length}</p>
             </div>
             <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-2xl p-5">
               <p className="text-[0.65rem] font-bold tracking-[0.2em] text-white/40 uppercase">Posts mapeados</p>
@@ -562,7 +562,7 @@ export default function LeadsGenerationOptionsPage() {
             >
               <div className="flex items-center gap-6 text-sm text-white/60">
                 <span>Colaboradores: <span className="text-white font-bold">{(options.employee_profiles ?? []).length}</span></span>
-                <span>Concorrentes: <span className="text-white font-bold">{(options.competitors ?? []).length}</span></span>
+                <span>Concorrentes: <span className="text-white font-bold">{(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).length}</span></span>
                 <span>Temas: <span className="text-white font-bold">{options.market_context ? "preenchido" : "vazio"}</span></span>
                 <span>Temas: <span className="text-white font-bold">{options.market_context ? "preenchido" : "vazio"}</span></span>
               </div>

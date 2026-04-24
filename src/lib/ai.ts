@@ -619,23 +619,18 @@ export async function scoreCompetitorAdherence(
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
 
-  const compSummaries = competitors.map((c, i) => `${i + 1}. ${c.name}: ${c.siteContent.slice(0, 500)}`).join("\n");
+  const compSummaries = competitors.map((c, i) => `${i + 1}. ${c.name}: ${c.siteContent.slice(0, 300)}`).join("\n");
 
-  const prompt = `You are a B2B competitive analyst. Analyze how each competitor aligns with the target company's market.
+  const prompt = `You are a B2B competitive analyst. Score each competitor's alignment with the target company.
 
-TARGET COMPANY: ${companyName}
-Description: ${companyDescription.slice(0, 400)}
-Website content: ${companySiteContent.slice(0, 800)}
+TARGET: ${companyName}. ${companyDescription.slice(0, 300)}
+Site: ${companySiteContent.slice(0, 500)}
 
-COMPETITORS AND THEIR WEBSITES:
+COMPETITORS:
 ${compSummaries}
 
-Return a JSON object with:
-1. "enriched_themes": Comma-separated list of 5-10 refined market themes based on what the company AND competitors' websites reveal about the market. Write in Portuguese (Brazil) if the companies seem Brazilian.
-2. "scores": Array of objects with { "name": competitor name, "score": 1-10 (10 = most aligned), "reason": 1-sentence explanation in Portuguese }
-
-Respond ONLY with JSON:
-{"enriched_themes":"...","scores":[{"name":"...","score":8,"reason":"..."}]}`;
+Return COMPACT JSON. Keep reasons under 8 words each.
+{"enriched_themes":"tema1,tema2,...","scores":[{"name":"X","score":8,"reason":"curto"}]}`;
 
   try {
     let content = "";
@@ -647,7 +642,7 @@ Respond ONLY with JSON:
           model: "google/gemini-2.0-flash-lite-001",
           messages: [{ role: "user", content: prompt }],
           temperature: 0.3,
-          max_tokens: 2000,
+          max_tokens: 2500,
         }),
         signal: AbortSignal.timeout(60_000),
       });
@@ -676,14 +671,16 @@ Respond ONLY with JSON:
         scores: Array.isArray(parsed.scores) ? parsed.scores : [],
       };
     } catch (parseErr) {
-      // Try to salvage partial JSON - extract enriched_themes and individual scores
+      // Try to salvage partial/truncated JSON
       console.warn(`[ai] scoreCompetitorAdherence JSON parse failed, trying salvage...`);
-      const themesMatch = jsonMatch[0].match(/"enriched_themes"\s*:\s*"([^"]+)"/);
+      const raw = jsonMatch[0];
+      const themesMatch = raw.match(/"enriched_themes"\s*:\s*"([^"]+)"/);
       const scoresArr: Array<{ name: string; score: number; reason: string }> = [];
-      const scoreRegex = /"name"\s*:\s*"([^"]+)"\s*,\s*"score"\s*:\s*(\d+)\s*,\s*"reason"\s*:\s*"([^"]+)"/g;
+      // Regex that handles: complete entries, truncated reason, or missing reason
+      const scoreRegex = /"name"\s*:\s*"([^"]+)"\s*,\s*"score"\s*:\s*(\d+)(?:\s*,\s*"reason"\s*:\s*"([^"]*?)(?:"|$))?/g;
       let m;
-      while ((m = scoreRegex.exec(jsonMatch[0])) !== null) {
-        scoresArr.push({ name: m[1], score: parseInt(m[2]), reason: m[3] });
+      while ((m = scoreRegex.exec(raw)) !== null) {
+        scoresArr.push({ name: m[1], score: parseInt(m[2]), reason: m[3] ?? "" });
       }
       if (scoresArr.length > 0 || themesMatch) {
         console.log(`[ai] scoreCompetitorAdherence salvaged: ${scoresArr.length} scores, themes=${!!themesMatch}`);
