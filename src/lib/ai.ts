@@ -586,9 +586,10 @@ Respond ONLY with the JSON object, no markdown:
         content = data.choices?.[0]?.message?.content ?? "";
         break;
       }
-      if (res.status >= 500 && attempt < 3) {
-        console.warn(`[ai] analyzeCompanyForShareOfLinkedin retry ${attempt}/2 after ${res.status}`);
-        await new Promise((r) => setTimeout(r, 3000));
+      if ((res.status >= 500 || res.status === 429) && attempt < 3) {
+        const delay = res.status === 429 ? 5000 : 3000;
+        console.warn(`[ai] analyzeCompanyForShareOfLinkedin retry ${attempt}/2 after ${res.status} (wait ${delay}ms)`);
+        await new Promise((r) => setTimeout(r, delay));
         continue;
       }
       console.error(`[ai] analyzeCompanyForShareOfLinkedin failed: status=${res.status}`);
@@ -655,9 +656,10 @@ Respond ONLY with JSON:
         content = data.choices?.[0]?.message?.content ?? "";
         break;
       }
-      if (res.status >= 500 && attempt < 3) {
-        console.warn(`[ai] scoreCompetitorAdherence retry ${attempt}/2 after ${res.status}`);
-        await new Promise((r) => setTimeout(r, 3000));
+      if ((res.status >= 500 || res.status === 429) && attempt < 3) {
+        const delay = res.status === 429 ? 5000 : 3000;
+        console.warn(`[ai] scoreCompetitorAdherence retry ${attempt}/2 after ${res.status} (wait ${delay}ms)`);
+        await new Promise((r) => setTimeout(r, delay));
         continue;
       }
       console.error(`[ai] scoreCompetitorAdherence failed: status=${res.status}`);
