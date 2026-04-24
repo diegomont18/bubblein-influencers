@@ -99,9 +99,9 @@ export async function findActiveEmployees(
     if (candidateSlugs.length > maxCandidates) candidateSlugs = candidateSlugs.slice(0, maxCandidates);
     console.log(`[find-employees] ${companyName}: ${candidateSlugs.length} candidates from SERP`);
 
-    for (const _q of serpQueries) {
+    serpQueries.forEach(() => {
       logApiCost({ userId, source: "leads", searchId: profileId, provider: "apify", operation: "searchGoogleApify", estimatedCost: API_COSTS.apify.searchGoogleApify });
-    }
+    });
   } catch (err) {
     console.error(`[find-employees] ${companyName}: SERP failed:`, err);
   }
