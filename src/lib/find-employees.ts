@@ -9,7 +9,8 @@ export interface EmpCandidate {
   profilePicUrl: string;
 }
 
-const TITLE_RE = /director|diretor|head of|gerente|manager|vp |vice.?president|chief|ceo|cto|cfo|coo|cmo|founder|fundador|sócio|partner|lead|coordenador|specialist|especialista|senior|sênior|sr\.|architect|arquiteto|consultant|consultor|pre.?sales|executive|executiv|sales|comercial|engineer|engenheiro|analyst|analista|officer|technical|development|innovation|strategy|strategist/i;
+// Only match executive/leadership roles — exclude junior analysts, engineers, consultants
+const TITLE_RE = /director|diretor|head of|head |gerente|manager|vp |vice.?president|chief|ceo|cto|cfo|coo|cmo|founder|fundador|sócio|partner|coordenador|lead\b|líder|executive|executiv|officer|strategy|strategist|innovation|country.?manager|general.?manager/i;
 
 const COUNTRY_LOCATIONS: Record<string, string[]> = {
   br: ["brazil", "brasil"],
@@ -139,11 +140,24 @@ export async function findActiveEmployees(
           return null;
         }
 
-        // Must post
+        // Must have RECENT posts (within last 90 days)
         const empPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${empSlug}/`, 3);
         if (empPosts.length === 0) {
           console.log(`[find-employees]   skip ${empSlug}: no posts`);
           return null;
+        }
+
+        // Check if most recent post is within last 90 days
+        const now = Date.now();
+        const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+        const mostRecentPost = empPosts[0] as Record<string, unknown>;
+        const postedAt = mostRecentPost?.postedAt ?? mostRecentPost?.posted_at ?? mostRecentPost?.postedDate ?? "";
+        if (postedAt) {
+          const postDate = new Date(String(postedAt)).getTime();
+          if (!isNaN(postDate) && now - postDate > ninetyDaysMs) {
+            console.log(`[find-employees]   skip ${empSlug}: last post too old (${String(postedAt).slice(0, 10)})`);
+            return null;
+          }
         }
 
         // Photo
