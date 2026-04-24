@@ -1,6 +1,21 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import Navbar from "@/components/navbar";
+
+export const metadata: Metadata = {
+  title: "Termos de Uso",
+  description: "Termos de uso da BubbleIn — plataforma B2B para LinkedIn com Share of LinkedIn e Inteligência de Casting de creators.",
+  alternates: { canonical: "/termos-de-uso" },
+  robots: { index: true, follow: true },
+  openGraph: {
+    type: "website",
+    locale: "pt_BR",
+    url: "/termos-de-uso",
+    title: "Termos de Uso | BubbleIn",
+    description: "Termos de uso da plataforma BubbleIn.",
+  },
+};
 
 export default function TermosDeUsoPage() {
   return (

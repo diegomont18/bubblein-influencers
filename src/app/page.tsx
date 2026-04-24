@@ -596,7 +596,7 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* Structured Data - Organization + WebSite */}
+      {/* Structured Data - Organization + WebSite + SoftwareApplication + FAQPage */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -623,6 +623,66 @@ export default function Home() {
               url: "https://bubblein.com.br",
               description: "Plataforma para impulsionar empresas B2B no LinkedIn.",
               inLanguage: "pt-BR",
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "SoftwareApplication",
+              name: "BubbleIn",
+              applicationCategory: "BusinessApplication",
+              operatingSystem: "Web",
+              description: "Plataforma B2B para LinkedIn que une Share of LinkedIn (inteligência competitiva) e Inteligência de Casting (amplificação com creators B2B).",
+              url: "https://bubblein.com.br",
+              offers: [
+                { "@type": "Offer", name: "Starter", price: "199", priceCurrency: "BRL", category: "subscription" },
+                { "@type": "Offer", name: "Professional", price: "499", priceCurrency: "BRL", category: "subscription" },
+                { "@type": "Offer", name: "Business", price: "999", priceCurrency: "BRL", category: "subscription" },
+              ],
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "FAQPage",
+              mainEntity: [
+                {
+                  "@type": "Question",
+                  name: "O que é Share of LinkedIn?",
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: "Share of LinkedIn é a medida da presença e influência da sua empresa no LinkedIn comparada aos concorrentes do mesmo nicho. A BubbleIn rastreia executivos da sua empresa e dos concorrentes, identifica temas que engajam decisores e entrega recomendações estratégicas semanais geradas por IA.",
+                  },
+                },
+                {
+                  "@type": "Question",
+                  name: "O que é Inteligência de Casting de creators B2B?",
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: "É a funcionalidade da BubbleIn que descobre creators B2B no LinkedIn com busca semântica por IA. Cada creator é ranqueado por um score composto: 60% relevância temática, 25% frequência de publicação e 15% qualidade da audiência.",
+                  },
+                },
+                {
+                  "@type": "Question",
+                  name: "Para que tipo de empresa a BubbleIn serve?",
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: "Empresas B2B que vendem para outras empresas e precisam estar na frente de decisores no LinkedIn: marketing B2B, growth, founders, vendas e SDRs, agências B2B e consultorias.",
+                  },
+                },
+                {
+                  "@type": "Question",
+                  name: "Como funcionam os créditos da BubbleIn?",
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: "1 crédito extrai 1 lead e 3 créditos encontram 1 influencer. Os créditos do plano renovam mensalmente; créditos adicionais (R$100 por 20 créditos) não expiram enquanto a conta estiver ativa.",
+                  },
+                },
+                {
+                  "@type": "Question",
+                  name: "Quanto custa a BubbleIn?",
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: "Três planos: Starter R$199/mês (1 concorrente, 4 colaboradores, 2 influencers, 9 créditos), Professional R$499/mês (3 concorrentes, 16 colaboradores, 4 influencers, 24 créditos) e Business R$999/mês (6 concorrentes, 32 colaboradores, 8 influencers, 48 créditos). Cancele quando quiser.",
+                  },
+                },
+              ],
             },
           ]),
         }}

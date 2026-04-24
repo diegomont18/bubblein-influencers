@@ -1,51 +1,90 @@
 # BubbleIn
 
-> Conectamos marcas B2B a creators relevantes no LinkedIn. Ganhe visibilidade, gere demanda e construa confianca.
+> Plataforma B2B para LinkedIn. Primeiro voce mapeia o cenario competitivo do seu nicho com Share of LinkedIn, depois amplifica sua marca com Inteligencia de Casting de creators B2B. Inteligencia + casting numa unica plataforma.
 
-## O que e o BubbleIn
+## O que e a BubbleIn
 
-BubbleIn e uma plataforma brasileira de marketing de influencia B2B focada no LinkedIn. Ajudamos empresas a encontrar, avaliar e contratar creators (influenciadores) que produzem conteudo profissional relevante no LinkedIn, conectando marcas a audiencias qualificadas no mercado B2B.
+BubbleIn e uma plataforma brasileira que une duas funcionalidades complementares para empresas B2B no LinkedIn:
 
-## Servicos
+1. **Share of LinkedIn** — inteligencia competitiva: mapeia o que sua empresa, concorrentes e referencias publicam no LinkedIn, identifica temas que engajam decisores e entrega recomendacoes estrategicas semanais geradas por IA.
+2. **Inteligencia de Casting** — descoberta e ranqueamento de creators B2B: encontre os creators certos para amplificar sua marca atraves de busca semantica com IA.
 
-- **Casting de Creators**: Busca inteligente de creators no LinkedIn por palavras-chave, nicho, idioma, faixa de seguidores e frequencia de publicacao. Cada creator recebe um score baseado em engajamento real, alcance e relevancia tematica.
-- **Campanhas pontuais**: Acoes de visibilidade com creators selecionados para divulgar produtos, servicos ou eventos B2B.
-- **Programas continuos**: Estrategias de longo prazo com creators recorrentes para construir autoridade de marca ao longo do tempo.
-- **Analise de influencia**: Metricas detalhadas de cada creator — seguidores, posts por mes, media de likes, score de creator e topicos de atuacao.
+A narrativa do produto e simples: "primeiro voce mapeia, depois voce amplifica".
 
-## Publico-alvo
+## Funcionalidades
 
-- Empresas B2B que querem gerar demanda e visibilidade no LinkedIn
-- Times de marketing que buscam creators alinhados ao seu nicho
-- Agencias de marketing de influencia focadas em B2B
+### Share of LinkedIn (mapeamento competitivo)
+- Mapeia executivos da sua empresa e dos concorrentes que publicam no LinkedIn
+- Identifica temas que engajam decisores B2B do seu nicho
+- Encontra lacunas de conteudo que sua marca pode ocupar
+- Recomendacoes estrategicas semanais geradas por IA, com tema, abordagem, justificativa e referencias
+- Acompanha engajamento qualificado com decisores ("RER" — Revenue Engagement Rate: % do engajamento que vem de decisores de compra)
+- Compara seu Share of LinkedIn vs concorrentes ao longo do tempo
+
+### Inteligencia de Casting (amplificacao com creators)
+- Busca semantica por IA: encontre creators B2B por tema/contexto, nao apenas palavra-chave
+- Ranking proprietario: 60% relevancia tematica + 25% frequencia de publicacao + 15% qualidade de audiencia
+- Organizacao em campanhas e listas nomeadas
+- Exportacao e compartilhamento via link publico
+- Sistema de creditos: 3 creditos = 1 influencer encontrado, 1 credito = 1 lead extraido
+
+## Para quem e
+
+- Marketing B2B, Growth, Founders
+- Vendas e SDRs
+- Agencias B2B e consultorias
+- Empresas que vendem para outras empresas e precisam estar na frente de decisores no LinkedIn
 
 ## Diferenciais
 
-- Foco exclusivo em LinkedIn e mercado B2B
-- Plataforma proprietaria de inteligencia para mapeamento de creators
-- Analise de relevancia tematica, engajamento real e audiencia qualificada
-- Suporte em portugues e espanhol
+- Unica plataforma que une diagnostico competitivo (Share of LinkedIn) + amplificacao com creators (Casting) num so produto
+- Foco exclusivo em LinkedIn e mercado B2B brasileiro
+- IA semantica proprietaria para busca de creators
+- Recomendacoes estrategicas geradas com base em dados reais do mercado, nao em intuicao
+
+## Planos e precos
+
+- **Starter** — R$199/mes: 1 concorrente, 4 colaboradores rastreados, 2 influencers, 9 creditos/mes
+- **Professional** — R$499/mes (mais popular): 3 concorrentes, 16 colaboradores, 4 influencers, 24 creditos/mes
+- **Business** — R$999/mes: 6 concorrentes, 32 colaboradores, 8 influencers, 48 creditos/mes
+- **Creditos adicionais**: R$100 por 20 creditos (nao expiram)
+
+Todos os planos incluem Share of LinkedIn e creditos para casting. Cancele quando quiser.
 
 ## Contato
 
 - Website: https://bubblein.com.br
 - WhatsApp: +55 11 94123-8555
+- LinkedIn: https://www.linkedin.com/company/bubblein
 
 ---
 
 # BubbleIn (English)
 
-> We connect B2B brands with relevant LinkedIn creators. Gain visibility, generate demand, and build trust.
+> B2B platform for LinkedIn. First you map your niche's competitive landscape with Share of LinkedIn, then you amplify your brand with B2B creator Casting Intelligence. Intelligence + casting in one platform.
 
-BubbleIn is a Brazilian B2B influencer marketing platform focused on LinkedIn. We help companies find, evaluate, and hire creators who produce relevant professional content on LinkedIn, connecting brands to qualified B2B audiences.
+## What is BubbleIn
+
+BubbleIn is a Brazilian platform that combines two complementary features for B2B companies on LinkedIn:
+
+1. **Share of LinkedIn** — competitive intelligence: maps what your company, competitors and references publish on LinkedIn, identifies topics that engage decision-makers and delivers weekly AI-generated strategic recommendations.
+2. **Casting Intelligence** — B2B creator discovery and ranking: find the right creators to amplify your brand through AI-powered semantic search.
+
+The product narrative is simple: "first you map, then you amplify".
 
 ## Services
 
-- **Creator Casting**: AI-powered search for LinkedIn creators by keywords, niche, language, follower range, and posting frequency. Each creator receives a score based on real engagement, reach, and topic relevance.
-- **One-time Campaigns**: Visibility actions with selected creators to promote B2B products, services, or events.
-- **Ongoing Programs**: Long-term strategies with recurring creators to build brand authority over time.
+- **Share of LinkedIn**: competitive monitoring of executives, content gap identification, weekly strategy recommendations
+- **Casting Intelligence**: AI semantic search of B2B creators, proprietary scoring (relevance + frequency + audience quality), campaign organization, list export
+
+## Pricing
+
+- Starter: R$199/month
+- Professional: R$499/month (most popular)
+- Business: R$999/month
 
 ## Contact
 
 - Website: https://bubblein.com.br
 - WhatsApp: +55 11 94123-8555
+- LinkedIn: https://www.linkedin.com/company/bubblein

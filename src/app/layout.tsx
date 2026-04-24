@@ -24,17 +24,33 @@ const beVietnamPro = Be_Vietnam_Pro({
   variable: "--font-be-vietnam-pro",
 });
 
-const SITE_NAME = "BubbleIn - Plataforma B2B para LinkedIn";
+const SITE_TITLE = "BubbleIn | Inteligência Competitiva e Casting de Creators no LinkedIn B2B";
+const SITE_NAME_SHORT = "BubbleIn — Plataforma B2B para LinkedIn";
 const SITE_DESCRIPTION =
-  "A plataforma para impulsionar empresas B2B no LinkedIn. Mapeie o cenário competitivo com Share of LinkedIn e amplifique sua marca com Inteligência de Casting de Influencers.";
+  "Mapeie o cenário competitivo do seu nicho no LinkedIn e amplifique sua marca com os creators B2B certos. Inteligência + casting numa única plataforma.";
+
+// TODO: substituir /bubblein-logo.png por OG image dedicada 1200×630 quando disponível
+const OG_IMAGE = "/bubblein-logo.png";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://bubblein.com.br"),
   title: {
-    default: SITE_NAME,
-    template: `%s | ${SITE_NAME}`,
+    default: SITE_TITLE,
+    template: `%s | ${SITE_NAME_SHORT}`,
   },
   description: SITE_DESCRIPTION,
+  keywords: [
+    "share of voice linkedin",
+    "share of linkedin",
+    "inteligência competitiva linkedin",
+    "casting de influenciadores b2b",
+    "creators b2b linkedin",
+    "marketing b2b linkedin",
+    "linkedin b2b",
+    "influência b2b",
+    "thought leadership linkedin",
+    "marketing de influência b2b",
+  ],
   icons: {
     icon: "/favicon.ico",
   },
@@ -42,14 +58,16 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "pt_BR",
-    siteName: SITE_NAME,
-    title: SITE_NAME,
+    siteName: SITE_NAME_SHORT,
+    title: SITE_TITLE,
     description: SITE_DESCRIPTION,
+    images: [{ url: OG_IMAGE, alt: "BubbleIn — Plataforma B2B para LinkedIn" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: SITE_NAME,
+    title: SITE_TITLE,
     description: SITE_DESCRIPTION,
+    images: [OG_IMAGE],
   },
   robots: {
     index: true,

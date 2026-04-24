@@ -1,6 +1,21 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import Navbar from "@/components/navbar";
+
+export const metadata: Metadata = {
+  title: "Política de Privacidade",
+  description: "Como a BubbleIn coleta, usa e protege seus dados pessoais. Conformidade com LGPD e GDPR.",
+  alternates: { canonical: "/politica-de-privacidade" },
+  robots: { index: true, follow: true },
+  openGraph: {
+    type: "website",
+    locale: "pt_BR",
+    url: "/politica-de-privacidade",
+    title: "Política de Privacidade | BubbleIn",
+    description: "Como a BubbleIn coleta, usa e protege seus dados pessoais.",
+  },
+};
 
 export default function PoliticaDePrivacidadePage() {
   return (
