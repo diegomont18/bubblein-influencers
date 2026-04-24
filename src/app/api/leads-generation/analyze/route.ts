@@ -245,7 +245,7 @@ export async function POST(request: Request) {
         const serpResults = await Promise.all(
           serpCompQueries.map((q) => searchGoogleApify(q, { results: 10, country: country || undefined }).catch(() => ({ results: [] })))
         );
-        for (const q of serpCompQueries) {
+        for (const _q of serpCompQueries) {
           logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "apify", operation: "searchGoogleApify", estimatedCost: API_COSTS.apify.searchGoogleApify, metadata: { context: "competitor-serp" } });
         }
         for (const sr of serpResults) {

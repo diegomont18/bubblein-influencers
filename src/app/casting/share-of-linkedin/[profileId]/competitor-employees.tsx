@@ -6,7 +6,7 @@ import PostsFreqBadge from "./posts-freq-badge";
 interface EmpData { name: string; slug: string; headline: string; linkedinUrl: string; profilePicUrl: string }
 
 export default function CompetitorEmployees({
-  companyName,
+  companyName: _companyName,
   employees,
   onUpdate,
 }: {
