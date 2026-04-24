@@ -355,6 +355,7 @@ export async function POST(request: Request) {
       const employeeProfiles = allEmployees.map((e) => ({
         name: e.name, slug: e.slug, headline: e.headline,
         linkedinUrl: e.linkedinUrl, profilePicUrl: e.profilePicUrl,
+        postsPerMonth: e.postsPerMonth,
       }));
 
       const optionsPayload = {
