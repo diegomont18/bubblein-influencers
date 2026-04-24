@@ -21,7 +21,7 @@ interface Options {
   departments: string[];
   company_sizes: string[];
   // Share of LinkedIn fields (company flow)
-  competitors?: Array<{ name: string; logoUrl?: string; url?: string } | string>;
+  competitors?: Array<{ name: string; logoUrl?: string; url?: string; score?: number; reason?: string; selected?: boolean } | string>;
   employee_profiles?: Array<{ name: string; slug: string; headline: string; linkedinUrl: string; profilePicUrl?: string }>;
   icp_description?: string;
 }
@@ -561,7 +561,7 @@ export default function LeadsGenerationOptionsPage() {
                 <span>Colaboradores: <span className="text-white font-bold">{(options.employee_profiles ?? []).length}</span></span>
                 <span>Concorrentes: <span className="text-white font-bold">{(options.competitors ?? []).length}</span></span>
                 <span>Temas: <span className="text-white font-bold">{options.market_context ? "preenchido" : "vazio"}</span></span>
-                <span>ICP: <span className="text-white font-bold">{options.icp_description || (options.job_titles ?? []).length > 0 ? "preenchido" : "vazio"}</span></span>
+                <span>Temas: <span className="text-white font-bold">{options.market_context ? "preenchido" : "vazio"}</span></span>
               </div>
               <span className="text-sm font-bold text-[#ca98ff] uppercase tracking-wider group-hover:translate-x-1 transition-transform">Editar mapeamento →</span>
             </button>
@@ -660,6 +660,9 @@ export default function LeadsGenerationOptionsPage() {
                     const displayName = isObj ? comp.name : (typeof comp === "string" ? (comp.match(/\/company\/([^/?#]+)/)?.[1]?.replace(/-/g, " ") ?? comp) : String(comp));
                     const logoUrl = isObj ? (comp.logoUrl ?? "") : "";
                     const compUrl = isObj ? (comp.url ?? "") : (typeof comp === "string" && comp.startsWith("http") ? comp : "");
+                    const score = isObj ? (comp.score ?? 0) : 0;
+                    const reason = isObj ? (comp.reason ?? "") : "";
+                    const selected = isObj ? (comp.selected ?? false) : false;
                     const letterColors = ["#ca98ff", "#a2f31f", "#ff946e", "#5b9bff", "#f472b6", "#34d399"];
                     const letterColor = letterColors[(displayName.charCodeAt(0) || 0) % letterColors.length];
                     return (
@@ -672,7 +675,12 @@ export default function LeadsGenerationOptionsPage() {
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white font-medium truncate capitalize">{displayName}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm text-white font-medium truncate capitalize">{displayName}</p>
+                            {score > 0 && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${score >= 7 ? "text-green-400 bg-green-400/10" : score >= 4 ? "text-yellow-400 bg-yellow-400/10" : "text-red-400 bg-red-400/10"}`}>{score}/10</span>}
+                            {selected && <span className="text-[9px] font-bold text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded-full">Selecionado</span>}
+                          </div>
+                          {reason && <p className="text-[10px] text-white/30 truncate mt-0.5" title={reason}>{reason}</p>}
                           {compUrl && (
                             <a href={compUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">
                               {compUrl.replace("https://www.linkedin.com", "")}
@@ -736,67 +744,7 @@ export default function LeadsGenerationOptionsPage() {
                 </div>
               </div>
 
-              {/* Section 4: ICP da Empresa (structured) */}
-              <div className="space-y-4">
-                <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">ICP da Empresa</label>
-
-                {/* Company size chips */}
-                <div className="space-y-2">
-                  <label className="text-[10px] text-white/30 uppercase tracking-wider">Tamanho da Empresa</label>
-                  <div className="flex flex-wrap gap-2">
-                    {["1-10", "11-50", "51-200", "201-500", "501-1000", "1001+"].map((size) => {
-                      const selected = (options.company_sizes ?? []).includes(size);
-                      return (
-                        <button
-                          key={size}
-                          onClick={() => {
-                            const sizes = selected
-                              ? (options.company_sizes ?? []).filter((s) => s !== size)
-                              : [...(options.company_sizes ?? []), size];
-                            autoSave({ ...options, company_sizes: sizes });
-                          }}
-                          className={`px-4 py-2 rounded-full text-[11px] font-bold transition-all ${selected ? "border-2 border-[#ca98ff]/40 bg-[#ca98ff]/10 text-[#ca98ff]" : "border border-white/10 bg-white/5 text-white/60 hover:border-white/20"}`}
-                        >
-                          {size}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Job titles */}
-                <div className="space-y-2">
-                  <label className="text-[10px] text-white/30 uppercase tracking-wider">Cargos-alvo</label>
-                  <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl focus-within:border-[#ca98ff]/50 transition-all">
-                    <textarea
-                      rows={2}
-                      value={(options.job_titles ?? []).join(", ")}
-                      onChange={(e) => autoSave({ ...options, job_titles: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-                      className="w-full bg-transparent border-none focus:ring-0 px-4 py-3 text-white text-sm font-medium outline-none placeholder-white/20 resize-none leading-relaxed"
-                      placeholder="CIO, CTO, Head de TI, Diretor de Infraestrutura..."
-                    />
-                  </div>
-                </div>
-
-                {/* Departments */}
-                <div className="space-y-2">
-                  <label className="text-[10px] text-white/30 uppercase tracking-wider">Departamentos</label>
-                  <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl focus-within:border-[#ca98ff]/50 transition-all">
-                    <textarea
-                      rows={2}
-                      value={(options.departments ?? []).join(", ")}
-                      onChange={(e) => autoSave({ ...options, departments: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-                      className="w-full bg-transparent border-none focus:ring-0 px-4 py-3 text-white text-sm font-medium outline-none placeholder-white/20 resize-none leading-relaxed"
-                      placeholder="TI, Infraestrutura, Dados, Operações..."
-                    />
-                  </div>
-                </div>
-
-                {/* ICP summary */}
-                {options.icp_description && (
-                  <p className="text-xs text-white/40 italic px-1">{options.icp_description}</p>
-                )}
-              </div>
+              {/* ICP section removed — now handled at leads scan level */}
             </div>
 
             {/* Confirmar button (placeholder) */}

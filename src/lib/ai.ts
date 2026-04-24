@@ -545,13 +545,13 @@ export async function analyzeCompanyForShareOfLinkedin(
   specialties: string,
   industry: string,
   employeeTitles: string[],
-): Promise<{ themes: string; icp: string; competitors: string[]; icp_job_titles: string[]; icp_departments: string[]; icp_company_sizes: string[] } | null> {
+): Promise<{ themes: string; competitors: string[] } | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
 
   const empSample = employeeTitles.slice(0, 20).join(", ");
 
-  const prompt = `You are a B2B market analyst specializing in the Brazilian/Latin American market. Analyze this company and return three fields in JSON.
+  const prompt = `You are a B2B market analyst specializing in the Brazilian/Latin American market. Analyze this company and identify its market themes and competitors.
 
 COMPANY:
 - Name: ${companyName}
@@ -562,14 +562,10 @@ ${empSample ? `- Sample employee titles: ${empSample}` : ""}
 
 Return a JSON object with exactly these fields:
 1. "themes": A comma-separated list of 5-10 market themes/topics this company and its competitors likely discuss on LinkedIn. Focus on B2B-relevant themes, not generic topics. Write in Portuguese (Brazil) if the company seems Brazilian, otherwise English.
-2. "icp": A 1-sentence summary of the Ideal Customer Profile.
-3. "icp_job_titles": An array of 4-8 job titles that typically buy from this company (e.g. ["CIO", "CTO", "Head de TI", "Diretor de Infraestrutura"]).
-4. "icp_departments": An array of 3-6 departments/areas (e.g. ["TI", "Infraestrutura", "Dados", "Operações"]).
-5. "icp_company_sizes": An array of LinkedIn company size ranges that are the best fit (pick from EXACTLY these values: "1-10", "11-50", "51-200", "201-500", "501-1000", "1001+").
-6. "competitors": An array of 5-8 company names that are direct competitors or operate in the same market segment. Use the companies' official names as they appear on LinkedIn.
+2. "competitors": An array of 5-8 company names that are direct competitors or operate in the same market segment. Use the companies' official names as they appear on LinkedIn.
 
 Respond ONLY with the JSON object, no markdown:
-{"themes":"...","icp":"...","icp_job_titles":["..."],"icp_departments":["..."],"icp_company_sizes":["..."],"competitors":["..."]}`;
+{"themes":"...","competitors":["..."]}`;
 
   try {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -579,7 +575,7 @@ Respond ONLY with the JSON object, no markdown:
         model: "google/gemini-2.0-flash-lite-001",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.3,
-        max_tokens: 1000,
+        max_tokens: 600,
       }),
       signal: AbortSignal.timeout(30_000),
     });
@@ -592,20 +588,72 @@ Respond ONLY with the JSON object, no markdown:
     console.log(`[ai] analyzeCompanyForShareOfLinkedin response: ${content.slice(0, 300)}`);
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]) as {
-      themes?: string; icp?: string; competitors?: string[];
-      icp_job_titles?: string[]; icp_departments?: string[]; icp_company_sizes?: string[];
-    };
+    const parsed = JSON.parse(jsonMatch[0]) as { themes?: string; competitors?: string[] };
     return {
       themes: parsed.themes ?? "",
-      icp: parsed.icp ?? "",
       competitors: Array.isArray(parsed.competitors) ? parsed.competitors : [],
-      icp_job_titles: Array.isArray(parsed.icp_job_titles) ? parsed.icp_job_titles : [],
-      icp_departments: Array.isArray(parsed.icp_departments) ? parsed.icp_departments : [],
-      icp_company_sizes: Array.isArray(parsed.icp_company_sizes) ? parsed.icp_company_sizes : [],
     };
   } catch (err) {
     console.error(`[ai] analyzeCompanyForShareOfLinkedin exception:`, err);
+    return null;
+  }
+}
+
+export async function scoreCompetitorAdherence(
+  companyName: string,
+  companyDescription: string,
+  companySiteContent: string,
+  competitors: Array<{ name: string; siteContent: string }>,
+): Promise<{ enrichedThemes: string; scores: Array<{ name: string; score: number; reason: string }> } | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) return null;
+
+  const compSummaries = competitors.map((c, i) => `${i + 1}. ${c.name}: ${c.siteContent.slice(0, 500)}`).join("\n");
+
+  const prompt = `You are a B2B competitive analyst. Analyze how each competitor aligns with the target company's market.
+
+TARGET COMPANY: ${companyName}
+Description: ${companyDescription.slice(0, 400)}
+Website content: ${companySiteContent.slice(0, 800)}
+
+COMPETITORS AND THEIR WEBSITES:
+${compSummaries}
+
+Return a JSON object with:
+1. "enriched_themes": Comma-separated list of 5-10 refined market themes based on what the company AND competitors' websites reveal about the market. Write in Portuguese (Brazil) if the companies seem Brazilian.
+2. "scores": Array of objects with { "name": competitor name, "score": 1-10 (10 = most aligned), "reason": 1-sentence explanation in Portuguese }
+
+Respond ONLY with JSON:
+{"enriched_themes":"...","scores":[{"name":"...","score":8,"reason":"..."}]}`;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "google/gemini-2.0-flash-lite-001",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        max_tokens: 1200,
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    if (!res.ok) {
+      console.error(`[ai] scoreCompetitorAdherence failed: status=${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? "";
+    console.log(`[ai] scoreCompetitorAdherence response: ${content.slice(0, 300)}`);
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      enrichedThemes: parsed.enriched_themes ?? "",
+      scores: Array.isArray(parsed.scores) ? parsed.scores : [],
+    };
+  } catch (err) {
+    console.error(`[ai] scoreCompetitorAdherence exception:`, err);
     return null;
   }
 }
