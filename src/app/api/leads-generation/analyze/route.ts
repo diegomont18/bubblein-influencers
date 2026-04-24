@@ -212,8 +212,8 @@ export async function POST(request: Request) {
         if (scrape) companySiteContent = `${scrape.title}. ${scrape.description}. ${scrape.content}`;
       }
 
-      // 4. AI analysis: extract themes + competitors (WITH site content for context)
-      console.log(`[analyze] Company ${slug}: running AI analysis...`);
+      // 4. AI analysis: extract themes only (competitors come from SERP)
+      console.log(`[analyze] Company ${slug}: running AI for themes...`);
       const aiResult = await analyzeCompanyForShareOfLinkedin(
         companyInfo?.name ?? slug.replace(/-/g, " "),
         companyInfo?.description ?? "",
@@ -224,30 +224,47 @@ export async function POST(request: Request) {
         country,
       );
       logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "openrouter", operation: "analyzeCompanyForShareOfLinkedin", estimatedCost: API_COSTS.openrouter.classifyTopics });
-      console.log(`[analyze] Company ${slug}: AI returned themes="${(aiResult?.themes ?? "").slice(0, 80)}..." competitors=${JSON.stringify(aiResult?.competitors ?? [])}`);
+      console.log(`[analyze] Company ${slug}: AI themes="${(aiResult?.themes ?? "").slice(0, 100)}"`);
 
-      // 4.5. SERP fallback if AI returned few competitors
-      let aiCompNames = (aiResult?.competitors ?? []).filter(Boolean);
-      if (aiCompNames.length < 3) {
-        console.log(`[analyze] Company ${slug}: AI returned only ${aiCompNames.length} competitors, trying SERP fallback...`);
-        try {
-          const serpQuery = `"${companyName}" concorrentes OR competitors OR alternativas site:linkedin.com/company`;
-          const serpFallback = await searchGoogleApify(serpQuery, { results: 10, country: country || undefined });
-          logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "apify", operation: "searchGoogleApify", estimatedCost: API_COSTS.apify.searchGoogleApify, metadata: { context: "competitor-fallback" } });
-          const existing = new Set(aiCompNames.map((n) => n.toLowerCase()));
-          existing.add(companyName.toLowerCase());
-          for (const r of serpFallback.results) {
-            const compMatch = r.link.match(/\/company\/([^/?#]+)/)?.[1]?.replace(/-/g, " ");
-            if (compMatch && compMatch.length > 2 && !existing.has(compMatch.toLowerCase())) {
-              aiCompNames.push(compMatch);
-              existing.add(compMatch.toLowerCase());
-              console.log(`[analyze]   SERP fallback found: ${compMatch}`);
+      // 4.5. SERP: find competitors via Google (primary source)
+      const companySpecialties = companyInfo?.specialties ?? "";
+      const companyIndustry = companyInfo?.industry ?? "";
+      const siteKeywords = companySiteContent.slice(0, 100).replace(/[^\w\s]/g, " ").trim();
+      console.log(`[analyze] Company ${slug}: searching competitors via SERP...`);
+      const serpCompNames: string[] = [];
+      const seenCompSlugs = new Set<string>();
+      seenCompSlugs.add(slug);
+
+      const serpCompQueries = [
+        `"${companyName}" concorrentes OR competitors OR alternativas`,
+        `${companySpecialties || companyIndustry} empresa ${country === "br" ? "brasil" : ""} site:linkedin.com/company`,
+        `${siteKeywords.split(" ").slice(0, 5).join(" ")} ${country === "br" ? "brasil" : ""} site:linkedin.com/company`,
+      ].filter((q) => q.trim().length > 10);
+
+      try {
+        const serpResults = await Promise.all(
+          serpCompQueries.map((q) => searchGoogleApify(q, { results: 10, country: country || undefined }).catch(() => ({ results: [] })))
+        );
+        for (const q of serpCompQueries) {
+          logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "apify", operation: "searchGoogleApify", estimatedCost: API_COSTS.apify.searchGoogleApify, metadata: { context: "competitor-serp" } });
+        }
+        for (const sr of serpResults) {
+          for (const r of sr.results) {
+            const compSlugMatch = r.link.match(/linkedin\.com\/company\/([^/?#]+)/)?.[1];
+            if (compSlugMatch && compSlugMatch.length > 2 && !seenCompSlugs.has(compSlugMatch)) {
+              seenCompSlugs.add(compSlugMatch);
+              const displayName = compSlugMatch.replace(/-/g, " ");
+              serpCompNames.push(displayName);
+              console.log(`[analyze]   SERP competitor: ${displayName} (${compSlugMatch})`);
             }
           }
-        } catch (err) {
-          console.error(`[analyze] SERP fallback failed:`, err);
         }
+        console.log(`[analyze] Company ${slug}: SERP found ${serpCompNames.length} competitor candidates`);
+      } catch (err) {
+        console.error(`[analyze] SERP competitor search failed:`, err);
       }
+
+      const aiCompNames = serpCompNames.slice(0, 10);
 
       // 5. Fetch competitor LinkedIn pages (logos + website URLs)
       console.log(`[analyze] Company ${slug}: fetching ${aiCompNames.length} competitors from LinkedIn...`);
