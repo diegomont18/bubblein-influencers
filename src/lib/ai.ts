@@ -634,9 +634,9 @@ Respond ONLY with JSON:
         model: "google/gemini-2.0-flash-lite-001",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.3,
-        max_tokens: 1200,
+        max_tokens: 2000,
       }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) {
       console.error(`[ai] scoreCompetitorAdherence failed: status=${res.status}`);
@@ -644,14 +644,34 @@ Respond ONLY with JSON:
     }
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content ?? "";
-    console.log(`[ai] scoreCompetitorAdherence response: ${content.slice(0, 300)}`);
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    console.log(`[ai] scoreCompetitorAdherence response: ${content.slice(0, 500)}`);
+    // Strip markdown fences and extract JSON
+    const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]);
-    return {
-      enrichedThemes: parsed.enriched_themes ?? "",
-      scores: Array.isArray(parsed.scores) ? parsed.scores : [],
-    };
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        enrichedThemes: parsed.enriched_themes ?? "",
+        scores: Array.isArray(parsed.scores) ? parsed.scores : [],
+      };
+    } catch (parseErr) {
+      // Try to salvage partial JSON - extract enriched_themes and individual scores
+      console.warn(`[ai] scoreCompetitorAdherence JSON parse failed, trying salvage...`);
+      const themesMatch = jsonMatch[0].match(/"enriched_themes"\s*:\s*"([^"]+)"/);
+      const scoresArr: Array<{ name: string; score: number; reason: string }> = [];
+      const scoreRegex = /"name"\s*:\s*"([^"]+)"\s*,\s*"score"\s*:\s*(\d+)\s*,\s*"reason"\s*:\s*"([^"]+)"/g;
+      let m;
+      while ((m = scoreRegex.exec(jsonMatch[0])) !== null) {
+        scoresArr.push({ name: m[1], score: parseInt(m[2]), reason: m[3] });
+      }
+      if (scoresArr.length > 0 || themesMatch) {
+        console.log(`[ai] scoreCompetitorAdherence salvaged: ${scoresArr.length} scores, themes=${!!themesMatch}`);
+        return { enrichedThemes: themesMatch?.[1] ?? "", scores: scoresArr };
+      }
+      console.error(`[ai] scoreCompetitorAdherence parse failed completely:`, parseErr);
+      return null;
+    }
   } catch (err) {
     console.error(`[ai] scoreCompetitorAdherence exception:`, err);
     return null;

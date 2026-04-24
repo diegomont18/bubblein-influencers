@@ -254,11 +254,49 @@ export async function POST(request: Request) {
             const headline = String(d.headline ?? "");
             const name = String(d.name ?? d.fullName ?? "");
 
-            // Filter 1: must currently work at this company (not a former employee)
-            const currentCompanyRaw = String(d.company ?? "").toLowerCase();
-            const targetCompanyLower = companyName.toLowerCase();
-            if (currentCompanyRaw && !currentCompanyRaw.includes(targetCompanyLower) && !targetCompanyLower.includes(currentCompanyRaw)) {
-              console.log(`[analyze]   skip ${empSlug}: works at "${d.company}" not "${companyName}"`);
+            // Filter 1: must CURRENTLY work at this company (not a former employee)
+            const targetLower = companyName.toLowerCase();
+            const slugLower = slug.toLowerCase().replace(/-/g, " ");
+            let worksHere = false;
+
+            // Check currentPosition array (most reliable)
+            const cp = d.currentPosition;
+            if (Array.isArray(cp) && cp.length > 0) {
+              for (const pos of cp as Array<{ companyName?: string }>) {
+                const cn = String(pos.companyName ?? "").toLowerCase();
+                if (cn && (cn.includes(targetLower) || targetLower.includes(cn) || cn.includes(slugLower) || slugLower.includes(cn))) {
+                  worksHere = true;
+                  break;
+                }
+              }
+            }
+
+            // Check experience[0] with end_date "Present" as fallback
+            if (!worksHere) {
+              const exp = d.experience;
+              if (Array.isArray(exp) && exp.length > 0) {
+                const first = exp[0] as { company?: string; company_name?: string; companyName?: string; end_date?: { text?: string }; ends_at?: { text?: string } };
+                const endText = String(first.end_date?.text ?? first.ends_at?.text ?? "").toLowerCase();
+                if (endText.includes("present")) {
+                  const cn = String(first.company ?? first.company_name ?? first.companyName ?? "").toLowerCase();
+                  if (cn && (cn.includes(targetLower) || targetLower.includes(cn) || cn.includes(slugLower) || slugLower.includes(cn))) {
+                    worksHere = true;
+                  }
+                }
+              }
+            }
+
+            // Last fallback: d.company field
+            if (!worksHere) {
+              const compField = String(d.company ?? "").toLowerCase();
+              if (compField && (compField.includes(targetLower) || targetLower.includes(compField) || compField.includes(slugLower) || slugLower.includes(compField))) {
+                worksHere = true;
+              }
+            }
+
+            if (!worksHere) {
+              const currentCo = Array.isArray(cp) && cp.length > 0 ? String((cp[0] as { companyName?: string }).companyName ?? "") : String(d.company ?? "");
+              console.log(`[analyze]   skip ${empSlug}: currently at "${currentCo}", not "${companyName}"`);
               return null;
             }
 
@@ -352,14 +390,18 @@ export async function POST(request: Request) {
       let enrichedThemes = aiResult?.themes ?? "";
       const competitorsWithScores = competitorScrapes.map((c) => ({ ...c }));
 
-      const scrapedCompetitors = competitorScrapes.filter((c) => c.siteContent.length > 50);
-      if (scrapedCompetitors.length > 0 || companySiteContent.length > 50) {
-        console.log(`[analyze] Company ${slug}: scoring ${scrapedCompetitors.length} competitors with site data...`);
+      // Score ALL competitors — those with site data get richer analysis, others scored by AI knowledge
+      const allForScoring = competitorScrapes.map((c) => ({
+        name: c.name,
+        siteContent: c.siteContent.length > 50 ? c.siteContent : `(no website data - score based on company name and market knowledge)`,
+      }));
+      if (allForScoring.length > 0) {
+        console.log(`[analyze] Company ${slug}: scoring ${allForScoring.length} competitors (${competitorScrapes.filter(c => c.siteContent.length > 50).length} with site data)...`);
         const scoreResult = await scoreCompetitorAdherence(
           companyInfo?.name ?? slug,
           companyInfo?.description ?? "",
           companySiteContent,
-          scrapedCompetitors.map((c) => ({ name: c.name, siteContent: c.siteContent })),
+          allForScoring,
         );
         logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "openrouter", operation: "scoreCompetitorAdherence", estimatedCost: API_COSTS.openrouter.classifyTopics });
 

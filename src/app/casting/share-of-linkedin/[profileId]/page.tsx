@@ -650,55 +650,43 @@ export default function LeadsGenerationOptionsPage() {
 
               {/* Section 2: Empresas Concorrentes */}
               <div className="space-y-3">
-                <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">
-                  Empresas Concorrentes ({(options.competitors ?? []).length})
-                </label>
+                <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">Concorrentes Selecionados ({(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).length})</label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {(options.competitors ?? []).map((comp, i) => {
-                    // Handle both old format (string) and new format (object)
                     const isObj = typeof comp === "object" && comp !== null;
-                    const displayName = isObj ? comp.name : (typeof comp === "string" ? (comp.match(/\/company\/([^/?#]+)/)?.[1]?.replace(/-/g, " ") ?? comp) : String(comp));
-                    const logoUrl = isObj ? (comp.logoUrl ?? "") : "";
-                    const compUrl = isObj ? (comp.url ?? "") : (typeof comp === "string" && comp.startsWith("http") ? comp : "");
-                    const score = isObj ? (comp.score ?? 0) : 0;
-                    const reason = isObj ? (comp.reason ?? "") : "";
-                    const selected = isObj ? (comp.selected ?? false) : false;
-                    const letterColors = ["#ca98ff", "#a2f31f", "#ff946e", "#5b9bff", "#f472b6", "#34d399"];
-                    const letterColor = letterColors[(displayName.charCodeAt(0) || 0) % letterColors.length];
-                    return (
-                      <div key={i} className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style={{ backgroundColor: letterColor + "15", borderColor: letterColor + "30" }}>
-                          {logoUrl ? (
-                            <img src={logoUrl} alt="" className="w-10 h-10 rounded-xl object-cover" onError={(e) => { e.currentTarget.style.display = "none"; const parent = e.currentTarget.parentElement; if (parent) { const span = document.createElement("span"); span.textContent = displayName[0]?.toUpperCase() ?? "?"; span.style.color = letterColor; span.style.fontWeight = "800"; span.style.fontSize = "16px"; parent.appendChild(span); }}} />
-                          ) : (
-                            <span style={{ color: letterColor }} className="text-base font-extrabold">{displayName[0]?.toUpperCase() ?? "?"}</span>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm text-white font-medium truncate capitalize">{displayName}</p>
-                            {score > 0 && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${score >= 7 ? "text-green-400 bg-green-400/10" : score >= 4 ? "text-yellow-400 bg-yellow-400/10" : "text-red-400 bg-red-400/10"}`}>{score}/10</span>}
-                            {selected && <span className="text-[9px] font-bold text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded-full">Selecionado</span>}
-                          </div>
-                          {reason && <p className="text-[10px] text-white/30 truncate mt-0.5" title={reason}>{reason}</p>}
-                          {compUrl && (
-                            <a href={compUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">
-                              {compUrl.replace("https://www.linkedin.com", "")}
-                            </a>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => {
-                            const updated = (options.competitors ?? []).filter((_, j) => j !== i);
-                            autoSave({ ...options, competitors: updated });
-                          }}
-                          className="w-7 h-7 rounded-full bg-white/5 hover:bg-[#ff946e]/20 text-white/30 hover:text-[#ff946e] flex items-center justify-center text-base font-bold shrink-0 transition-colors opacity-0 group-hover/card:opacity-100"
-                          title="Remover"
-                        >&times;</button>
+                    if (isObj && !comp.selected) return null;
+                    const nm = isObj ? comp.name : String(comp);
+                    const logo = isObj ? (comp.logoUrl ?? "") : "";
+                    const url = isObj ? (comp.url ?? "") : "";
+                    const sl = url.match(/\/company\/([^/?#]+)/)?.[1] ?? "";
+                    const lc = ["#ca98ff","#a2f31f","#ff946e","#5b9bff","#f472b6","#34d399"][(nm.charCodeAt(0)||0) % 6];
+                    return (<div key={i} className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style={{backgroundColor:lc+"15"}}>
+                        {logo ? <img src={logo} alt="" className="w-10 h-10 rounded-xl object-cover" onError={(e)=>{e.currentTarget.style.display="none"}}/> : <span style={{color:lc}} className="text-base font-extrabold">{nm[0]?.toUpperCase()}</span>}
                       </div>
-                    );
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium truncate capitalize">{nm}</p>
+                        {sl && <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">{sl}</a>}
+                      </div>
+                      <button onClick={() => { const u = (options.competitors??[]).map((c,j) => j===i && typeof c==="object" && c!==null ? {...c,selected:false} : c); autoSave({...options,competitors:u}); }} className="w-7 h-7 rounded-full bg-white/5 hover:bg-[#ff946e]/20 text-white/30 hover:text-[#ff946e] flex items-center justify-center text-base font-bold shrink-0 transition-colors opacity-0 group-hover/card:opacity-100" title="Remover">&times;</button>
+                    </div>);
                   })}
                 </div>
+                {(options.competitors??[]).some((c) => typeof c==="object" && c!==null && !c.selected) && (
+                  <details className="group"><summary className="cursor-pointer text-xs text-[#ca98ff]/70 hover:text-[#ca98ff] select-none flex items-center gap-1.5"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-open:rotate-90 shrink-0"><path d="m9 18 6-6-6-6"/></svg>+ Adicionar concorrente ({(options.competitors??[]).filter((c) => typeof c==="object" && c!==null && !c.selected).length} disponiveis)</summary>
+                  <div className="mt-2 space-y-1">{(options.competitors??[]).map((comp,i) => {
+                    const isObj = typeof comp==="object" && comp!==null;
+                    if (!isObj || comp.selected) return null;
+                    const nm = comp.name, logo = comp.logoUrl??"", url = comp.url??"";
+                    const sl = url.match(/\/company\/([^/?#]+)/)?.[1] ?? "";
+                    const lc = ["#ca98ff","#a2f31f","#ff946e","#5b9bff","#f472b6","#34d399"][(nm.charCodeAt(0)||0) % 6];
+                    return (<button key={i} onClick={() => { const u = (options.competitors??[]).map((c,j) => j===i && typeof c==="object" && c!==null ? {...c,selected:true} : c); autoSave({...options,competitors:u}); }} className="w-full flex items-center gap-2.5 bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 hover:border-[#ca98ff]/30 transition-colors text-left">
+                      <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{backgroundColor:lc+"15"}}>{logo ? <img src={logo} alt="" className="w-6 h-6 rounded-lg object-cover"/> : <span style={{color:lc}} className="text-[10px] font-extrabold">{nm[0]?.toUpperCase()}</span>}</div>
+                      <span className="text-xs text-white/80 font-medium capitalize truncate">{nm}</span>
+                      {sl && <span className="text-[10px] text-white/20">{sl}</span>}
+                    </button>);
+                  })}</div></details>
+                )}
                 {/* Add competitor input */}
                 <div className="flex gap-2">
                   <input
