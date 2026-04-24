@@ -121,10 +121,14 @@ export async function findActiveEmployees(
 
         // Location check (if country specified)
         if (country && COUNTRY_LOCATIONS[country]) {
-          const loc = String(d.location ?? d.locationName ?? "").toLowerCase();
+          const rawLoc = d.location ?? d.locationName ?? d.geo ?? "";
+          const loc = (typeof rawLoc === "object" && rawLoc !== null
+            ? (rawLoc as Record<string, unknown>).full ?? (rawLoc as Record<string, unknown>).country ?? (rawLoc as Record<string, unknown>).countryFullName ?? JSON.stringify(rawLoc)
+            : String(rawLoc)
+          ).toString().toLowerCase();
           const keywords = COUNTRY_LOCATIONS[country];
           if (loc && !keywords.some((kw) => loc.includes(kw))) {
-            console.log(`[find-employees]   skip ${empSlug}: location "${loc}" not in ${country}`);
+            console.log(`[find-employees]   skip ${empSlug}: location "${loc.slice(0, 60)}" not in ${country}`);
             return null;
           }
         }
