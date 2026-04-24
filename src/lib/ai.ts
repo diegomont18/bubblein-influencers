@@ -568,25 +568,35 @@ Respond ONLY with the JSON object, no markdown:
 {"themes":"...","competitors":["..."]}`;
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-lite-001",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
-        max_tokens: 600,
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!res.ok) {
+    let content = "";
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "google/gemini-2.0-flash-lite-001",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.3,
+          max_tokens: 600,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        content = data.choices?.[0]?.message?.content ?? "";
+        break;
+      }
+      if (res.status >= 500 && attempt < 3) {
+        console.warn(`[ai] analyzeCompanyForShareOfLinkedin retry ${attempt}/2 after ${res.status}`);
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
       console.error(`[ai] analyzeCompanyForShareOfLinkedin failed: status=${res.status}`);
       return null;
     }
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content ?? "";
     console.log(`[ai] analyzeCompanyForShareOfLinkedin response: ${content.slice(0, 300)}`);
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
     const parsed = JSON.parse(jsonMatch[0]) as { themes?: string; competitors?: string[] };
     return {
@@ -627,25 +637,33 @@ Respond ONLY with JSON:
 {"enriched_themes":"...","scores":[{"name":"...","score":8,"reason":"..."}]}`;
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-lite-001",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
-        max_tokens: 2000,
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!res.ok) {
+    let content = "";
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "google/gemini-2.0-flash-lite-001",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.3,
+          max_tokens: 2000,
+        }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        content = data.choices?.[0]?.message?.content ?? "";
+        break;
+      }
+      if (res.status >= 500 && attempt < 3) {
+        console.warn(`[ai] scoreCompetitorAdherence retry ${attempt}/2 after ${res.status}`);
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
       console.error(`[ai] scoreCompetitorAdherence failed: status=${res.status}`);
       return null;
     }
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content ?? "";
     console.log(`[ai] scoreCompetitorAdherence response: ${content.slice(0, 500)}`);
-    // Strip markdown fences and extract JSON
     const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;

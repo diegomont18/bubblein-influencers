@@ -17,16 +17,19 @@ export async function findActiveEmployees(
   userId: string,
   profileId: string,
   maxCandidates = 12,
+  lite = false,
 ): Promise<EmpCandidate[]> {
   const slugName = companySlug.replace(/-/g, " ");
-  console.log(`[find-employees] Searching for ${companyName} (slug: ${companySlug}, max: ${maxCandidates})`);
+  console.log(`[find-employees] Searching for ${companyName} (slug: ${companySlug}, max: ${maxCandidates}, lite: ${lite})`);
 
-  // SERP queries
-  const serpQueries = [
-    `site:linkedin.com/in "${slugName}" CEO OR CTO OR Director OR Diretor OR Head OR VP OR Founder`,
-    `site:linkedin.com/in "${companySlug}"`,
-    `site:linkedin.com/in "${slugName}" manager OR gerente OR lead OR senior OR architect OR engineer`,
-  ];
+  // SERP queries — lite mode uses 1 combined query instead of 3
+  const serpQueries = lite
+    ? [`site:linkedin.com/in "${slugName}" CEO OR CTO OR Director OR Head OR VP OR Founder OR manager OR gerente`]
+    : [
+        `site:linkedin.com/in "${slugName}" CEO OR CTO OR Director OR Diretor OR Head OR VP OR Founder`,
+        `site:linkedin.com/in "${companySlug}"`,
+        `site:linkedin.com/in "${slugName}" manager OR gerente OR lead OR senior OR architect OR engineer`,
+      ];
 
   const seenSlugs = new Set<string>();
   let candidateSlugs: string[] = [];

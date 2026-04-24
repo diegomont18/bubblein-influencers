@@ -296,7 +296,7 @@ export async function POST(request: Request) {
         const compEmpResults = await Promise.all(
           selectedComps.map(async (comp) => {
             const compSlug = comp.url.match(/\/company\/([^/?#]+)/)?.[1] ?? comp.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-            const emps = await findActiveEmployees(compSlug, comp.name, user.id, profile.id, 8);
+            const emps = await findActiveEmployees(compSlug, comp.name, user.id, profile.id, 4, true);
             return { name: comp.name, employees: emps };
           })
         );
