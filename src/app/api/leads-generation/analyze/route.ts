@@ -57,7 +57,8 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { profileUrl } = body;
+  const { profileUrl, country: rawCountry } = body;
+  const country = rawCountry || "br";
   if (!profileUrl || !profileUrl.includes("linkedin.com")) {
     return NextResponse.json({ error: "Valid LinkedIn profile URL is required" }, { status: 400 });
   }
@@ -196,7 +197,7 @@ export async function POST(request: Request) {
       // ------------------------------------------------------------------
       const companyName = companyInfo?.name ?? slug.replace(/-/g, " ");
       console.log(`[analyze] Company ${slug}: searching employees...`);
-      const allEmployees = await findActiveEmployees(slug, companyName, user.id, profile.id, 12);
+      const allEmployees = await findActiveEmployees(slug, companyName, user.id, profile.id, 12, false, country);
       console.log(`[analyze] Company ${slug}: ${allEmployees.length} active employees found`);
       /* LEGACY inline search replaced by findActiveEmployees */
       const slugName = slug.replace(/-/g, " ");
@@ -296,7 +297,7 @@ export async function POST(request: Request) {
         const compEmpResults = await Promise.all(
           selectedComps.map(async (comp) => {
             const compSlug = comp.url.match(/\/company\/([^/?#]+)/)?.[1] ?? comp.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-            const emps = await findActiveEmployees(compSlug, comp.name, user.id, profile.id, 4, true);
+            const emps = await findActiveEmployees(compSlug, comp.name, user.id, profile.id, 4, true, country);
             return { name: comp.name, employees: emps };
           })
         );
@@ -320,7 +321,7 @@ export async function POST(request: Request) {
         job_titles: [],
         departments: [],
         company_sizes: [],
-        ai_response: { ...aiResult, companyInfo, employeeCount: allEmployees.length, competitor_employees: competitorEmployees },
+        ai_response: { ...aiResult, companyInfo, employeeCount: allEmployees.length, competitor_employees: competitorEmployees, country },
       };
 
       const { data: savedOptions, error: optError } = await service

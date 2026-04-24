@@ -15,6 +15,7 @@ interface AnalyzedProfile {
 export default function LeadsGenerationPage() {
   const router = useRouter();
   const [url, setUrl] = useState("");
+  const [country, setCountry] = useState("br");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<AnalyzedProfile[]>([]);
@@ -81,7 +82,7 @@ export default function LeadsGenerationPage() {
       const res = await fetch("/api/leads-generation/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileUrl: url.trim() }),
+        body: JSON.stringify({ profileUrl: url.trim(), country }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -148,6 +149,28 @@ export default function LeadsGenerationPage() {
               placeholder="https://www.linkedin.com/company/sua-empresa"
               className="w-full bg-transparent border-none focus:ring-0 px-5 py-4 text-white text-sm font-medium placeholder-white/20 outline-none"
             />
+          </div>
+
+          <div className="flex items-center gap-2 mb-4">
+            <label className="text-xs text-white/40 shrink-0">País:</label>
+            <select value={country} onChange={(e) => setCountry(e.target.value)} className="bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#ca98ff]/40 transition-colors">
+              <option value="br">Brasil</option>
+              <option value="us">Estados Unidos</option>
+              <option value="pt">Portugal</option>
+              <option value="es">Espanha</option>
+              <option value="mx">México</option>
+              <option value="ar">Argentina</option>
+              <option value="co">Colômbia</option>
+              <option value="cl">Chile</option>
+              <option value="uk">Reino Unido</option>
+              <option value="de">Alemanha</option>
+              <option value="fr">França</option>
+              <option value="it">Itália</option>
+              <option value="in">Índia</option>
+              <option value="ca">Canadá</option>
+              <option value="au">Austrália</option>
+              <option value="">Global (sem filtro)</option>
+            </select>
           </div>
 
           {error && <p className="text-[#ff6e84] text-sm mb-4">{error}</p>}

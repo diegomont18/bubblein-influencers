@@ -18,6 +18,7 @@ export async function findActiveEmployees(
   profileId: string,
   maxCandidates = 12,
   lite = false,
+  country?: string,
 ): Promise<EmpCandidate[]> {
   const slugName = companySlug.replace(/-/g, " ");
   console.log(`[find-employees] Searching for ${companyName} (slug: ${companySlug}, max: ${maxCandidates}, lite: ${lite})`);
@@ -36,7 +37,7 @@ export async function findActiveEmployees(
 
   try {
     const serpResults = await Promise.all(
-      serpQueries.map((q) => searchGoogleApify(q, { results: 15 }).catch(() => ({ results: [] })))
+      serpQueries.map((q) => searchGoogleApify(q, { results: 15, country: country || undefined }).catch(() => ({ results: [] })))
     );
     for (const sr of serpResults) {
       for (const r of sr.results) {
