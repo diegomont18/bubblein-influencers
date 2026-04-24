@@ -226,8 +226,30 @@ export async function POST(request: Request) {
       logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "openrouter", operation: "analyzeCompanyForShareOfLinkedin", estimatedCost: API_COSTS.openrouter.classifyTopics });
       console.log(`[analyze] Company ${slug}: AI returned themes="${(aiResult?.themes ?? "").slice(0, 80)}..." competitors=${JSON.stringify(aiResult?.competitors ?? [])}`);
 
+      // 4.5. SERP fallback if AI returned few competitors
+      let aiCompNames = (aiResult?.competitors ?? []).filter(Boolean);
+      if (aiCompNames.length < 3) {
+        console.log(`[analyze] Company ${slug}: AI returned only ${aiCompNames.length} competitors, trying SERP fallback...`);
+        try {
+          const serpQuery = `"${companyName}" concorrentes OR competitors OR alternativas site:linkedin.com/company`;
+          const serpFallback = await searchGoogleApify(serpQuery, { results: 10, country: country || undefined });
+          logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "apify", operation: "searchGoogleApify", estimatedCost: API_COSTS.apify.searchGoogleApify, metadata: { context: "competitor-fallback" } });
+          const existing = new Set(aiCompNames.map((n) => n.toLowerCase()));
+          existing.add(companyName.toLowerCase());
+          for (const r of serpFallback.results) {
+            const compMatch = r.link.match(/\/company\/([^/?#]+)/)?.[1]?.replace(/-/g, " ");
+            if (compMatch && compMatch.length > 2 && !existing.has(compMatch.toLowerCase())) {
+              aiCompNames.push(compMatch);
+              existing.add(compMatch.toLowerCase());
+              console.log(`[analyze]   SERP fallback found: ${compMatch}`);
+            }
+          }
+        } catch (err) {
+          console.error(`[analyze] SERP fallback failed:`, err);
+        }
+      }
+
       // 5. Fetch competitor LinkedIn pages (logos + website URLs)
-      const aiCompNames = (aiResult?.competitors ?? []).filter(Boolean);
       console.log(`[analyze] Company ${slug}: fetching ${aiCompNames.length} competitors from LinkedIn...`);
       const competitorData = await Promise.all(
         aiCompNames.slice(0, 8).map(async (cname) => {

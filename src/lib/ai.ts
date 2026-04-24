@@ -419,7 +419,7 @@ Where: i=index, s=score, mt=matchedTitles, md=matchedDepartments, c=company, jt=
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-lite-001",
+        model: "google/gemini-2.0-flash-001",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
         max_tokens: 2000,
@@ -508,7 +508,7 @@ Respond ONLY with a JSON array:
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-lite-001",
+        model: "google/gemini-2.0-flash-001",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
         max_tokens: 1500,
@@ -557,21 +557,19 @@ export async function analyzeCompanyForShareOfLinkedin(
 
   const siteCtx = siteContent ? `\nWebsite: ${siteContent.slice(0, 600)}` : "";
 
-  const prompt = `Identify DIRECT COMPETITORS of this company. Return COMPACT JSON only, no markdown.
+  const prompt = `Identify DIRECT COMPETITORS of this company. Return JSON only, no markdown.
 
-${companyName} | ${industry} | ${specialties}${countryCtx}
+Company: ${companyName} | ${industry} | ${specialties}${countryCtx}
 ${description.slice(0, 300)}${siteCtx}
 
-CRITICAL RULES for competitors:
-- MUST be companies of SIMILAR SIZE operating in the SAME COUNTRY (${countryName || "same region"})
-- MUST offer the SAME type of service/product
-- Do NOT list suppliers, cloud providers, or global technology platforms
-- Do NOT list multinational giants if the company is a startup/SMB
-- Prioritize LOCAL competitors from ${countryName || "the same country"} first
-- If not enough local competitors exist, include regional ones
+RULES:
+- Competitors must be SAME type of service/product, similar size, from ${countryName || "same region"}
+- Do NOT list suppliers, technology platforms, or multinational giants
+- If few exact competitors exist, include the closest alternatives in the market
+- Prioritize companies from ${countryName || "the same country"}
 
-Return: {"themes":"5 short market themes comma-separated in Portuguese","competitors":["5-8 direct competitor company names"]}
-Use official LinkedIn company names.`;
+Return JSON with competitors FIRST (most important):
+{"competitors":["CompanyA","CompanyB","CompanyC","CompanyD","CompanyE"],"themes":"tema1, tema2, tema3, tema4, tema5"}`;
 
   try {
     let content = "";
@@ -580,7 +578,7 @@ Use official LinkedIn company names.`;
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: "google/gemini-2.0-flash-lite-001",
+          model: "google/gemini-2.0-flash-001",
           messages: [{ role: "user", content: prompt }],
           temperature: 0.3,
           max_tokens: 1200,
@@ -669,7 +667,7 @@ Return COMPACT JSON. Keep reasons under 8 words each.
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: "google/gemini-2.0-flash-lite-001",
+          model: "google/gemini-2.0-flash-001",
           messages: [{ role: "user", content: prompt }],
           temperature: 0.3,
           max_tokens: 2500,
@@ -768,7 +766,7 @@ Respond ONLY with a JSON object:
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-lite-001",
+        model: "google/gemini-2.0-flash-001",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.3,
         max_tokens: 1000,
@@ -830,7 +828,7 @@ Where id=post id, s=relevance score 0-100.`;
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-lite-001",
+        model: "google/gemini-2.0-flash-001",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
         max_tokens: 1000,
