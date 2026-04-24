@@ -599,7 +599,7 @@ export default function LeadsGenerationOptionsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm text-white font-medium truncate">{emp.name}</p>
-                          {(emp as Record<string,unknown>).postsPerMonth != null && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${Number((emp as Record<string,unknown>).postsPerMonth) >= 4 ? "text-green-400 bg-green-400/10" : Number((emp as Record<string,unknown>).postsPerMonth) >= 2 ? "text-yellow-400 bg-yellow-400/10" : "text-red-400 bg-red-400/10"}`}>{Number((emp as Record<string,unknown>).postsPerMonth)}/mês</span>}
+                          {(emp as Record<string,unknown>).postsPerMonth != null && <span title="Estimativa de posts publicados por mes no LinkedIn" className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 cursor-help ${Number((emp as Record<string,unknown>).postsPerMonth) >= 4 ? "text-green-400 bg-green-400/10" : Number((emp as Record<string,unknown>).postsPerMonth) >= 2 ? "text-yellow-400 bg-yellow-400/10" : "text-red-400 bg-red-400/10"}`}>{Number((emp as Record<string,unknown>).postsPerMonth)}/mes</span>}
                         </div>
                         <p className="text-[10px] text-white/40 truncate">{emp.headline}</p>
                         {emp.linkedinUrl && (
