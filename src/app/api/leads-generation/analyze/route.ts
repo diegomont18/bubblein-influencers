@@ -7,6 +7,8 @@ import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { isApifyBlocked } from "@/lib/apify-usage";
 import { buildCompanyBlacklist } from "@/lib/company-match";
 import { notifyError } from "@/lib/error-notifier";
+import { findActiveEmployees } from "@/lib/find-employees";
+import type { EmpCandidate } from "@/lib/find-employees";
 
 function extractPostUrl(post: Record<string, unknown>): string {
   for (const key of ["postUrl", "permalink", "shareUrl"]) {
@@ -190,152 +192,15 @@ export async function POST(request: Request) {
       console.log(`[analyze] Company ${slug}: ${posts.length} posts saved`);
 
       // ------------------------------------------------------------------
-      // Find active employees: Google SERP → profile details → check posts.
-      // Strategy: search LinkedIn for people at this company with relevant
-      // titles, then verify each candidate posts at least 1x/month.
+      // Find active employees using shared algorithm
       // ------------------------------------------------------------------
       const companyName = companyInfo?.name ?? slug.replace(/-/g, " ");
-      console.log(`[analyze] Company ${slug}: searching employees via SERP...`);
-
-      // Run 3 SERP queries in parallel:
-      // 1. Full company name + C-levels (finds CEO/CTO/Directors — highest priority)
-      // 2. Company slug (finds people who mention it in their profile)
-      // 3. Full company name + mid-level roles
-      // Using the full company name (e.g., "Dedalus Prime" not just "Dedalus") avoids
-      // matching employees of unrelated companies with similar names.
-      // Use slug-based name ("Dedalus Prime") for more specific matching
-      // vs companyInfo.name which might be shorter ("Dedalus")
+      console.log(`[analyze] Company ${slug}: searching employees...`);
+      const allEmployees = await findActiveEmployees(slug, companyName, user.id, profile.id, 12);
+      console.log(`[analyze] Company ${slug}: ${allEmployees.length} active employees found`);
+      /* LEGACY inline search replaced by findActiveEmployees */
       const slugName = slug.replace(/-/g, " ");
-      const serpQueries = [
-        `site:linkedin.com/in "${slugName}" CEO OR CTO OR Director OR Diretor OR Head OR VP OR Founder OR Sócio`,
-        `site:linkedin.com/in "${slug}"`,
-        `site:linkedin.com/in "${slugName}" manager OR gerente OR lead OR senior OR architect OR engineer`,
-      ];
-      const seenSlugs = new Set<string>();
-      let empCandidateSlugs: string[] = [];
-      try {
-        const serpResults = await Promise.all(
-          serpQueries.map((q) =>
-            searchGoogleApify(q, { results: 15 }).catch(() => ({ results: [] }))
-          )
-        );
-        for (const sr of serpResults) {
-          for (const r of sr.results) {
-            const s = r.link.match(/linkedin\.com\/in\/([^/?#]+)/)?.[1] ?? "";
-            if (s && s.length > 2 && !seenSlugs.has(s)) {
-              seenSlugs.add(s);
-              empCandidateSlugs.push(s);
-            }
-          }
-        }
-        // Cap at 12 candidates to keep response under 90s (each takes ~10-15s in batches of 5)
-        if (empCandidateSlugs.length > 12) {
-          empCandidateSlugs = empCandidateSlugs.slice(0, 12);
-        }
-        console.log(`[analyze] Company ${slug}: SERP found ${empCandidateSlugs.length} candidate slugs (capped at 12) from ${serpQueries.length} queries`);
-      } catch (err) {
-        console.error(`[analyze] Company ${slug}: SERP employee search failed:`, err);
-      }
-
-      // Fetch profiles + check posting for each candidate (concurrency 5)
-      type EmpCandidate = { name: string; slug: string; headline: string; linkedinUrl: string; profilePicUrl: string };
-      const allEmployees: EmpCandidate[] = [];
-      // Broad regex: any role that's manager-level, senior specialist, or executive.
-      // Includes both abbreviations (CEO, CTO) and full titles (Chief Technology Officer).
-      const TITLE_RE = /director|diretor|head of|gerente|manager|vp |vice.?president|chief|ceo|cto|cfo|coo|cmo|founder|fundador|sócio|partner|lead|coordenador|specialist|especialista|senior|sênior|sr\.|architect|arquiteto|consultant|consultor|pre.?sales|executive|executiv|sales|comercial|engineer|engenheiro|analyst|analista|officer|technical|development|innovation|strategy|strategist/i;
-
-      for (let i = 0; i < empCandidateSlugs.length; i += 5) {
-        const batch = empCandidateSlugs.slice(i, i + 5);
-        const results = await Promise.all(batch.map(async (empSlug) => {
-          try {
-            const profileRes = await fetchLinkedInProfileApify(empSlug);
-            if (profileRes.status !== 200 || !profileRes.data) return null;
-            const d = profileRes.data as Record<string, unknown>;
-            const headline = String(d.headline ?? "");
-            const name = String(d.name ?? d.fullName ?? "");
-
-            // Filter 1: must CURRENTLY work at this company (not a former employee)
-            const targetLower = companyName.toLowerCase();
-            const slugLower = slug.toLowerCase().replace(/-/g, " ");
-            let worksHere = false;
-
-            // Check currentPosition array (most reliable)
-            const cp = d.currentPosition;
-            if (Array.isArray(cp) && cp.length > 0) {
-              for (const pos of cp as Array<{ companyName?: string }>) {
-                const cn = String(pos.companyName ?? "").toLowerCase();
-                if (cn && (cn.includes(targetLower) || targetLower.includes(cn) || cn.includes(slugLower) || slugLower.includes(cn))) {
-                  worksHere = true;
-                  break;
-                }
-              }
-            }
-
-            // Check experience[0] with end_date "Present" as fallback
-            if (!worksHere) {
-              const exp = d.experience;
-              if (Array.isArray(exp) && exp.length > 0) {
-                const first = exp[0] as { company?: string; company_name?: string; companyName?: string; end_date?: { text?: string }; ends_at?: { text?: string } };
-                const endText = String(first.end_date?.text ?? first.ends_at?.text ?? "").toLowerCase();
-                if (endText.includes("present")) {
-                  const cn = String(first.company ?? first.company_name ?? first.companyName ?? "").toLowerCase();
-                  if (cn && (cn.includes(targetLower) || targetLower.includes(cn) || cn.includes(slugLower) || slugLower.includes(cn))) {
-                    worksHere = true;
-                  }
-                }
-              }
-            }
-
-            // Last fallback: d.company field
-            if (!worksHere) {
-              const compField = String(d.company ?? "").toLowerCase();
-              if (compField && (compField.includes(targetLower) || targetLower.includes(compField) || compField.includes(slugLower) || slugLower.includes(compField))) {
-                worksHere = true;
-              }
-            }
-
-            if (!worksHere) {
-              const currentCo = Array.isArray(cp) && cp.length > 0 ? String((cp[0] as { companyName?: string }).companyName ?? "") : String(d.company ?? "");
-              console.log(`[analyze]   skip ${empSlug}: currently at "${currentCo}", not "${companyName}"`);
-              return null;
-            }
-
-            // Filter 2: title must be manager/senior+ level
-            if (!TITLE_RE.test(headline)) {
-              console.log(`[analyze]   skip ${empSlug}: title "${headline.slice(0, 50)}" not senior enough`);
-              return null;
-            }
-
-            // Filter 3: must post at least 1x/month (check 3 recent posts)
-            const empPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${empSlug}/`, 3);
-            if (empPosts.length === 0) {
-              console.log(`[analyze]   skip ${empSlug}: no posts`);
-              return null;
-            }
-
-            // Get photo
-            const picCandidates = [d.profilePicture, d.picture, d.profile_photo, d.profile_pic_url];
-            let pic = "";
-            for (const c of picCandidates) {
-              if (typeof c === "string" && c.startsWith("http")) { pic = c; break; }
-            }
-
-            console.log(`[analyze]   ✓ ${name} — ${headline.slice(0, 50)} — ${empPosts.length} posts`);
-            return {
-              name,
-              slug: empSlug,
-              headline,
-              linkedinUrl: `https://www.linkedin.com/in/${empSlug}`,
-              profilePicUrl: pic,
-            } as EmpCandidate;
-          } catch (err) {
-            console.log(`[analyze]   error fetching ${empSlug}: ${(err as Error).message}`);
-            return null;
-          }
-        }));
-        allEmployees.push(...results.filter((r): r is EmpCandidate => r !== null));
-      }
-      console.log(`[analyze] Company ${slug}: ${allEmployees.length} active employees found (from ${empCandidateSlugs.length} candidates)`);
+      void slugName; // keep for backward compat references
 
       // 4. AI analysis: extract themes + competitors
       console.log(`[analyze] Company ${slug}: running AI analysis...`);
@@ -421,7 +286,25 @@ export async function POST(request: Request) {
 
       // Build final competitors array (drop siteContent to save DB space)
       const competitors = competitorsWithScores.map(({ siteContent: _, ...rest }) => rest);
-      console.log(`[analyze] Company ${slug}: ${competitors.length} competitors, ${competitors.filter(c => c.score > 0).length} scored, ${competitors.filter(c => c.selected).length} selected`);
+      const selectedComps = competitors.filter((c) => c.selected);
+      console.log(`[analyze] Company ${slug}: ${competitors.length} competitors, ${selectedComps.length} selected`);
+
+      // 8. Find active employees for each selected competitor (in parallel)
+      const competitorEmployees: Record<string, EmpCandidate[]> = {};
+      if (selectedComps.length > 0) {
+        console.log(`[analyze] Searching employees for ${selectedComps.length} selected competitors...`);
+        const compEmpResults = await Promise.all(
+          selectedComps.map(async (comp) => {
+            const compSlug = comp.url.match(/\/company\/([^/?#]+)/)?.[1] ?? comp.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+            const emps = await findActiveEmployees(compSlug, comp.name, user.id, profile.id, 8);
+            return { name: comp.name, employees: emps };
+          })
+        );
+        for (const r of compEmpResults) {
+          competitorEmployees[r.name] = r.employees;
+          console.log(`[analyze]   ${r.name}: ${r.employees.length} employees`);
+        }
+      }
 
       const employeeProfiles = allEmployees.map((e) => ({
         name: e.name, slug: e.slug, headline: e.headline,
@@ -437,7 +320,7 @@ export async function POST(request: Request) {
         job_titles: [],
         departments: [],
         company_sizes: [],
-        ai_response: { ...aiResult, companyInfo, employeeCount: allEmployees.length },
+        ai_response: { ...aiResult, companyInfo, employeeCount: allEmployees.length, competitor_employees: competitorEmployees },
       };
 
       const { data: savedOptions, error: optError } = await service

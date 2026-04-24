@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import CompetitorEmployees from "./competitor-employees";
 
 const COMPANY_SIZES = ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001+"];
 const ITEMS_PER_PAGE = 10;
@@ -24,6 +25,7 @@ interface Options {
   competitors?: Array<{ name: string; logoUrl?: string; url?: string; score?: number; reason?: string; selected?: boolean } | string>;
   employee_profiles?: Array<{ name: string; slug: string; headline: string; linkedinUrl: string; profilePicUrl?: string }>;
   icp_description?: string;
+  ai_response?: Record<string, unknown>;
 }
 
 interface Profile {
@@ -651,7 +653,7 @@ export default function LeadsGenerationOptionsPage() {
               {/* Section 2: Empresas Concorrentes */}
               <div className="space-y-3">
                 <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">Concorrentes Selecionados ({(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).length})</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div className="space-y-3">
                   {(options.competitors ?? []).map((comp, i) => {
                     const isObj = typeof comp === "object" && comp !== null;
                     if (isObj && !comp.selected) return null;
@@ -660,7 +662,7 @@ export default function LeadsGenerationOptionsPage() {
                     const url = isObj ? (comp.url ?? "") : "";
                     const sl = url.match(/\/company\/([^/?#]+)/)?.[1] ?? "";
                     const lc = ["#ca98ff","#a2f31f","#ff946e","#5b9bff","#f472b6","#34d399"][(nm.charCodeAt(0)||0) % 6];
-                    return (<div key={i} className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors">
+                    return (<div key={i}><div className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors">
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style={{backgroundColor:lc+"15"}}>
                         {logo ? <img src={logo} alt="" className="w-10 h-10 rounded-xl object-cover" onError={(e)=>{e.currentTarget.style.display="none"}}/> : <span style={{color:lc}} className="text-base font-extrabold">{nm[0]?.toUpperCase()}</span>}
                       </div>
@@ -669,6 +671,8 @@ export default function LeadsGenerationOptionsPage() {
                         {sl && <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">{sl}</a>}
                       </div>
                       <button onClick={() => { const u = (options.competitors??[]).map((c,j) => j===i && typeof c==="object" && c!==null ? {...c,selected:false} : c); autoSave({...options,competitors:u}); }} className="w-7 h-7 rounded-full bg-white/5 hover:bg-[#ff946e]/20 text-white/30 hover:text-[#ff946e] flex items-center justify-center text-base font-bold shrink-0 transition-colors opacity-0 group-hover/card:opacity-100" title="Remover">&times;</button>
+                    </div>
+                    <CompetitorEmployees companyName={nm} employees={((options.ai_response as Record<string,unknown>)?.competitor_employees as Record<string,Array<{name:string;slug:string;headline:string;linkedinUrl:string;profilePicUrl:string}>>)?.[nm] ?? []} onUpdate={(emps) => { const ce = {...((options.ai_response as Record<string,unknown>)?.competitor_employees as Record<string,unknown>) ?? {}, [nm]: emps}; autoSave({...options, ai_response: {...(options.ai_response as Record<string,unknown>), competitor_employees: ce}}); }} />
                     </div>);
                   })}
                 </div>
