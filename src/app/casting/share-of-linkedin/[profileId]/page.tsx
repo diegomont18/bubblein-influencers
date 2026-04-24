@@ -685,11 +685,18 @@ export default function LeadsGenerationOptionsPage() {
                     const nm = comp.name, logo = comp.logoUrl??"", url = comp.url??"";
                     const sl = url.match(/\/company\/([^/?#]+)/)?.[1] ?? "";
                     const lc = ["#ca98ff","#a2f31f","#ff946e","#5b9bff","#f472b6","#34d399"][(nm.charCodeAt(0)||0) % 6];
-                    return (<button key={i} onClick={() => { const u = (options.competitors??[]).map((c,j) => j===i && typeof c==="object" && c!==null ? {...c,selected:true} : c); autoSave({...options,competitors:u}); }} className="w-full flex items-center gap-2.5 bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 hover:border-[#ca98ff]/30 transition-colors text-left">
-                      <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{backgroundColor:lc+"15"}}>{logo ? <img src={logo} alt="" className="w-6 h-6 rounded-lg object-cover"/> : <span style={{color:lc}} className="text-[10px] font-extrabold">{nm[0]?.toUpperCase()}</span>}</div>
-                      <span className="text-xs text-white/80 font-medium capitalize truncate">{nm}</span>
-                      {sl && <span className="text-[10px] text-white/20">{sl}</span>}
-                    </button>);
+                    return (<details key={i} className="group/comp">
+                      <summary className="w-full flex items-center gap-2.5 bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 hover:border-[#ca98ff]/30 transition-colors cursor-pointer list-none">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-open/comp:rotate-90 shrink-0 text-white/30"><path d="m9 18 6-6-6-6"/></svg>
+                        <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{backgroundColor:lc+"15"}}>{logo ? <img src={logo} alt="" className="w-6 h-6 rounded-lg object-cover"/> : <span style={{color:lc}} className="text-[10px] font-extrabold">{nm[0]?.toUpperCase()}</span>}</div>
+                        <span className="text-xs text-white/80 font-medium capitalize truncate">{nm}</span>
+                        {sl && <span className="text-[10px] text-white/20">{sl}</span>}
+                      </summary>
+                      <div className="mt-1 ml-7 bg-white/[0.02] border border-white/[0.06] rounded-lg px-4 py-3 space-y-2">
+                        {url && <a href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#ca98ff] hover:underline block truncate">{url}</a>}
+                        <button onClick={() => { const u = (options.competitors??[]).map((c,j) => j===i && typeof c==="object" && c!==null ? {...c,selected:true} : c); autoSave({...options,competitors:u}); }} className="px-4 py-1.5 rounded-full text-xs font-medium bg-[#ca98ff] text-[#1a0033] hover:bg-[#b87aff] transition-colors">Adicionar</button>
+                      </div>
+                    </details>);
                   })}</div></details>
                 )}
                 {/* Add competitor input */}
