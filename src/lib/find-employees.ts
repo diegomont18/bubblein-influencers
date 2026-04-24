@@ -7,6 +7,7 @@ export interface EmpCandidate {
   headline: string;
   linkedinUrl: string;
   profilePicUrl: string;
+  postsPerMonth: number;
 }
 
 // Only match executive/leadership roles — exclude junior analysts, engineers, consultants
@@ -160,6 +161,18 @@ export async function findActiveEmployees(
           }
         }
 
+        // Calculate posting frequency from the 3 posts we already fetched
+        const postDates = empPosts.map((p: Record<string, unknown>) => new Date(String(p.postedAt ?? p.posted_at ?? p.postedDate ?? ""))).filter((d) => !isNaN(d.getTime()));
+        let postsPerMonth = 0;
+        if (postDates.length >= 2) {
+          const newest = Math.max(...postDates.map((d) => d.getTime()));
+          const oldest = Math.min(...postDates.map((d) => d.getTime()));
+          const spanDays = (newest - oldest) / (1000 * 60 * 60 * 24);
+          postsPerMonth = spanDays > 0 ? Math.round((postDates.length / spanDays) * 30 * 10) / 10 : postDates.length;
+        } else {
+          postsPerMonth = postDates.length;
+        }
+
         // Photo
         const picCandidates = [d.profilePicture, d.picture, d.profile_photo, d.profile_pic_url];
         let pic = "";
@@ -167,8 +180,8 @@ export async function findActiveEmployees(
           if (typeof c === "string" && c.startsWith("http")) { pic = c; break; }
         }
 
-        console.log(`[find-employees]   ✓ ${name} — ${headline.slice(0, 50)}`);
-        return { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic };
+        console.log(`[find-employees]   ✓ ${name} — ${headline.slice(0, 50)} — ${postsPerMonth}/mês`);
+        return { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth };
       } catch {
         return null;
       }

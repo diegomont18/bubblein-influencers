@@ -597,7 +597,10 @@ export default function LeadsGenerationOptionsPage() {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white font-medium truncate">{emp.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-white font-medium truncate">{emp.name}</p>
+                          {(emp as Record<string,unknown>).postsPerMonth != null && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${Number((emp as Record<string,unknown>).postsPerMonth) >= 4 ? "text-green-400 bg-green-400/10" : Number((emp as Record<string,unknown>).postsPerMonth) >= 2 ? "text-yellow-400 bg-yellow-400/10" : "text-red-400 bg-red-400/10"}`}>{Number((emp as Record<string,unknown>).postsPerMonth)}/mês</span>}
+                        </div>
                         <p className="text-[10px] text-white/40 truncate">{emp.headline}</p>
                         {emp.linkedinUrl && (
                           <a href={emp.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">

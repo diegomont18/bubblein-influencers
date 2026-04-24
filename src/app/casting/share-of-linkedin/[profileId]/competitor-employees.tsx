@@ -32,14 +32,10 @@ export default function CompetitorEmployees({
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <a
-              href={emp.linkedinUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-white/80 font-medium truncate block hover:text-[#ca98ff] transition-colors"
-            >
-              {emp.name}
-            </a>
+            <div className="flex items-center gap-1.5">
+              <a href={emp.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/80 font-medium truncate hover:text-[#ca98ff] transition-colors">{emp.name}</a>
+              {(emp as unknown as Record<string,unknown>).postsPerMonth != null && <span className={`text-[8px] font-bold px-1 py-0.5 rounded shrink-0 ${Number((emp as unknown as Record<string,unknown>).postsPerMonth) >= 4 ? "text-green-400 bg-green-400/10" : Number((emp as unknown as Record<string,unknown>).postsPerMonth) >= 2 ? "text-yellow-400 bg-yellow-400/10" : "text-red-400 bg-red-400/10"}`}>{Number((emp as unknown as Record<string,unknown>).postsPerMonth)}/m</span>}
+            </div>
             <p className="text-[10px] text-white/30 truncate">{emp.headline.slice(0, 50)}</p>
           </div>
           <button
