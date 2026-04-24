@@ -75,9 +75,9 @@ export default function LeadsGenerationPage() {
     setLoading(true);
 
     try {
-      // 2-minute timeout — if the API takes longer, show error instead of hanging
+      // 5-minute timeout — analysis includes employee search + competitor scoring
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 180_000);
+      const timeout = setTimeout(() => controller.abort(), 300_000);
 
       const res = await fetch("/api/leads-generation/analyze", {
         method: "POST",
@@ -104,7 +104,14 @@ export default function LeadsGenerationPage() {
       router.push(`/casting/share-of-linkedin/${data.profile.id}`);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setError("O mapeamento demorou demais. Tente novamente — a segunda tentativa costuma ser mais rápida.");
+        setError("O mapeamento esta sendo processado em segundo plano. Voce pode sair desta pagina e voltar em alguns minutos — os dados serao salvos automaticamente.");
+        // Try to reload profiles after a delay to see if it completed
+        setTimeout(async () => {
+          try {
+            const res = await fetch("/api/leads-generation/profiles");
+            if (res.ok) { const d = await res.json(); setHistory(d.profiles ?? []); }
+          } catch { /* ignore */ }
+        }, 15000);
       } else {
         setError("Erro de conexão. Tente novamente.");
       }
@@ -183,7 +190,7 @@ export default function LeadsGenerationPage() {
           >
             {loading ? (
               <>
-                <span className="animate-pulse">Mapeando empresa...</span>
+                <span className="animate-pulse">Mapeando empresa... (pode levar ate 3 minutos)</span>
               </>
             ) : (
               <>

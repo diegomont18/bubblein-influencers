@@ -10,6 +10,17 @@ export interface EmpCandidate {
   postsPerMonth: number;
 }
 
+function extractPostDate(p: Record<string, unknown>): Date | null {
+  const candidates = [p.postedAt, p.posted_at, p.postedDate, p.publishedAt, p.date, p.time, p.postedDateTimestamp];
+  for (const c of candidates) {
+    if (!c) continue;
+    if (typeof c === "number") { const d = new Date(c > 1e12 ? c : c * 1000); if (!isNaN(d.getTime())) return d; }
+    const d = new Date(String(c));
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
 // Only match executive/leadership roles — exclude junior analysts, engineers, consultants
 const TITLE_RE = /director|diretor|head of|head |gerente|manager|vp |vice.?president|chief|ceo|cto|cfo|coo|cmo|founder|fundador|sócio|partner|coordenador|lead\b|líder|executive|executiv|officer|strategy|strategist|innovation|country.?manager|general.?manager/i;
 
@@ -151,26 +162,20 @@ export async function findActiveEmployees(
         // Check if most recent post is within last 90 days
         const now = Date.now();
         const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
-        const mostRecentPost = empPosts[0] as Record<string, unknown>;
-        const postedAt = mostRecentPost?.postedAt ?? mostRecentPost?.posted_at ?? mostRecentPost?.postedDate ?? "";
-        if (postedAt) {
-          const postDate = new Date(String(postedAt)).getTime();
-          if (!isNaN(postDate) && now - postDate > ninetyDaysMs) {
-            console.log(`[find-employees]   skip ${empSlug}: last post too old (${String(postedAt).slice(0, 10)})`);
-            return null;
-          }
+        const recentPostDate = extractPostDate(empPosts[0] as Record<string, unknown>);
+        if (recentPostDate && now - recentPostDate.getTime() > ninetyDaysMs) {
+          console.log(`[find-employees]   skip ${empSlug}: last post too old (${recentPostDate.toISOString().slice(0, 10)})`);
+          return null;
         }
 
         // Calculate posting frequency from the 3 posts we already fetched
-        const postDates = empPosts.map((p: Record<string, unknown>) => new Date(String(p.postedAt ?? p.posted_at ?? p.postedDate ?? ""))).filter((d) => !isNaN(d.getTime()));
-        let postsPerMonth = 0;
+        const postDates = empPosts.map((p) => extractPostDate(p as Record<string, unknown>)).filter((d): d is Date => d !== null);
+        let postsPerMonth = empPosts.length; // fallback: assume 1 post = 1/month minimum
         if (postDates.length >= 2) {
           const newest = Math.max(...postDates.map((d) => d.getTime()));
           const oldest = Math.min(...postDates.map((d) => d.getTime()));
           const spanDays = (newest - oldest) / (1000 * 60 * 60 * 24);
           postsPerMonth = spanDays > 0 ? Math.round((postDates.length / spanDays) * 30 * 10) / 10 : postDates.length;
-        } else {
-          postsPerMonth = postDates.length;
         }
 
         // Photo
