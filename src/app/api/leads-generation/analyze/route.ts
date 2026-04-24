@@ -203,7 +203,16 @@ export async function POST(request: Request) {
       const slugName = slug.replace(/-/g, " ");
       void slugName; // keep for backward compat references
 
-      // 4. AI analysis: extract themes + competitors
+      // 3.5. Scrape company website BEFORE AI (so AI understands what company actually does)
+      const companyWebsite = (companyInfo as unknown as Record<string, unknown>)?.websiteUrl ?? (companyInfo as unknown as Record<string, unknown>)?.website ?? "";
+      let companySiteContent = "";
+      if (companyWebsite) {
+        console.log(`[analyze] Company ${slug}: scraping website ${companyWebsite}...`);
+        const scrape = await scrapeWebsite(String(companyWebsite), { userId: user.id, searchId: profile.id });
+        if (scrape) companySiteContent = `${scrape.title}. ${scrape.description}. ${scrape.content}`;
+      }
+
+      // 4. AI analysis: extract themes + competitors (WITH site content for context)
       console.log(`[analyze] Company ${slug}: running AI analysis...`);
       const aiResult = await analyzeCompanyForShareOfLinkedin(
         companyInfo?.name ?? slug.replace(/-/g, " "),
@@ -211,6 +220,7 @@ export async function POST(request: Request) {
         companyInfo?.specialties ?? "",
         companyInfo?.industry ?? "",
         allEmployees.map((e) => e.headline),
+        companySiteContent,
       );
       logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "openrouter", operation: "analyzeCompanyForShareOfLinkedin", estimatedCost: API_COSTS.openrouter.classifyTopics });
       console.log(`[analyze] Company ${slug}: AI returned themes="${(aiResult?.themes ?? "").slice(0, 80)}..." competitors=${JSON.stringify(aiResult?.competitors ?? [])}`);
@@ -235,14 +245,8 @@ export async function POST(request: Request) {
       );
 
       // 6. Firecrawl: scrape company + competitor websites for adherence scoring
-      console.log(`[analyze] Company ${slug}: scraping websites with Firecrawl...`);
-      const companyWebsite = (companyInfo as unknown as Record<string, unknown>)?.websiteUrl ?? (companyInfo as unknown as Record<string, unknown>)?.website ?? "";
-      let companySiteContent = "";
-      if (companyWebsite) {
-        const scrape = await scrapeWebsite(String(companyWebsite), { userId: user.id, searchId: profile.id });
-        if (scrape) companySiteContent = `${scrape.title}. ${scrape.description}. ${scrape.content}`;
-      }
-
+      // 6. Scrape competitor websites (company site already scraped in step 3.5)
+      console.log(`[analyze] Company ${slug}: scraping competitor websites...`);
       const competitorScrapes = await Promise.all(
         competitorData.map(async (c) => {
           if (!c.websiteUrl) return { ...c, siteContent: "", score: 0, reason: "", selected: false };

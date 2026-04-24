@@ -11,6 +11,24 @@ export interface EmpCandidate {
 
 const TITLE_RE = /director|diretor|head of|gerente|manager|vp |vice.?president|chief|ceo|cto|cfo|coo|cmo|founder|fundador|sócio|partner|lead|coordenador|specialist|especialista|senior|sênior|sr\.|architect|arquiteto|consultant|consultor|pre.?sales|executive|executiv|sales|comercial|engineer|engenheiro|analyst|analista|officer|technical|development|innovation|strategy|strategist/i;
 
+const COUNTRY_LOCATIONS: Record<string, string[]> = {
+  br: ["brazil", "brasil"],
+  us: ["united states", "usa"],
+  pt: ["portugal"],
+  es: ["spain", "españa"],
+  mx: ["mexico", "méxico"],
+  ar: ["argentina"],
+  co: ["colombia"],
+  cl: ["chile"],
+  uk: ["united kingdom", "uk"],
+  de: ["germany", "deutschland"],
+  fr: ["france"],
+  it: ["italy", "italia"],
+  in: ["india"],
+  ca: ["canada"],
+  au: ["australia"],
+};
+
 export async function findActiveEmployees(
   companySlug: string,
   companyName: string,
@@ -99,6 +117,16 @@ export async function findActiveEmployees(
         if (!worksHere) {
           console.log(`[find-employees]   skip ${empSlug}: not at "${companyName}"`);
           return null;
+        }
+
+        // Location check (if country specified)
+        if (country && COUNTRY_LOCATIONS[country]) {
+          const loc = String(d.location ?? d.locationName ?? "").toLowerCase();
+          const keywords = COUNTRY_LOCATIONS[country];
+          if (loc && !keywords.some((kw) => loc.includes(kw))) {
+            console.log(`[find-employees]   skip ${empSlug}: location "${loc}" not in ${country}`);
+            return null;
+          }
         }
 
         // Title check

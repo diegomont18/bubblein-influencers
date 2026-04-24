@@ -545,19 +545,28 @@ export async function analyzeCompanyForShareOfLinkedin(
   specialties: string,
   industry: string,
   employeeTitles: string[],
+  siteContent?: string,
 ): Promise<{ themes: string; competitors: string[] } | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
 
   const empSample = employeeTitles.slice(0, 20).join(", ");
+  void empSample;
 
-  const prompt = `Analyze this company. Return COMPACT JSON only, no markdown.
+  const siteCtx = siteContent ? `\nWebsite: ${siteContent.slice(0, 600)}` : "";
+
+  const prompt = `Identify DIRECT COMPETITORS of this company. Return COMPACT JSON only, no markdown.
 
 ${companyName} | ${industry} | ${specialties}
-${description.slice(0, 400)}
+${description.slice(0, 300)}${siteCtx}
 
-Return: {"themes":"5 short themes comma-separated in Portuguese","competitors":["5-8 direct competitor names"]}
-Keep themes under 5 words each. Use official LinkedIn company names for competitors.`;
+IMPORTANT: competitors must be companies of SIMILAR SIZE and SAME SERVICE TYPE.
+Do NOT list suppliers, cloud providers, or technology platforms (e.g. AWS, Microsoft, Google) as competitors.
+If the company is a consultancy/integrator, list other consultancies/integrators.
+If the company is a SaaS, list other SaaS companies in the same niche.
+
+Return: {"themes":"5 short market themes comma-separated in Portuguese","competitors":["5-8 direct competitor company names"]}
+Use official LinkedIn company names.`;
 
   try {
     let content = "";
