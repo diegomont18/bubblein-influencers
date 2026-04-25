@@ -1,10 +1,9 @@
-import type { Handler, HandlerEvent } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { fetchPostEngagers, fetchProfilePosts, fetchLinkedInProfileApify } from "../../src/lib/apify";
-import { batchScoreIcpMatch, extractCompaniesFromHeadlines } from "../../src/lib/ai";
-import { logApiCost, API_COSTS } from "../../src/lib/api-costs";
-import { notifyError } from "../../src/lib/error-notifier";
-import { matchesCompanyBlacklist } from "../../src/lib/company-match";
+import { fetchPostEngagers, fetchProfilePosts, fetchLinkedInProfileApify } from "@/lib/apify";
+import { batchScoreIcpMatch, extractCompaniesFromHeadlines } from "@/lib/ai";
+import { logApiCost, API_COSTS } from "@/lib/api-costs";
+import { notifyError } from "@/lib/error-notifier";
+import { matchesCompanyBlacklist } from "@/lib/company-match";
 
 interface ScanParams {
   userId: string;
@@ -42,10 +41,8 @@ function extractSlugOrId(linkedinUrl: string): string {
   return match ? match[1].toLowerCase().replace(/\/$/, "") : "";
 }
 
-const handler: Handler = async (event: HandlerEvent) => {
-  if (!event.body) return { statusCode: 400, body: "Missing body" };
-
-  const params: ScanParams = JSON.parse(event.body);
+export async function POST(request: Request) {
+  const params: ScanParams = await request.json();
   const { userId, profileId, jobTitles, departments, maxLeads, fetchMorePosts, linkedinUrl, existingPostUrns } = params;
   let { postsToScan } = params;
 
@@ -284,16 +281,13 @@ const handler: Handler = async (event: HandlerEvent) => {
     // `profiles` to warm the cache for future scans.
     // ------------------------------------------------------------------
     try {
-      // Enrich ALL leads with empty company — observadores too. They appear
-      // in the UI and the user expects them to have a company name too.
-      // The per-scan cap below keeps cost bounded.
       const MAX_ENRICHMENTS_PER_SCAN = 30;
       const { data: emptyCompanyLeads } = await service
         .from("lg_results")
         .select("id, profile_slug, role_level, linkedin_url, headline, name")
         .eq("profile_id", profileId)
         .eq("company", "")
-        .order("icp_score", { ascending: false })  // prioritize highest-value leads first
+        .order("icp_score", { ascending: false })
         .limit(MAX_ENRICHMENTS_PER_SCAN);
 
       const rows = (emptyCompanyLeads ?? []) as Array<{
@@ -310,11 +304,9 @@ const handler: Handler = async (event: HandlerEvent) => {
 
         const slugs = rows.map((r) => r.profile_slug).filter(Boolean);
         const resolved = new Map<string, string>(); // slug → company
-        // Enriched profile context we'll reuse for stage 3 (LLM second pass)
         const enrichedContext = new Map<string, string>(); // slug → headline + about
 
-        // Stage 1: profiles cache lookup, with a 30-day TTL — older data
-        // is considered stale (people change jobs) and forces re-enrichment.
+        // Stage 1: profiles cache lookup, with a 30-day TTL
         const PROFILE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
         if (slugs.length > 0) {
           const { data: cachedProfiles } = await service
@@ -339,8 +331,7 @@ const handler: Handler = async (event: HandlerEvent) => {
           console.log(`[lg-scan] Company cache: ${resolved.size}/${slugs.length} resolved (${staleCount} stale >30d, re-enriching)`);
         }
 
-        // Stage 2: Apify profile-scraper (case-preserving URL) with
-        // fetchProfilePosts as fallback for inaccessible profiles.
+        // Stage 2: Apify profile-scraper with fetchProfilePosts fallback
         const toFetch = rows.filter((r) => !resolved.has(r.profile_slug));
         const CONCURRENCY = 5;
         const MAX_POST_FALLBACKS = 10;
@@ -349,7 +340,6 @@ const handler: Handler = async (event: HandlerEvent) => {
         for (let i = 0; i < toFetch.length; i += CONCURRENCY) {
           const batch = toFetch.slice(i, i + CONCURRENCY);
           await Promise.all(batch.map(async (r) => {
-            // Prefer the case-preserved URL from the original engager response
             const target = r.linkedin_url && r.linkedin_url.startsWith("http")
               ? r.linkedin_url
               : r.profile_slug;
@@ -366,7 +356,6 @@ const handler: Handler = async (event: HandlerEvent) => {
               if (result.status === 200 && result.data) {
                 const data = result.data as Record<string, unknown>;
 
-                // Prefer normalized `company` (from currentPosition), then experience
                 if (typeof data.company === "string" && data.company.trim()) {
                   company = data.company.trim();
                 } else {
@@ -384,9 +373,6 @@ const handler: Handler = async (event: HandlerEvent) => {
                 profileName = String(data.name ?? data.fullName ?? "");
                 profilePhoto = String(data.profile_photo ?? data.profilePicture ?? "");
               } else if (fallbacksUsed < MAX_POST_FALLBACKS) {
-                // Profile-scraper failed (403/404/error shell) — fallback to
-                // fetchProfilePosts which accepts the same ACoAA... URLs we
-                // already use successfully for the engagers actor.
                 fallbacksUsed++;
                 console.log(`[lg-scan] enrichment fallback via fetchProfilePosts for target=${target.slice(0, 80)}`);
                 const posts = await fetchProfilePosts(
@@ -416,7 +402,7 @@ const handler: Handler = async (event: HandlerEvent) => {
               );
             }
 
-            // Cache warming: always upsert whatever we learned (Fase 2.6)
+            // Cache warming: always upsert whatever we learned
             try {
               await service
                 .from("profiles")
@@ -435,8 +421,7 @@ const handler: Handler = async (event: HandlerEvent) => {
           }));
         }
 
-        // Stage 3: second-pass LLM on enriched headline+about for leads
-        // still missing a company. Cheap (~$0.0002) — worth it.
+        // Stage 3: second-pass LLM on enriched headline+about
         const stillEmpty = rows.filter((r) => !resolved.has(r.profile_slug));
         const llmInput = stillEmpty
           .map((r, idx) => {
@@ -480,10 +465,7 @@ const handler: Handler = async (event: HandlerEvent) => {
     }
 
     // ------------------------------------------------------------------
-    // Apply company blacklist: delete any lead whose company matches a
-    // company the analyzed profile is associated with (same-company
-    // leads are useless). Runs after enrichment so both LLM-extracted
-    // and Apify-enriched companies are covered in one pass.
+    // Apply company blacklist
     // ------------------------------------------------------------------
     let blacklistRemoved = 0;
     try {
@@ -514,8 +496,6 @@ const handler: Handler = async (event: HandlerEvent) => {
       console.error("[lg-scan] Company blacklist step failed:", err);
       notifyError("lg-scan-blacklist", err, { userId, profileId });
     }
-    // Adjust the in-memory leadCount so credits and diagnostics reflect
-    // only the leads that actually made it into the final list.
     leadCount = Math.max(0, leadCount - blacklistRemoved);
 
     // Deduct credits
@@ -553,7 +533,5 @@ const handler: Handler = async (event: HandlerEvent) => {
     await service.from("lg_profiles").update({ scan_status: "error" }).eq("id", profileId);
   }
 
-  return { statusCode: 202, body: "OK" };
-};
-
-export { handler };
+  return new Response("OK", { status: 202 });
+}

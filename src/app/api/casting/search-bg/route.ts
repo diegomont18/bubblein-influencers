@@ -1,11 +1,10 @@
-import type { Handler, HandlerEvent } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { searchGoogleApify as searchGoogle, fetchLinkedInProfileApify as fetchLinkedInProfile, extractActivityId } from "../../src/lib/apify";
-import { fetchProfilePosts, fetchProfilePostsBatch, searchLinkedInProfiles, searchLinkedInPosts } from "../../src/lib/apify";
-import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculatePostingFrequencyFromApifyPosts, calculateEngagementMetrics, computeEngagementFromPosts, calculateCreatorScore } from "../../src/lib/normalize";
-import { checkPublishLanguage, classifyTopics } from "../../src/lib/ai";
-import { logApiCost, API_COSTS } from "../../src/lib/api-costs";
-import { notifyError } from "../../src/lib/error-notifier";
+import { searchGoogleApify as searchGoogle, fetchLinkedInProfileApify as fetchLinkedInProfile, extractActivityId } from "@/lib/apify";
+import { fetchProfilePosts, fetchProfilePostsBatch, searchLinkedInProfiles, searchLinkedInPosts } from "@/lib/apify";
+import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculatePostingFrequencyFromApifyPosts, calculateEngagementMetrics, computeEngagementFromPosts, calculateCreatorScore } from "@/lib/normalize";
+import { checkPublishLanguage, classifyTopics } from "@/lib/ai";
+import { logApiCost, API_COSTS } from "@/lib/api-costs";
+import { notifyError } from "@/lib/error-notifier";
 
 interface SearchParams {
   themes: string[];
@@ -164,12 +163,8 @@ interface MatchedProfile {
   found_at: string;
 }
 
-const handler: Handler = async (event: HandlerEvent) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
-  }
-
-  const params: SearchParams = JSON.parse(event.body || "{}");
+export async function POST(request: Request) {
+  const params: SearchParams = await request.json();
   const {
     themes,
     language,
@@ -185,7 +180,6 @@ const handler: Handler = async (event: HandlerEvent) => {
     minReactions = 10,
     datePosted,
     existingListId,
-    campaignId,
     listId,
     userId,
     excludeSlugs = [],
@@ -408,8 +402,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       if (kwStats) kwStats.matched++;
     }
 
-    // Extract and store profile photo — try profile scraper first,
-    // then fall back to the author metadata from fetched posts.
+    // Extract and store profile photo
     let rawPhotoUrl = "";
     const photoCandidates = [
       data.profile_photo, data.profilePicture, data.picture,
@@ -424,13 +417,10 @@ const handler: Handler = async (event: HandlerEvent) => {
         if (url.startsWith("http")) { rawPhotoUrl = url; break; }
       }
     }
-    // Fallback: if profile scraper didn't return a photo, try from
-    // the posts we already fetched (author metadata often has it).
     if (!rawPhotoUrl && apifyPosts.length > 0) {
       const firstPost = apifyPosts[0] as Record<string, unknown>;
       const author = firstPost.author as Record<string, unknown> | undefined;
       if (author) {
-        // Try ALL plausible field names for author photo
         const authorPhotoCandidates = [
           author.profilePicture, author.picture, author.profilePhoto,
           author.pictureUrl, author.image, author.avatar,
@@ -457,7 +447,6 @@ const handler: Handler = async (event: HandlerEvent) => {
         if (photoRes.ok) {
           const photoBuffer = await photoRes.arrayBuffer();
           const ext = rawPhotoUrl.includes(".png") ? "png" : "jpg";
-          // Sanitize slug for Supabase Storage key (strip accents, keep ASCII only)
           const safeSlug = slug.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "-");
           const filePath = `${safeSlug}.${ext}`;
           const { error: uploadError } = await service.storage
@@ -735,7 +724,6 @@ const handler: Handler = async (event: HandlerEvent) => {
       matchedPosts.sort((a, b) => b.total_engagement - a.total_engagement || b.engagement_rate - a.engagement_rate);
 
       const finalPosts = matchedPosts.slice(0, resultsCount);
-      const hasMore = matchedPosts.length > resultsCount;
 
       console.log(`[casting] Posts mode: ${rawPosts.length} fetched -> ${matchedPosts.length} passed filters -> ${finalPosts.length} returned (target ${resultsCount})`);
 
@@ -798,7 +786,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       }).eq("id", listId);
 
       console.log(`[casting] Posts mode complete. ${matchedCount} posts saved.`);
-      return { statusCode: 202, body: "OK" };
+      return new Response("OK", { status: 202 });
     }
 
     // --- Title mode ---
@@ -973,8 +961,6 @@ const handler: Handler = async (event: HandlerEvent) => {
             });
             tp.page++;
 
-            // Safety cap: never paginate beyond 10 pages per query to prevent
-            // runaway API spend when no candidates pass filters.
             if (tp.page >= 10) {
               tp.exhausted = true;
             }
@@ -1124,11 +1110,6 @@ const handler: Handler = async (event: HandlerEvent) => {
 
     // Log estimated API costs
     const candidatesCount = totalCandidatesProcessed;
-    const estimatedCost =
-      candidatesCount * API_COSTS.apify.fetchLinkedInProfileApify +
-      candidatesCount * API_COSTS.openrouter.checkPublishLanguage +
-      candidatesCount * API_COSTS.openrouter.classifyTopics +
-      themes.length * API_COSTS.apify.searchLinkedInProfiles;
     logApiCost({
       userId,
       source: "casting",
@@ -1147,7 +1128,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       estimatedCost: candidatesCount * (API_COSTS.openrouter.checkPublishLanguage + API_COSTS.openrouter.classifyTopics),
       metadata: { aiCalls: candidatesCount * 2 },
     });
-    console.log(`[casting] Estimated API cost: $${estimatedCost.toFixed(4)}`);
+    console.log(`[casting] Estimated API cost: $${(themes.length * API_COSTS.apify.searchLinkedInProfiles + candidatesCount * API_COSTS.apify.fetchLinkedInProfileApify + candidatesCount * (API_COSTS.openrouter.checkPublishLanguage + API_COSTS.openrouter.classifyTopics)).toFixed(4)}`);
 
     // Update list status to complete
     await service.from("casting_lists").update({
@@ -1165,7 +1146,5 @@ const handler: Handler = async (event: HandlerEvent) => {
     }).eq("id", listId);
   }
 
-  return { statusCode: 202, body: "OK" };
-};
-
-export { handler };
+  return new Response("OK", { status: 202 });
+}

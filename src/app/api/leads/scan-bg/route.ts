@@ -1,9 +1,8 @@
-import type { Handler, HandlerEvent } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { fetchPostEngagers } from "../../src/lib/apify";
-import { batchScoreIcpMatch } from "../../src/lib/ai";
-import { logApiCost, API_COSTS } from "../../src/lib/api-costs";
-import { notifyError } from "../../src/lib/error-notifier";
+import { fetchPostEngagers } from "@/lib/apify";
+import { batchScoreIcpMatch } from "@/lib/ai";
+import { logApiCost, API_COSTS } from "@/lib/api-costs";
+import { notifyError } from "@/lib/error-notifier";
 
 interface ScanParams {
   scanId: string;
@@ -19,13 +18,9 @@ function extractSlugOrId(linkedinUrl: string): string {
   return match ? match[1].toLowerCase().replace(/\/$/, "") : "";
 }
 
-const handler: Handler = async (event: HandlerEvent) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
-  }
-
-  const params: ScanParams = JSON.parse(event.body || "{}");
-  const { scanId, userId, postUrls, icpJobTitles, icpDepartments, companySizes } = params;
+export async function POST(request: Request) {
+  const params: ScanParams = await request.json();
+  const { scanId, userId, postUrls, icpJobTitles, icpDepartments } = params;
 
   const service = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,10 +48,6 @@ const handler: Handler = async (event: HandlerEvent) => {
       );
       console.log(`[leads] Apify returned ${reactions.length} reactions, ${comments.length} comments`);
 
-      interface EngagerInfo {
-        id: string; name: string; position: string; linkedinUrl: string;
-        pictureUrl: string; type: "reaction" | "comment" | "both"; postUrl: string;
-      }
       const engagers: EngagerInfo[] = [];
 
       for (const r of reactions) {
@@ -189,7 +180,5 @@ const handler: Handler = async (event: HandlerEvent) => {
     await service.from("leads_scans").update({ status: "error", error_message: String(e) }).eq("id", scanId);
   }
 
-  return { statusCode: 202, body: "OK" };
-};
-
-export { handler };
+  return new Response("OK", { status: 202 });
+}

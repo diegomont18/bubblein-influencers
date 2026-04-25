@@ -1,8 +1,13 @@
-import type { Handler } from "@netlify/functions";
-import { collectDailyReport, saveDailyReport, sendDailyReportEmail } from "../../src/lib/daily-report";
-import { notifyError } from "../../src/lib/error-notifier";
+import { NextResponse } from "next/server";
+import { collectDailyReport, saveDailyReport, sendDailyReportEmail } from "@/lib/daily-report";
+import { notifyError } from "@/lib/error-notifier";
 
-const handler: Handler = async () => {
+export async function POST(request: Request) {
+  const cronSecret = request.headers.get("x-cron-secret");
+  if (cronSecret !== process.env.CRON_SECRET) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const periodEnd = new Date();
     const periodStart = new Date(periodEnd.getTime() - 24 * 60 * 60 * 1000);
@@ -18,18 +23,10 @@ const handler: Handler = async () => {
     await sendDailyReportEmail(periodStart, periodEnd, data, reportId);
     console.log(`[daily-report] Email sent`);
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ ok: true, reportId, summary: data.summary }),
-    };
+    return NextResponse.json({ ok: true, reportId, summary: data.summary });
   } catch (err) {
     console.error("[daily-report] Error:", err);
     notifyError("daily-report", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: (err as Error).message }),
-    };
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
-};
-
-export { handler };
+}

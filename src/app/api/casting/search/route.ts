@@ -148,14 +148,14 @@ export async function POST(request: Request) {
     listId = newList.id;
   }
 
-  // Trigger background function (await the 202 response before returning)
-  const siteUrl = process.env.URL || process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3021}`;
-  const bgUrl = `${siteUrl}/.netlify/functions/casting-search-background`;
+  // Trigger background processing (fire-and-forget)
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3021}`;
+  const bgUrl = `${siteUrl}/api/casting/search-bg`;
 
-  console.log(`[casting] Triggering background function at ${bgUrl} for list ${listId}`);
+  console.log(`[casting] Triggering background route at ${bgUrl} for list ${listId}`);
 
   try {
-    const bgRes = await fetch(bgUrl, {
+    fetch(bgUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -178,28 +178,11 @@ export async function POST(request: Request) {
         userId: user.id,
         excludeSlugs,
       }),
-    });
-    console.log(`[casting] Background function response: ${bgRes.status}`);
-
-    // If bg function not available (local dev), run inline
-    if (!bgRes.ok) {
-      console.log(`[casting] Background function unavailable (${bgRes.status}), running inline...`);
-      const inlineUrl = `${siteUrl}/api/casting/search-inline`;
-      fetch(inlineUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          themes, language, country, domain, minFollowers, maxFollowers, resultsCount,
-          approvedSynonyms, coverAllKeywords, publico, searchMode, minReactions, datePosted,
-          existingListId, campaignId, listId, userId: user.id, excludeSlugs,
-        }),
-        signal: AbortSignal.timeout(600_000), // 10 min timeout for inline processing
-      }).catch(() => { /* fire-and-forget: inline route processes independently */ });
-    }
+      signal: AbortSignal.timeout(600_000),
+    }).catch(() => { /* fire-and-forget */ });
   } catch (err) {
     console.error("[casting] Failed to trigger background function:", err);
     notifyError("casting-search", err, { listId });
-    // Mark list as error so polling doesn't hang forever
     await service.from("casting_lists").update({
       status: "error",
       error_message: "Failed to start background search process",

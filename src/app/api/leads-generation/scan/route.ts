@@ -108,33 +108,17 @@ export async function POST(request: Request) {
     // Mark profile as scanning
     await service.from("lg_profiles").update({ scan_status: "scanning" }).eq("id", profileId);
 
-    // Trigger Netlify background function (production) or inline (local dev)
-    const siteUrl = process.env.URL || process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3021}`;
-    const bgUrl = `${siteUrl}/.netlify/functions/lg-scan-background`;
+    // Trigger background processing (fire-and-forget)
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3021}`;
+    const bgUrl = `${siteUrl}/api/leads-generation/scan-bg`;
 
-    try {
-      const bgRes = await fetch(bgUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(scanParams),
-      });
-
-      if (!bgRes.ok) {
-        console.log(`[lg-scan] Background function unavailable (${bgRes.status}), running via inline API...`);
-        // Fallback: call inline API route (same pattern as casting search)
-        fetch(`${siteUrl}/api/leads-generation/scan-inline`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(scanParams),
-          signal: AbortSignal.timeout(600_000),
-        }).catch(() => { /* fire-and-forget */ });
-      } else {
-        console.log(`[lg-scan] Background function triggered for profile ${profileId}`);
-      }
-    } catch (err) {
-      console.error("[lg-scan] Failed to trigger background:", err);
-      notifyError("lg-scan trigger", err, { profileId, userId: user.id });
-    }
+    console.log(`[lg-scan] Triggering background scan at ${bgUrl} for profile ${profileId}`);
+    fetch(bgUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(scanParams),
+      signal: AbortSignal.timeout(600_000),
+    }).catch(() => { /* fire-and-forget */ });
 
     return NextResponse.json({ status: "started", postsToScan: postsToScan.length, isRepeatScan, fetchMorePosts: isRepeatScan });
   } catch (err) {

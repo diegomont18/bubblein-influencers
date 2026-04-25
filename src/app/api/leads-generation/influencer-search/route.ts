@@ -35,8 +35,7 @@ export async function POST(request: Request) {
 
   const resultsCount = credits * 3;
 
-  // Call existing casting search API (works both locally and on Netlify)
-  const siteUrl = process.env.URL || process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3021}`;
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3021}`;
   const cookies = request.headers.get("cookie") ?? "";
 
   try {
