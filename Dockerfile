@@ -21,7 +21,7 @@ RUN npm run build
 # Stage 3: Runner
 FROM node:22-alpine AS runner
 WORKDIR /app
-ENV NODE_ENV=production PORT=3021 HOSTNAME=0.0.0.0
+ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 ENV NODE_OPTIONS=--max-old-space-size=1536
 
 RUN apk add --no-cache curl
@@ -33,5 +33,5 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
-EXPOSE 3021
+EXPOSE 3000
 CMD ["node", "server.js"]

@@ -109,7 +109,7 @@ export async function POST(request: Request) {
     await service.from("lg_profiles").update({ scan_status: "scanning" }).eq("id", profileId);
 
     // Trigger background processing (fire-and-forget)
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3021}`;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3000}`;
     const bgUrl = `${siteUrl}/api/leads-generation/scan-bg`;
 
     console.log(`[lg-scan] Triggering background scan at ${bgUrl} for profile ${profileId}`);
