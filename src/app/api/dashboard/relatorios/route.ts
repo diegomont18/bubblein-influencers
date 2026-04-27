@@ -28,7 +28,7 @@ export async function GET() {
 
   const profileIds = (profiles ?? []).map((p) => p.id);
 
-  let optionsMap = new Map<string, { confirmed_at: string | null; competitors: unknown[] }>();
+  const optionsMap = new Map<string, { confirmed_at: string | null; competitors: unknown[] }>();
   if (profileIds.length > 0) {
     const { data: opts } = await service
       .from("lg_options")
