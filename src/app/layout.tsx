@@ -30,7 +30,7 @@ const SITE_DESCRIPTION =
   "Mapeie o cenário competitivo do seu nicho no LinkedIn e amplifique sua marca com os creators B2B certos. Inteligência + casting numa única plataforma.";
 
 // TODO: substituir /bubblein-logo.png por OG image dedicada 1200×630 quando disponível
-const OG_IMAGE = "/bubblein-logo.png";
+const OG_IMAGE = "/bubblein-blackbg-logo-influencers-b2b.png";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://bubblein.com.br"),

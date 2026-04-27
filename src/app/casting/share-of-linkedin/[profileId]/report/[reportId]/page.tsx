@@ -85,6 +85,79 @@ interface CollabMetrics {
   adherence: string;
 }
 
+interface SovTotals {
+  brand_owner: "main" | "competitor";
+  positivo: number;
+  neutro: number;
+  negativo: number;
+}
+
+interface SovMention {
+  company_name: string;
+  brand_owner: "main" | "competitor";
+  brand_term: string;
+  author_name: string;
+  author_role: string;
+  author_company: string;
+  author_linkedin_url: string;
+  followers: number;
+  post_url: string;
+  text: string;
+  posted_at: string | null;
+  reactions: number;
+  comments: number;
+  sentiment: "positivo" | "neutro" | "negativo";
+  summary: string;
+}
+
+interface InfluencerCard {
+  name: string;
+  role: string;
+  company: string;
+  linkedin_url: string;
+  followers: number;
+  posts_about: number;
+  themes_covered: string[];
+  brands_mentioned: Array<{ brand: string; brand_owner: "main" | "competitor"; company_name: string }>;
+  avg_engagement: number;
+  frequency: number;
+  sentiment: "positivo" | "neutro" | "negativo";
+  potential: "alto" | "médio" | "baixo";
+}
+
+interface InfluencerMentionRow {
+  date: string;
+  text: string;
+  brand?: string;
+  brand_owner?: "main" | "competitor";
+  sentiment?: "positivo" | "neutro" | "negativo";
+}
+
+interface RecommendationItem {
+  id: number;
+  title: string;
+  tag: "DEFENSIVA" | "CONTEÚDO" | "OFENSIVA" | "CONSOLIDACAO" | "RELACIONAMENTO";
+  urgency: "alta" | "média" | "baixa";
+  desc: string;
+  who: string;
+  details: string;
+}
+
+interface RecommendationsPayload {
+  insights?: {
+    positives: Array<{ title: string; description: string }>;
+    concerns: Array<{ title: string; description: string }>;
+  };
+  recommendations?: RecommendationItem[];
+  movements?: Array<{ company: string; text: string }>;
+}
+
+interface RawDataPayload {
+  sov?: { totals_by_company: Record<string, SovTotals>; mentions: SovMention[] };
+  influencers?: InfluencerCard[];
+  influencer_mentions?: Record<string, InfluencerMentionRow[]>;
+}
+
 interface ReportData {
   report: {
     id: string;
@@ -96,17 +169,34 @@ interface ReportData {
       companies: Record<string, CompanyMetrics>;
       collaborators: Record<string, CollabMetrics[]>;
     } | null;
+    raw_data: RawDataPayload | null;
+    recommendations: RecommendationsPayload | null;
   };
   profile: { id: string; name: string; linkedin_url: string };
   posts: SolPost[];
 }
 
-const TABS = [
+const TABS: Array<{ id: string; label: string; disabled?: boolean }> = [
   { id: "analise", label: "Análise" },
   { id: "conteudo", label: "Conteúdo" },
   { id: "posts", label: "Posts" },
-  { id: "influencers", label: "Influencers", disabled: true },
+  { id: "influencers", label: "Influencers" },
 ];
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const TAG_COLORS: Record<RecommendationItem["tag"], string> = {
+  DEFENSIVA: "text-red-400 bg-red-400/10 border-red-400/20",
+  "CONTEÚDO": "text-blue-400 bg-blue-400/10 border-blue-400/20",
+  OFENSIVA: "text-amber-400 bg-amber-400/10 border-amber-400/20",
+  CONSOLIDACAO: "text-green-400 bg-green-400/10 border-green-400/20",
+  RELACIONAMENTO: "text-purple-400 bg-purple-400/10 border-purple-400/20",
+};
+
+const SENTIMENT_COLORS: Record<"positivo" | "neutro" | "negativo", { text: string; bg: string; bar: string; label: string }> = {
+  positivo: { text: "text-[#a2f31f]", bg: "bg-[#a2f31f]/10", bar: "#a2f31f", label: "Positivo" },
+  neutro: { text: "text-[#f59e0b]", bg: "bg-[#f59e0b]/10", bar: "#f59e0b", label: "Neutro" },
+  negativo: { text: "text-[#ff946e]", bg: "bg-[#ff946e]/10", bar: "#ff946e", label: "Negativo" },
+};
 
 const POSTS_PER_PAGE = 20;
 
@@ -131,12 +221,25 @@ export default function ReportPage() {
 
   // Conteudo tab
   const [collabCompany, setCollabCompany] = useState<string>("");
-  const [chartMode, setChartMode] = useState<"sol" | "engagement" | "posts">("sol");
+  const [chartMode, setChartMode] = useState<"sol" | "engagement" | "posts" | "sov">("sol");
 
   // Expand company posts in sections
   const [expandedSolCompany, setExpandedSolCompany] = useState<string | null>(null);
   const [expandedRankingCompany, setExpandedRankingCompany] = useState<string | null>(null);
   const [expandedContentCompany, setExpandedContentCompany] = useState<string | null>(null);
+
+  // Recommendations like/dislike (ephemeral)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [recVotes, setRecVotes] = useState<Record<number, "like" | "dislike">>({});
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [expandedRec, setExpandedRec] = useState<number | null>(null);
+  // Influencers tab filters
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [influencerThemeFilter, setInfluencerThemeFilter] = useState<string>("Todos");
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [influencerRelationFilter, setInfluencerRelationFilter] = useState<"all" | "main" | "competitor" | "themes-only">("all");
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [expandedInfluencer, setExpandedInfluencer] = useState<string | null>(null);
 
   const loadReport = useCallback(async () => {
     try {
@@ -158,6 +261,12 @@ export default function ReportPage() {
   }, [data]);
 
   const metrics = data?.report?.metrics ?? null;
+  const sovTotals = data?.report?.raw_data?.sov?.totals_by_company ?? null;
+  const recommendationsPayload = data?.report?.recommendations ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const influencerCards = data?.report?.raw_data?.influencers ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const influencerMentionsByKey = data?.report?.raw_data?.influencer_mentions ?? {};
 
   // Set default collabCompany
   useEffect(() => {
@@ -256,86 +365,149 @@ export default function ReportPage() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)]">
-                    Share of LinkedIn
-                    <InfoTooltip text="Estimativa baseada em amostragem de 10-20 engajadores por post. O SOL combina volume de posts, engajamento e taxa de decisores (RER) para medir presença competitiva." />
+                    {chartMode === "sov" ? "Share of Voice" : "Share of LinkedIn"}
+                    <InfoTooltip text={chartMode === "sov" ? "Share of Voice = posts externos no LinkedIn que citam as marcas próprias de cada empresa, classificados por sentimento (positivo, neutro, negativo)." : "Estimativa baseada em amostragem de 10-20 engajadores por post. O SOL combina volume de posts, engajamento e taxa de decisores (RER) para medir presença competitiva."} />
                   </h3>
                 </div>
                 <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5">
-                  {(["sol", "engagement", "posts"] as const).map((m) => (
+                  {(["sol", "engagement", "posts", ...(sovTotals ? (["sov"] as const) : [])] as const).map((m) => (
                     <button key={m} onClick={() => setChartMode(m)} className={`px-3 py-1 rounded-full text-[10px] font-medium transition-colors ${chartMode === m ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "text-white/40 hover:text-white/60"}`}>
-                      {m === "sol" ? "SOL" : m === "engagement" ? "Engajamento" : "Posts"}
+                      {m === "sol" ? "SOL" : m === "engagement" ? "Engajamento" : m === "posts" ? "Posts" : "SOV"}
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="space-y-3">
-                {Object.entries(metrics.companies)
-                  .sort((a, b) => {
-                    if (chartMode === "sol") return b[1].sol_score - a[1].sol_score;
-                    if (chartMode === "engagement") return b[1].engagement_total - a[1].engagement_total;
-                    return b[1].posts_count - a[1].posts_count;
-                  })
-                  .map(([name, cm]) => {
-                    const value = chartMode === "sol" ? cm.sol_score : chartMode === "engagement" ? cm.engagement_total : cm.posts_count;
-                    const maxValue = Math.max(...Object.values(metrics.companies).map((c) => chartMode === "sol" ? c.sol_score : chartMode === "engagement" ? c.engagement_total : c.posts_count), 1);
-                    const pct = Math.round((value / maxValue) * 100);
-                    const isMain = name.toLowerCase() === profileCompanyName.toLowerCase();
-                    const barColor = getCompanyBarColor(name);
-                    const isSolExpanded = expandedSolCompany === name;
-                    const companyPosts = isSolExpanded ? data.posts.filter((p) => p.company_name === name && p.content_type !== "vagas") : [];
-                    return (
-                      <div key={name}>
-                        <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setExpandedSolCompany(isSolExpanded ? null : name)}>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform shrink-0 text-white/30 ${isSolExpanded ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
-                          <span className={`text-xs w-32 truncate text-right ${isMain ? "text-[#ca98ff] font-bold" : "text-white/60"} group-hover:text-white/80`}>{name}</span>
-                          <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(pct, 3)}%`, backgroundColor: barColor }} />
-                          </div>
-                          <span className="text-xs font-bold text-white/80 w-12 text-right tabular-nums">
-                            {chartMode === "sol" ? value.toFixed(1) : value.toLocaleString("pt-BR")}
-                          </span>
-                          {!isMain && mainMetrics && (() => {
-                            const mv = chartMode === "sol" ? mainMetrics.sol_score : chartMode === "engagement" ? mainMetrics.engagement_total : mainMetrics.posts_count;
-                            const d = formatDelta(value, mv);
-                            return d ? <span className={`text-[10px] font-bold shrink-0 w-14 text-right ${d.color}`}>{d.text}</span> : <span className="w-14 shrink-0" />;
-                          })()}
-                        </div>
-                        {isSolExpanded && (
-                          <div className="ml-12 mt-2 mb-1 space-y-1">
-                            {/* SOL breakdown */}
-                            <div className="flex flex-wrap items-center gap-2 text-[10px] text-white/40 px-3 py-2 bg-white/[0.02] rounded-lg border border-white/[0.04] mb-1">
-                              <span className="font-medium text-white/50">SOL =</span>
-                              <span className="text-white/70 font-bold">{cm.posts_count}</span><span>posts</span>
-                              <span>×</span>
-                              <span className="text-white/70 font-bold">{cm.rer_avg}%</span><span>RER</span>
-                              <span>×</span>
-                              <span className="text-white/70 font-bold">{cm.engagement_total.toLocaleString("pt-BR")}</span><span>engaj.</span>
-                              <span>=</span>
-                              <span className="text-white/90 font-black">{cm.sol_score.toFixed(1)}</span>
+              {chartMode === "sov" && sovTotals ? (
+                <div className="space-y-3">
+                  {Object.entries(sovTotals)
+                    .sort((a, b) => {
+                      const ta = a[1].positivo + a[1].neutro + a[1].negativo;
+                      const tb = b[1].positivo + b[1].neutro + b[1].negativo;
+                      return tb - ta;
+                    })
+                    .map(([name, t]) => {
+                      const total = t.positivo + t.neutro + t.negativo;
+                      const maxTotal = Math.max(...Object.values(sovTotals).map((x) => x.positivo + x.neutro + x.negativo), 1);
+                      const widthPct = Math.round((total / maxTotal) * 100);
+                      const isMain = t.brand_owner === "main";
+                      const isSovExpanded = expandedSolCompany === name;
+                      const companyMentions = isSovExpanded ? (data.report.raw_data?.sov?.mentions ?? []).filter((m) => m.company_name === name) : [];
+                      return (
+                        <div key={name}>
+                          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setExpandedSolCompany(isSovExpanded ? null : name)}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform shrink-0 text-white/30 ${isSovExpanded ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
+                            <span className={`text-xs w-32 truncate text-right ${isMain ? "text-[#ca98ff] font-bold" : "text-white/60"} group-hover:text-white/80`}>{name}</span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${isMain ? "text-[#ca98ff] bg-[#ca98ff]/10" : "text-white/40 bg-white/5"}`}>
+                              {isMain ? "Marca própria" : "Concorrente"}
+                            </span>
+                            <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden flex" style={{ width: `${Math.max(widthPct, 3)}%` }}>
+                              {total > 0 && (
+                                <>
+                                  <div style={{ width: `${(t.positivo / total) * 100}%`, backgroundColor: SENTIMENT_COLORS.positivo.bar }} title={`Positivo: ${t.positivo}`} />
+                                  <div style={{ width: `${(t.neutro / total) * 100}%`, backgroundColor: SENTIMENT_COLORS.neutro.bar }} title={`Neutro: ${t.neutro}`} />
+                                  <div style={{ width: `${(t.negativo / total) * 100}%`, backgroundColor: SENTIMENT_COLORS.negativo.bar }} title={`Negativo: ${t.negativo}`} />
+                                </>
+                              )}
                             </div>
-                            {companyPosts.slice(0, 10).map((p) => {
-                              const eng = p.reactions + p.comments;
-                              return (
-                                <a key={p.id} href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
-                                  <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
-                                  <span className="text-white/40 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
-                                  {p.rer_estimate != null && (
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${p.rer_estimate >= 30 ? "text-[#a2f31f] bg-[#a2f31f]/10" : p.rer_estimate >= 15 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10"}`}>
-                                      RER {p.rer_estimate}%
-                                    </span>
-                                  )}
-                                  {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
-                                </a>
-                              );
-                            })}
-                            {companyPosts.length > 10 && <p className="text-[10px] text-white/30 pl-3">+{companyPosts.length - 10} posts</p>}
-                            <button onClick={() => { setActiveTab("posts"); setCompanyFilter(name); window.scrollTo(0, 0); }} className="text-[10px] text-[#ca98ff] hover:underline pl-3 mt-1">Ver todos os posts de {name} →</button>
+                            <span className="text-xs font-bold text-white/80 w-12 text-right tabular-nums">{total}</span>
+                            <span className="w-14 shrink-0 text-[9px] text-white/40 text-right">+{t.positivo}/{t.neutro}/-{t.negativo}</span>
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
-              </div>
+                          {isSovExpanded && (
+                            <div className="ml-12 mt-2 mb-1 space-y-1">
+                              {companyMentions.length === 0 && (
+                                <p className="text-[10px] text-white/30 pl-3 py-2">Sem menções externas no período.</p>
+                              )}
+                              {companyMentions.slice(0, 10).map((m, idx) => {
+                                const sc = SENTIMENT_COLORS[m.sentiment];
+                                return (
+                                  <a key={`${m.post_url}-${idx}`} href={m.post_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors">
+                                    <span className="flex-1 text-white/60 truncate">
+                                      <span className="text-white/40">{m.author_name}</span>
+                                      {m.author_company && <span className="text-white/30"> · {m.author_company}</span>}
+                                      <span className="text-white/50"> — {m.summary || m.text.slice(0, 80)}</span>
+                                    </span>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${sc.text} ${sc.bg}`}>{m.brand_term}</span>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${sc.text} ${sc.bg}`}>{sc.label}</span>
+                                  </a>
+                                );
+                              })}
+                              {companyMentions.length > 10 && <p className="text-[10px] text-white/30 pl-3">+{companyMentions.length - 10} menções</p>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {Object.entries(metrics.companies)
+                    .sort((a, b) => {
+                      if (chartMode === "sol") return b[1].sol_score - a[1].sol_score;
+                      if (chartMode === "engagement") return b[1].engagement_total - a[1].engagement_total;
+                      return b[1].posts_count - a[1].posts_count;
+                    })
+                    .map(([name, cm]) => {
+                      const value = chartMode === "sol" ? cm.sol_score : chartMode === "engagement" ? cm.engagement_total : cm.posts_count;
+                      const maxValue = Math.max(...Object.values(metrics.companies).map((c) => chartMode === "sol" ? c.sol_score : chartMode === "engagement" ? c.engagement_total : c.posts_count), 1);
+                      const pct = Math.round((value / maxValue) * 100);
+                      const isMain = name.toLowerCase() === profileCompanyName.toLowerCase();
+                      const barColor = getCompanyBarColor(name);
+                      const isSolExpanded = expandedSolCompany === name;
+                      const companyPosts = isSolExpanded ? data.posts.filter((p) => p.company_name === name && p.content_type !== "vagas") : [];
+                      return (
+                        <div key={name}>
+                          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setExpandedSolCompany(isSolExpanded ? null : name)}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform shrink-0 text-white/30 ${isSolExpanded ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
+                            <span className={`text-xs w-32 truncate text-right ${isMain ? "text-[#ca98ff] font-bold" : "text-white/60"} group-hover:text-white/80`}>{name}</span>
+                            <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(pct, 3)}%`, backgroundColor: barColor }} />
+                            </div>
+                            <span className="text-xs font-bold text-white/80 w-12 text-right tabular-nums">
+                              {chartMode === "sol" ? value.toFixed(1) : value.toLocaleString("pt-BR")}
+                            </span>
+                            {!isMain && mainMetrics && (() => {
+                              const mv = chartMode === "sol" ? mainMetrics.sol_score : chartMode === "engagement" ? mainMetrics.engagement_total : mainMetrics.posts_count;
+                              const d = formatDelta(value, mv);
+                              return d ? <span className={`text-[10px] font-bold shrink-0 w-14 text-right ${d.color}`}>{d.text}</span> : <span className="w-14 shrink-0" />;
+                            })()}
+                          </div>
+                          {isSolExpanded && (
+                            <div className="ml-12 mt-2 mb-1 space-y-1">
+                              {/* SOL breakdown */}
+                              <div className="flex flex-wrap items-center gap-2 text-[10px] text-white/40 px-3 py-2 bg-white/[0.02] rounded-lg border border-white/[0.04] mb-1">
+                                <span className="font-medium text-white/50">SOL =</span>
+                                <span className="text-white/70 font-bold">{cm.posts_count}</span><span>posts</span>
+                                <span>×</span>
+                                <span className="text-white/70 font-bold">{cm.rer_avg}%</span><span>RER</span>
+                                <span>×</span>
+                                <span className="text-white/70 font-bold">{cm.engagement_total.toLocaleString("pt-BR")}</span><span>engaj.</span>
+                                <span>=</span>
+                                <span className="text-white/90 font-black">{cm.sol_score.toFixed(1)}</span>
+                              </div>
+                              {companyPosts.slice(0, 10).map((p) => {
+                                const eng = p.reactions + p.comments;
+                                return (
+                                  <a key={p.id} href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
+                                    <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
+                                    <span className="text-white/40 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
+                                    {p.rer_estimate != null && (
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${p.rer_estimate >= 30 ? "text-[#a2f31f] bg-[#a2f31f]/10" : p.rer_estimate >= 15 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10"}`}>
+                                        RER {p.rer_estimate}%
+                                      </span>
+                                    )}
+                                    {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
+                                  </a>
+                                );
+                              })}
+                              {companyPosts.length > 10 && <p className="text-[10px] text-white/30 pl-3">+{companyPosts.length - 10} posts</p>}
+                              <button onClick={() => { setActiveTab("posts"); setCompanyFilter(name); window.scrollTo(0, 0); }} className="text-[10px] text-[#ca98ff] hover:underline pl-3 mt-1">Ver todos os posts de {name} →</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
             {/* Ranking table */}
@@ -422,6 +594,132 @@ export default function ReportPage() {
                 </table>
               </div>
             </div>
+
+            {/* Insights Estratégicos */}
+            {recommendationsPayload?.insights && ((recommendationsPayload.insights.positives?.length ?? 0) > 0 || (recommendationsPayload.insights.concerns?.length ?? 0) > 0) && (
+              <div className="rounded-2xl border border-white/10 p-6">
+                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Insights Estratégicos</h3>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="bg-green-400/5 border border-green-400/15 rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-bold text-green-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/></svg>
+                      Positivos
+                    </p>
+                    <div className="space-y-2.5">
+                      {(recommendationsPayload.insights.positives ?? []).map((p, i) => (
+                        <div key={i}>
+                          <p className="text-sm text-white font-semibold">{p.title}</p>
+                          <p className="text-xs text-white/50">{p.description}</p>
+                        </div>
+                      ))}
+                      {(recommendationsPayload.insights.positives ?? []).length === 0 && (
+                        <p className="text-xs text-white/30">Sem insights positivos identificados neste período.</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                      Pontos de Atenção
+                    </p>
+                    <div className="space-y-2.5">
+                      {(recommendationsPayload.insights.concerns ?? []).map((c, i) => (
+                        <div key={i}>
+                          <p className="text-sm text-white font-semibold">{c.title}</p>
+                          <p className="text-xs text-white/50">{c.description}</p>
+                        </div>
+                      ))}
+                      {(recommendationsPayload.insights.concerns ?? []).length === 0 && (
+                        <p className="text-xs text-white/30">Sem pontos de atenção identificados neste período.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Recomendações Estratégicas */}
+            {(recommendationsPayload?.recommendations?.length ?? 0) > 0 && (
+              <div className="rounded-2xl border border-white/10 p-6">
+                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Recomendações Estratégicas</h3>
+                <div className="space-y-3">
+                  {recommendationsPayload!.recommendations!.map((rec) => {
+                    const tagColor = TAG_COLORS[rec.tag] ?? TAG_COLORS["CONTEÚDO"];
+                    const isExpanded = expandedRec === rec.id;
+                    const vote = recVotes[rec.id];
+                    return (
+                      <div key={rec.id} className="bg-white/[0.02] border border-white/10 rounded-xl p-4">
+                        <div className="flex items-start gap-3">
+                          <span className="text-2xl font-black text-[#ca98ff]/30 leading-none shrink-0 w-6 text-center">{rec.id}</span>
+                          <div className="flex-1 space-y-1.5 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-bold text-white">{rec.title}</p>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tagColor}`}>{rec.tag} · {rec.urgency}</span>
+                            </div>
+                            <p className="text-xs text-white/60">{rec.desc}</p>
+                            {rec.who && (
+                              <p className="text-xs text-white/40"><strong className="text-white/60">Quem publica:</strong> {rec.who}</p>
+                            )}
+                            {rec.details && (
+                              <button onClick={() => setExpandedRec(isExpanded ? null : rec.id)} className="text-[11px] text-[#ca98ff] hover:underline">
+                                {isExpanded ? "Esconder detalhes" : "Ver detalhes"}
+                              </button>
+                            )}
+                            {isExpanded && rec.details && (
+                              <pre className="text-xs text-white/50 whitespace-pre-wrap font-sans pt-1">{rec.details}</pre>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => setRecVotes((v) => {
+                                const next = { ...v };
+                                if (next[rec.id] === "like") delete next[rec.id];
+                                else next[rec.id] = "like";
+                                return next;
+                              })}
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${vote === "like" ? "bg-green-400/20 text-green-400" : "text-white/30 hover:text-white/60"}`}
+                              aria-label="Curtir"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7v-12l4.5-9.5a1.93 1.93 0 0 1 3.5 1.38z"/></svg>
+                            </button>
+                            <button
+                              onClick={() => setRecVotes((v) => {
+                                const next = { ...v };
+                                if (next[rec.id] === "dislike") delete next[rec.id];
+                                else next[rec.id] = "dislike";
+                                return next;
+                              })}
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${vote === "dislike" ? "bg-red-400/20 text-red-400" : "text-white/30 hover:text-white/60"}`}
+                              aria-label="Não curtir"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17v12l-4.5 9.5a1.93 1.93 0 0 1-3.5-1.38z"/></svg>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Movimentos Estratégicos */}
+            {(recommendationsPayload?.movements?.length ?? 0) > 0 && (
+              <div className="rounded-2xl bg-amber-500/5 border border-amber-500/30 p-6">
+                <h3 className="text-lg font-bold text-amber-400 mb-4 flex items-center gap-2">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  Movimentos estratégicos observados
+                </h3>
+                <div className="space-y-4">
+                  {recommendationsPayload!.movements!.map((mv, i) => (
+                    <div key={i} className="flex items-start gap-3">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 mt-0.5 text-white/70 bg-white/10">{mv.company}</span>
+                      <p className="text-sm text-white/70">{mv.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -736,14 +1034,148 @@ export default function ReportPage() {
           </div>
         )}
 
-        {/* Influencers placeholder */}
+        {/* Influencers Tab */}
         {activeTab === "influencers" && (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 rounded-2xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 flex items-center justify-center mx-auto mb-4">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-white/10 p-6">
+              <div className="mb-4">
+                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">Influenciadores externos</h3>
+                <p className="text-xs text-white/50">Pessoas externas que falam sobre os temas do seu mercado. Identificamos quais delas já citam suas marcas (próprias ou de concorrentes).</p>
+              </div>
+
+              {influencerCards.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-white/40 text-sm">Sem influenciadores externos identificados neste período.</p>
+                </div>
+              )}
+
+              {influencerCards.length > 0 && (() => {
+                const allThemes = Array.from(new Set(influencerCards.flatMap((c) => c.themes_covered)));
+                const filtered = influencerCards.filter((c) => {
+                  if (influencerThemeFilter !== "Todos" && !c.themes_covered.includes(influencerThemeFilter)) return false;
+                  if (influencerRelationFilter === "main") {
+                    return c.brands_mentioned.some((b) => b.brand_owner === "main");
+                  }
+                  if (influencerRelationFilter === "competitor") {
+                    return c.brands_mentioned.some((b) => b.brand_owner === "competitor");
+                  }
+                  if (influencerRelationFilter === "themes-only") {
+                    return c.brands_mentioned.length === 0;
+                  }
+                  return true;
+                });
+
+                return (
+                  <>
+                    <div className="space-y-3 mb-4">
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-white/40 mr-1">Tema:</span>
+                        {(["Todos", ...allThemes] as string[]).map((t) => (
+                          <button key={t} onClick={() => setInfluencerThemeFilter(t)} className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${influencerThemeFilter === t ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "bg-white/[0.02] text-white/50 hover:text-white/70"}`}>
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-white/40 mr-1">Relação:</span>
+                        {([
+                          { id: "all", label: "Todos" },
+                          { id: "main", label: "Cita marcas próprias" },
+                          { id: "competitor", label: "Cita concorrentes" },
+                          { id: "themes-only", label: "Só temas de mercado" },
+                        ] as const).map((opt) => (
+                          <button key={opt.id} onClick={() => setInfluencerRelationFilter(opt.id)} className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${influencerRelationFilter === opt.id ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "bg-white/[0.02] text-white/50 hover:text-white/70"}`}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {filtered.length === 0 && (
+                      <p className="text-center text-white/30 text-sm py-8">Nenhum influenciador corresponde aos filtros.</p>
+                    )}
+
+                    <div className="grid md:grid-cols-2 gap-3">
+                      {filtered.map((c) => {
+                        const key = c.linkedin_url || c.name;
+                        const isExpanded = expandedInfluencer === key;
+                        const sc = SENTIMENT_COLORS[c.sentiment];
+                        const potColor =
+                          c.potential === "alto" ? "text-[#a2f31f] bg-[#a2f31f]/10" :
+                          c.potential === "médio" ? "text-[#f59e0b] bg-[#f59e0b]/10" :
+                          "text-white/40 bg-white/5";
+                        const mentions = influencerMentionsByKey[key] ?? [];
+                        return (
+                          <div key={key} className="bg-white/[0.02] border border-white/10 rounded-xl p-4">
+                            <div className="cursor-pointer" onClick={() => setExpandedInfluencer(isExpanded ? null : key)}>
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-white truncate">{c.name}</p>
+                                  <p className="text-xs text-white/50 truncate">{c.role}{c.company ? ` · ${c.company}` : ""}</p>
+                                </div>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${potColor}`}>{c.potential.toUpperCase()}</span>
+                              </div>
+                              <div className="flex items-center gap-3 text-[11px] text-white/50 mb-2 tabular-nums">
+                                <span>{c.followers.toLocaleString("pt-BR")} seg.</span>
+                                <span>·</span>
+                                <span>{c.posts_about} posts</span>
+                                <span>·</span>
+                                <span>{c.avg_engagement.toLocaleString("pt-BR")} engaj. médio</span>
+                              </div>
+                              {c.themes_covered.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mb-2">
+                                  {c.themes_covered.slice(0, 4).map((t) => (
+                                    <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/[0.03] text-white/50 border border-white/10">{t}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {c.brands_mentioned.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mb-1">
+                                  {c.brands_mentioned.map((b, i) => (
+                                    <span key={i} title={`Citou ${b.brand} (${b.company_name})`} className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.brand_owner === "main" ? "text-[#ca98ff] bg-[#ca98ff]/10" : "text-white/60 bg-white/[0.06]"}`}>
+                                      {b.brand}
+                                      <span className="opacity-60 ml-1">{b.brand_owner === "main" ? "· própria" : `· ${b.company_name}`}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {c.brands_mentioned.length === 0 && (
+                                <p className="text-[10px] text-white/30">Não citou marcas — só temas de mercado.</p>
+                              )}
+                              <div className="flex items-center justify-between mt-2">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${sc.text} ${sc.bg}`}>Sentimento: {sc.label}</span>
+                                {mentions.length > 0 && (
+                                  <span className="text-[10px] text-[#ca98ff]">{isExpanded ? "Esconder menções ▴" : `Ver ${mentions.length} menções ▾`}</span>
+                                )}
+                              </div>
+                            </div>
+                            {isExpanded && mentions.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+                                {mentions.slice(0, 6).map((m, i) => {
+                                  const ms = m.sentiment ? SENTIMENT_COLORS[m.sentiment] : null;
+                                  return (
+                                    <div key={i} className="text-xs text-white/60 space-y-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        {m.date && <span className="text-[10px] text-white/30 tabular-nums">{m.date}</span>}
+                                        {m.brand && (
+                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${m.brand_owner === "main" ? "text-[#ca98ff] bg-[#ca98ff]/10" : "text-white/60 bg-white/[0.06]"}`}>{m.brand}</span>
+                                        )}
+                                        {ms && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${ms.text} ${ms.bg}`}>{ms.label}</span>}
+                                      </div>
+                                      <p className="text-[11px] text-white/55 leading-relaxed">{m.text}</p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
-            <h3 className="text-lg font-bold text-white mb-2 font-[family-name:var(--font-lexend)]">Em breve</h3>
-            <p className="text-sm text-white/40">Esta seção será habilitada nas próximas etapas.</p>
           </div>
         )}
       </div>

@@ -32,7 +32,7 @@ export default function Navbar() {
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/">
           <Image
-            src="/bubblein-logo-transparente.png"
+            src="/bubblein-blackbg-logo-influencers-b2b.png"
             alt="BubbleIn - Plataforma B2B para LinkedIn"
             width={161}
             height={43}

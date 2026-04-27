@@ -23,13 +23,13 @@ export const metadata: Metadata = {
     url: URL,
     title: TITLE,
     description: DESCRIPTION,
-    images: [{ url: "/bubblein-logo.png", alt: "Exemplo de Relatório — BubbleIn" }],
+    images: [{ url: "/bubblein-blackbg-logo-influencers-b2b.png", alt: "Exemplo de Relatório — BubbleIn" }],
   },
   twitter: {
     card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
-    images: ["/bubblein-logo.png"],
+    images: ["/bubblein-blackbg-logo-influencers-b2b.png"],
   },
   robots: { index: true, follow: true },
 };

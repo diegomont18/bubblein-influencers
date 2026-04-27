@@ -69,7 +69,7 @@ export default async function PostPage({
     publisher: {
       "@type": "Organization",
       name: "BubbleIn",
-      logo: { "@type": "ImageObject", url: "/bubblein-logo-transparente.png" },
+      logo: { "@type": "ImageObject", url: "/bubblein-blackbg-logo-influencers-b2b.png" },
     },
   };
 

@@ -31,7 +31,7 @@ export default function DashboardLayout({
     <div className="flex min-h-screen font-[family-name:var(--font-geist-sans)]">
       <aside className="w-64 bg-gray-900 text-gray-100 p-6 flex flex-col">
         <img
-          src="/bubblein-logo-transparente.png"
+          src="/bubblein-blackbg-logo-influencers-b2b.png"
           alt="BubbleIn"
           width={188}
           height={50}
