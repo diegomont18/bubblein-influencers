@@ -51,7 +51,7 @@ export async function PATCH(request: Request) {
   const body = await request.json();
   const { profileId, market_context, job_titles, departments, company_sizes,
     competitors, employee_profiles, icp_description,
-    proprietary_brands, company_posts_per_month } = body;
+    proprietary_brands, company_posts_per_month, ai_response } = body;
   if (!profileId) return NextResponse.json({ error: "profileId required" }, { status: 400 });
 
   const service = createServiceClient();
@@ -71,6 +71,7 @@ export async function PATCH(request: Request) {
   if (icp_description !== undefined) update.icp_description = icp_description;
   if (proprietary_brands !== undefined) update.proprietary_brands = proprietary_brands;
   if (company_posts_per_month !== undefined) update.company_posts_per_month = company_posts_per_month;
+  if (ai_response !== undefined) update.ai_response = ai_response;
 
   const { error } = await service.from("lg_options").update(update).eq("profile_id", profileId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

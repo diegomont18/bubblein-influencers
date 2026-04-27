@@ -9,7 +9,7 @@ interface AnalyzedProfile {
   headline: string;
   linkedin_url: string;
   created_at: string;
-  leads_count: number;
+  latest_report: { status: string; period_start: string; period_end: string } | null;
 }
 
 export default function LeadsGenerationPage() {
@@ -21,6 +21,8 @@ export default function LeadsGenerationPage() {
   const [history, setHistory] = useState<AnalyzedProfile[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [competitorUrls, setCompetitorUrls] = useState<string[]>(["", ""]);
+  const [showNoCompetitorModal, setShowNoCompetitorModal] = useState(false);
 
   useEffect(() => {
     fetch("/api/leads-generation/profiles")
@@ -66,23 +68,62 @@ export default function LeadsGenerationPage() {
     }
   }
 
-  async function handleAnalyze() {
-    if (!url.trim() || !url.includes("linkedin.com")) {
+  function validateCompanyUrl(u: string): string | null {
+    if (/linkedin\.com\/in\//.test(u)) return "perfil pessoal";
+    if (/linkedin\.com\/products\//.test(u)) return "produto";
+    if (/linkedin\.com\/showcase\//.test(u)) return "showcase";
+    if (!/linkedin\.com\/company\/[^/?#]+/.test(u)) return "formato inválido";
+    return null;
+  }
+
+  async function handleAnalyze(skipCompetitorCheck = false) {
+    const trimmed = url.trim();
+    if (!trimmed || !trimmed.includes("linkedin.com")) {
       setError("Insira uma URL válida do LinkedIn");
       return;
     }
+    const mainErr = validateCompanyUrl(trimmed);
+    if (mainErr === "perfil pessoal") {
+      setError("Esta é uma URL de perfil pessoal. O Share of LinkedIn analisa páginas de empresa. Use o formato: linkedin.com/company/nome-da-empresa");
+      return;
+    }
+    if (mainErr) {
+      setError(`URL ${mainErr}. Use uma URL de página de empresa no formato: linkedin.com/company/nome-da-empresa`);
+      return;
+    }
+
+    // Validate competitor URLs
+    const filledCompetitors = competitorUrls.map((u) => u.trim()).filter(Boolean);
+    for (const cu of filledCompetitors) {
+      if (!cu.includes("linkedin.com")) {
+        setError(`Concorrente "${cu}" não é uma URL do LinkedIn. Use o formato: linkedin.com/company/nome-da-empresa`);
+        return;
+      }
+      const cErr = validateCompanyUrl(cu);
+      if (cErr) {
+        setError(`Concorrente "${cu}" é uma URL de ${cErr}. Use: linkedin.com/company/nome-da-empresa`);
+        return;
+      }
+    }
+
+    // Warn if no competitors
+    if (filledCompetitors.length === 0 && !skipCompetitorCheck) {
+      setShowNoCompetitorModal(true);
+      return;
+    }
+
     setError(null);
+    setShowNoCompetitorModal(false);
     setLoading(true);
 
     try {
-      // 5-minute timeout — analysis includes employee search + competitor scoring
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 300_000);
 
       const res = await fetch("/api/leads-generation/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileUrl: url.trim(), country }),
+        body: JSON.stringify({ profileUrl: url.trim(), country, competitorUrls: filledCompetitors }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -158,11 +199,39 @@ export default function LeadsGenerationPage() {
             />
           </div>
 
+          {/* Competitor inputs */}
+          <div className="mb-6">
+            <label className="text-[0.65rem] font-black tracking-[0.2em] text-white/30 uppercase block mb-3">
+              Concorrentes
+            </label>
+            <div className="space-y-2">
+              {competitorUrls.map((cu, idx) => (
+                <div key={idx} className="flex gap-2">
+                  <div className="flex-1 bg-white/[0.02] border border-white/[0.06] rounded-xl p-1 focus-within:border-[#ca98ff]/40 focus-within:bg-[#ca98ff]/[0.03] transition-all">
+                    <input
+                      type="text"
+                      value={cu}
+                      onChange={(e) => { const u = [...competitorUrls]; u[idx] = e.target.value; setCompetitorUrls(u); }}
+                      placeholder={`linkedin.com/company/concorrente-${idx + 1}`}
+                      className="w-full bg-transparent border-none focus:ring-0 px-4 py-2.5 text-white text-sm font-medium placeholder-white/15 outline-none"
+                    />
+                  </div>
+                  {competitorUrls.length > 2 && (
+                    <button onClick={() => setCompetitorUrls(competitorUrls.filter((_, i) => i !== idx))} className="w-9 h-9 rounded-xl bg-white/[0.02] border border-white/[0.06] text-white/30 hover:text-[#ff946e] hover:border-[#ff946e]/30 flex items-center justify-center text-lg transition-colors self-center">&times;</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setCompetitorUrls([...competitorUrls, ""])} className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] mt-2 flex items-center gap-1">
+              <span className="text-sm">+</span> Adicionar outro concorrente
+            </button>
+          </div>
+
           {error && <p className="text-[#ff6e84] text-sm mb-4">{error}</p>}
 
           <button
             id="analyze-btn"
-            onClick={handleAnalyze}
+            onClick={() => handleAnalyze()}
             disabled={loading}
             className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide disabled:opacity-50 flex items-center justify-center gap-2"
           >
@@ -250,12 +319,26 @@ export default function LeadsGenerationPage() {
                   {p.headline && <p className="text-[10px] text-white/40 truncate">{p.headline}</p>}
                 </button>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-[10px] font-medium text-[#ca98ff] bg-[#ca98ff]/10 px-2 py-0.5 rounded-full">
-                    {p.leads_count} leads
-                  </span>
-                  <span className="text-[10px] text-white/20">
-                    {new Date(p.created_at).toLocaleDateString("pt-BR")}
-                  </span>
+                  {p.latest_report ? (
+                    p.latest_report.status === "complete" ? (
+                      <span className="text-[10px] font-medium text-[#a2f31f] bg-[#a2f31f]/10 px-2 py-0.5 rounded-full">
+                        {new Date(p.latest_report.period_start + "T12:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" })}
+                      </span>
+                    ) : p.latest_report.status === "processing" ? (
+                      <span className="text-[10px] font-medium text-[#ca98ff] bg-[#ca98ff]/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <svg className="animate-spin h-2.5 w-2.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        Processando
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-medium text-white/30 bg-white/5 px-2 py-0.5 rounded-full">
+                        Mapeado
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-[10px] font-medium text-white/30 bg-white/5 px-2 py-0.5 rounded-full">
+                      Mapeado
+                    </span>
+                  )}
                   <button
                     onClick={() => handleDelete(p.id, p.name)}
                     disabled={deletingId === p.id}
@@ -285,6 +368,26 @@ export default function LeadsGenerationPage() {
           <p className="text-xs text-white/20">Nenhum perfil analisado ainda.</p>
         )}
       </div>
+
+      {/* No competitor confirmation modal */}
+      {showNoCompetitorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowNoCompetitorModal(false)}>
+          <div className="bg-[#1a1919] border border-[#ca98ff]/30 rounded-2xl p-8 max-w-md w-full mx-4 shadow-[0_20px_60px_rgba(0,0,0,0.5)]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-3">Continuar sem concorrentes?</h3>
+            <p className="text-sm text-white/60 mb-6">
+              Sem concorrentes, o relatório <span className="text-[#ca98ff] font-medium">Share of LinkedIn</span> perde seu principal valor: a comparação competitiva. Você poderá adicionar concorrentes depois, mas precisará reprocessar.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowNoCompetitorModal(false)} className="flex-1 py-3 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] font-medium text-sm hover:bg-[#ca98ff]/20 transition-colors">
+                Voltar e adicionar
+              </button>
+              <button onClick={() => handleAnalyze(true)} className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 font-medium text-sm transition-colors">
+                Continuar sem concorrentes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

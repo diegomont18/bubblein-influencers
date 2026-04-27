@@ -37,7 +37,7 @@ export const API_COSTS = {
 } as const;
 
 export type Provider = keyof typeof API_COSTS;
-export type Source = "casting" | "leads" | "enrichment";
+export type Source = "casting" | "leads" | "enrichment" | "sol";
 
 interface LogParams {
   userId?: string;

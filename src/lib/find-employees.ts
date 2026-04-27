@@ -10,6 +10,11 @@ export interface EmpCandidate {
   postsPerMonth: number;
 }
 
+export interface FindEmployeesResult {
+  active: EmpCandidate[];
+  inactive: EmpCandidate[];
+}
+
 export function extractPostDate(p: Record<string, unknown>): Date | null {
   const candidates = [p.postedAt, p.posted_at, p.postedDate, p.publishedAt, p.date, p.time, p.postedDateTimestamp];
   for (const c of candidates) {
@@ -41,22 +46,47 @@ export function computePostsPerMonth(posts: Array<Record<string, unknown>>): num
 // Only match executive/leadership roles — exclude junior analysts, engineers, consultants
 const TITLE_RE = /director|diretor|head of|head |gerente|manager|vp |vice.?president|chief|ceo|cto|cfo|coo|cmo|founder|fundador|sócio|partner|coordenador|lead\b|líder|executive|executiv|officer|strategy|strategist|innovation|country.?manager|general.?manager/i;
 
+const COUNTRY_LANG: Record<string, string> = {
+  br: "pt", pt: "pt", mx: "es", ar: "es", co: "es", cl: "es", es: "es",
+};
+
+const LANG_STOPWORDS: Record<string, string[]> = {
+  pt: ["de", "que", "para", "com", "não", "uma", "são", "por", "mais", "como", "dos", "das", "nos", "nas", "também", "está", "essa", "esse", "você", "seu", "sua", "nosso", "nossa", "empresa", "sobre", "quando", "muito", "ainda"],
+  es: ["que", "para", "con", "por", "más", "como", "los", "las", "una", "del", "sus", "también", "esta", "este", "pero", "son", "han", "puede", "entre", "todos", "empresa", "sobre", "cuando", "muy", "desde"],
+};
+
+function isTargetLanguage(text: string, targetLang: string): boolean {
+  if (!text || text.length < 30) return true; // too short to detect, let it pass
+  const words = text.toLowerCase().split(/\s+/);
+  const stopwords = LANG_STOPWORDS[targetLang];
+  if (!stopwords) return true; // no stopwords for this language, skip check
+  const matches = words.filter((w) => stopwords.includes(w)).length;
+  return matches >= 3;
+}
+
+const COUNTRY_SERP_LABEL: Record<string, string> = {
+  br: "Brazil", us: "United States", pt: "Portugal", es: "Spain",
+  mx: "Mexico", ar: "Argentina", co: "Colombia", cl: "Chile",
+  uk: "United Kingdom", de: "Germany", fr: "France", it: "Italy",
+  in: "India", ca: "Canada", au: "Australia",
+};
+
 const COUNTRY_LOCATIONS: Record<string, string[]> = {
-  br: ["brazil", "brasil"],
-  us: ["united states", "usa"],
-  pt: ["portugal"],
-  es: ["spain", "españa"],
-  mx: ["mexico", "méxico"],
-  ar: ["argentina"],
-  co: ["colombia"],
-  cl: ["chile"],
-  uk: ["united kingdom", "uk"],
-  de: ["germany", "deutschland"],
-  fr: ["france"],
-  it: ["italy", "italia"],
-  in: ["india"],
-  ca: ["canada"],
-  au: ["australia"],
+  br: ["brazil", "brasil", "são paulo", "sao paulo", "rio de janeiro", "belo horizonte", "curitiba", "porto alegre", "brasília", "brasilia", "recife", "salvador", "florianópolis", "florianopolis", "campinas", "goiânia", "goiania", "fortaleza", ", sp", ", rj", ", mg", ", pr", ", rs", ", sc", ", ba", ", pe", ", df", ", go", ", ce"],
+  us: ["united states", "usa", "new york", "san francisco", "los angeles", "chicago", "boston", "seattle", "austin", "denver", "miami", "dallas", "atlanta", ", ca", ", ny", ", tx", ", wa", ", ma", ", il", ", fl", ", co", ", ga"],
+  pt: ["portugal", "lisboa", "porto", "braga"],
+  es: ["spain", "españa", "madrid", "barcelona", "valencia", "sevilla"],
+  mx: ["mexico", "méxico", "ciudad de méxico", "cdmx", "guadalajara", "monterrey"],
+  ar: ["argentina", "buenos aires", "córdoba", "rosario"],
+  co: ["colombia", "bogotá", "bogota", "medellín", "medellin", "cali"],
+  cl: ["chile", "santiago"],
+  uk: ["united kingdom", "uk", "london", "manchester", "birmingham", "edinburgh"],
+  de: ["germany", "deutschland", "berlin", "munich", "münchen", "hamburg", "frankfurt"],
+  fr: ["france", "paris", "lyon", "marseille"],
+  it: ["italy", "italia", "milan", "milano", "rome", "roma"],
+  in: ["india", "mumbai", "bangalore", "bengaluru", "delhi", "hyderabad", "pune"],
+  ca: ["canada", "toronto", "vancouver", "montreal", "montréal", "calgary"],
+  au: ["australia", "sydney", "melbourne", "brisbane", "perth"],
 };
 
 export async function findActiveEmployees(
@@ -67,16 +97,17 @@ export async function findActiveEmployees(
   maxCandidates = 12,
   lite = false,
   country?: string,
-): Promise<EmpCandidate[]> {
+): Promise<FindEmployeesResult> {
   const searchName = companyName || companySlug.replace(/-/g, " ");
-  console.log(`[find-employees] Searching for ${searchName} (slug: ${companySlug}, max: ${maxCandidates}, lite: ${lite})`);
+  const countryLabel = country ? COUNTRY_SERP_LABEL[country] ?? "" : "";
+  console.log(`[find-employees] Searching for ${searchName} (slug: ${companySlug}, max: ${maxCandidates}, lite: ${lite}, country: ${country ?? "none"})`);
 
-  // SERP queries — use company NAME (not slug) for better results
+  // SERP queries — include country name to prioritize local results for multinationals
   const serpQueries = lite
-    ? [`site:linkedin.com/in "${searchName}" CEO OR CTO OR Director OR Head OR VP OR Founder OR manager OR gerente`]
+    ? [`site:linkedin.com/in "${searchName}" ${countryLabel} CEO OR CTO OR Director OR Head OR VP OR Founder OR manager OR gerente`]
     : [
-        `site:linkedin.com/in "${searchName}" CEO OR CTO OR Director OR Diretor OR Head OR VP OR Founder`,
-        `site:linkedin.com/in "${companySlug}"`,
+        `site:linkedin.com/in "${searchName}" ${countryLabel} CEO OR CTO OR Director OR Diretor OR Head OR VP OR Founder`,
+        `site:linkedin.com/in "${companySlug}" ${countryLabel}`,
         `site:linkedin.com/in "${searchName}" manager OR gerente OR lead OR senior OR architect OR engineer`,
       ];
 
@@ -106,7 +137,8 @@ export async function findActiveEmployees(
     console.error(`[find-employees] ${companyName}: SERP failed:`, err);
   }
 
-  const employees: EmpCandidate[] = [];
+  const activeEmployees: EmpCandidate[] = [];
+  const inactiveEmployees: EmpCandidate[] = [];
   const targetLower = companyName.toLowerCase();
   const slugLower = companySlug.toLowerCase().replace(/-/g, " ");
 
@@ -169,40 +201,61 @@ export async function findActiveEmployees(
           return null;
         }
 
-        // Must have RECENT posts (within last 90 days)
-        const empPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${empSlug}/`, 3);
-        if (empPosts.length === 0) {
-          console.log(`[find-employees]   skip ${empSlug}: no posts`);
-          return null;
-        }
-
-        // Check if most recent post is within last 90 days
-        const now = Date.now();
-        const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
-        const recentPostDate = extractPostDate(empPosts[0] as Record<string, unknown>);
-        if (recentPostDate && now - recentPostDate.getTime() > ninetyDaysMs) {
-          console.log(`[find-employees]   skip ${empSlug}: last post too old (${recentPostDate.toISOString().slice(0, 10)})`);
-          return null;
-        }
-
-        const postsPerMonth = computePostsPerMonth(empPosts as Array<Record<string, unknown>>);
-
-        // Photo
+        // Photo (extract early so inactive candidates also get it)
         const picCandidates = [d.profilePicture, d.picture, d.profile_photo, d.profile_pic_url];
         let pic = "";
         for (const c of picCandidates) {
           if (typeof c === "string" && c.startsWith("http")) { pic = c; break; }
         }
 
+        // Fetch posts to check activity
+        const empPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${empSlug}/`, 3);
+
+        if (empPosts.length === 0) {
+          console.log(`[find-employees]   inactive ${empSlug}: no posts`);
+          return { candidate: { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth: 0 }, inactive: true };
+        }
+
+        // Check if most recent post is within last 90 days
+        const now = Date.now();
+        const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+        const recentPostDate = extractPostDate(empPosts[0] as Record<string, unknown>);
+        const postsPerMonth = computePostsPerMonth(empPosts as Array<Record<string, unknown>>);
+
+        if (recentPostDate && now - recentPostDate.getTime() > ninetyDaysMs) {
+          console.log(`[find-employees]   inactive ${empSlug}: last post ${recentPostDate.toISOString().slice(0, 10)}`);
+          return { candidate: { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth }, inactive: true };
+        }
+
+        // Language check — at least one post must be in target language
+        if (country && COUNTRY_LANG[country]) {
+          const targetLang = COUNTRY_LANG[country];
+          const hasTargetLangPost = empPosts.some((p) => {
+            const text = String((p as Record<string, unknown>).text ?? (p as Record<string, unknown>).text_content ?? "");
+            return isTargetLanguage(text, targetLang);
+          });
+          if (!hasTargetLangPost) {
+            console.log(`[find-employees]   skip ${empSlug}: no posts in ${targetLang}`);
+            return null;
+          }
+        }
+
         console.log(`[find-employees]   ✓ ${name} — ${headline.slice(0, 50)} — ${postsPerMonth}/mês`);
-        return { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth };
+        return { candidate: { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth }, inactive: false };
       } catch {
         return null;
       }
     }));
-    employees.push(...results.filter((r): r is EmpCandidate => r !== null));
+    for (const r of results) {
+      if (!r) continue;
+      if (r.inactive) {
+        inactiveEmployees.push(r.candidate);
+      } else {
+        activeEmployees.push(r.candidate);
+      }
+    }
   }
 
-  console.log(`[find-employees] ${companyName}: ${employees.length} active employees found`);
-  return employees;
+  console.log(`[find-employees] ${companyName}: ${activeEmployees.length} active, ${inactiveEmployees.length} inactive employees found`);
+  return { active: activeEmployees, inactive: inactiveEmployees };
 }

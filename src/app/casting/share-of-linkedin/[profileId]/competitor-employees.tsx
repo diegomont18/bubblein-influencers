@@ -21,13 +21,15 @@ export default function CompetitorEmployees({
       <p className="text-[10px] text-white/30 uppercase tracking-wider">
         Executivos ({employees.length})
       </p>
-      {employees.map((emp, i) => (
-        <div key={emp.slug} className="flex items-center gap-2 bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-1.5 group/emp">
+      {employees.map((emp, i) => {
+        const empPending = !emp.headline && !emp.profilePicUrl;
+        return (
+        <div key={emp.slug} className={`flex items-center gap-2 bg-white/[0.02] border rounded-lg px-3 py-1.5 group/emp ${empPending ? "border-[#f59e0b]/20" : "border-white/[0.06]"}`}>
           <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 bg-white/10">
             {emp.profilePicUrl ? (
               <img src={emp.profilePicUrl} alt="" className="w-6 h-6 rounded-full object-cover" />
             ) : (
-              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white/40">
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${empPending ? "text-[#f59e0b]/60" : "text-white/40"}`}>
                 {emp.name[0]?.toUpperCase()}
               </div>
             )}
@@ -35,10 +37,10 @@ export default function CompetitorEmployees({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
               <a href={emp.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/80 font-medium truncate hover:text-[#ca98ff] transition-colors">{emp.name}</a>
-              <PostsFreqBadge ppm={(emp as unknown as Record<string,unknown>).postsPerMonth as number | undefined} />
-
+              {empPending && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-[#f59e0b] bg-[#f59e0b]/10">Pendente</span>}
+              {!empPending && <PostsFreqBadge ppm={(emp as unknown as Record<string,unknown>).postsPerMonth as number | undefined} />}
             </div>
-            <p className="text-[10px] text-white/30 truncate">{emp.headline.slice(0, 50)}</p>
+            {emp.headline ? <p className="text-[10px] text-white/30 truncate">{emp.headline.slice(0, 50)}</p> : <p className="text-[10px] text-white/20 italic">Clique Processar na empresa</p>}
           </div>
           <button
             onClick={() => onUpdate(employees.filter((_, j) => j !== i))}
@@ -47,7 +49,8 @@ export default function CompetitorEmployees({
             &times;
           </button>
         </div>
-      ))}
+        );
+      })}
       <div className="flex gap-1.5">
         <input
           type="text"

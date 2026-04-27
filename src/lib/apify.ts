@@ -370,7 +370,7 @@ export async function searchLinkedInPosts(params: {
  */
 export interface FetchEngagersCostCtx {
   userId?: string;
-  source?: "casting" | "leads" | "enrichment";
+  source?: "casting" | "leads" | "enrichment" | "sol";
   searchId?: string;
 }
 

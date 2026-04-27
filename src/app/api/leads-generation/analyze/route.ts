@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { fetchProfilePosts, fetchLinkedInProfileApify, fetchLinkedInCompany, searchGoogleApify } from "@/lib/apify";
-import { analyzeProfileForLeads, analyzeCompanyForShareOfLinkedin, scoreCompetitorAdherence } from "@/lib/ai";
+import { fetchProfilePosts, fetchLinkedInProfileApify, fetchLinkedInCompany } from "@/lib/apify";
+import { analyzeProfileForLeads, analyzeCompanyForShareOfLinkedin, extractBrands } from "@/lib/ai";
 import { scrapeWebsite } from "@/lib/firecrawl";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { isApifyBlocked } from "@/lib/apify-usage";
@@ -57,8 +57,9 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { profileUrl, country: rawCountry } = body;
+  const { profileUrl, country: rawCountry, competitorUrls: userCompetitorUrls } = body;
   const country = rawCountry || "br";
+  const competitorUrlsFromUser = (userCompetitorUrls ?? []) as string[];
   if (!profileUrl || !profileUrl.includes("linkedin.com")) {
     return NextResponse.json({ error: "Valid LinkedIn profile URL is required" }, { status: 400 });
   }
@@ -197,8 +198,8 @@ export async function POST(request: Request) {
       // ------------------------------------------------------------------
       const companyName = companyInfo?.name ?? slug.replace(/-/g, " ");
       console.log(`[analyze] Company ${slug}: searching employees...`);
-      const allEmployees = await findActiveEmployees(slug, companyName, user.id, profile.id, 12, false, country);
-      console.log(`[analyze] Company ${slug}: ${allEmployees.length} active employees found`);
+      const { active: allEmployees, inactive: inactiveEmployees } = await findActiveEmployees(slug, companyName, user.id, profile.id, 12, false, country);
+      console.log(`[analyze] Company ${slug}: ${allEmployees.length} active, ${inactiveEmployees.length} inactive employees found`);
       /* LEGACY inline search replaced by findActiveEmployees */
       const slugName = slug.replace(/-/g, " ");
       void slugName; // keep for backward compat references
@@ -226,163 +227,89 @@ export async function POST(request: Request) {
       logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "openrouter", operation: "analyzeCompanyForShareOfLinkedin", estimatedCost: API_COSTS.openrouter.classifyTopics });
       console.log(`[analyze] Company ${slug}: AI themes="${(aiResult?.themes ?? "").slice(0, 100)}"`);
 
-      // 4.5. SERP: find competitors via Google (primary source)
-      const companySpecialties = companyInfo?.specialties ?? "";
-      const companyIndustry = companyInfo?.industry ?? "";
-      const siteKeywords = companySiteContent.slice(0, 100).replace(/[^\w\s]/g, " ").trim();
-      console.log(`[analyze] Company ${slug}: searching competitors via SERP...`);
-      const serpCompNames: string[] = [];
-      const seenCompSlugs = new Set<string>();
-      seenCompSlugs.add(slug);
-
-      const serpCompQueries = [
-        `"${companyName}" concorrentes OR competitors OR alternativas`,
-        `${companySpecialties || companyIndustry} empresa ${country === "br" ? "brasil" : ""} site:linkedin.com/company`,
-        `${siteKeywords.split(" ").slice(0, 5).join(" ")} ${country === "br" ? "brasil" : ""} site:linkedin.com/company`,
-      ].filter((q) => q.trim().length > 10);
-
-      try {
-        const serpResults = await Promise.all(
-          serpCompQueries.map((q) => searchGoogleApify(q, { results: 10, country: country || undefined }).catch(() => ({ results: [] })))
-        );
-        serpCompQueries.forEach(() => {
-          logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "apify", operation: "searchGoogleApify", estimatedCost: API_COSTS.apify.searchGoogleApify, metadata: { context: "competitor-serp" } });
-        });
-        for (const sr of serpResults) {
-          for (const r of sr.results) {
-            const compSlugMatch = r.link.match(/linkedin\.com\/company\/([^/?#]+)/)?.[1];
-            if (compSlugMatch && compSlugMatch.length > 2 && !seenCompSlugs.has(compSlugMatch)) {
-              seenCompSlugs.add(compSlugMatch);
-              const displayName = compSlugMatch.replace(/-/g, " ");
-              serpCompNames.push(displayName);
-              console.log(`[analyze]   SERP competitor: ${displayName} (${compSlugMatch})`);
-            }
-          }
-        }
-        console.log(`[analyze] Company ${slug}: SERP found ${serpCompNames.length} competitor candidates`);
-      } catch (err) {
-        console.error(`[analyze] SERP competitor search failed:`, err);
-      }
-
-      const aiCompNames = serpCompNames.slice(0, 10);
-
-      // 5. Fetch competitor LinkedIn pages (logos + website URLs)
-      console.log(`[analyze] Company ${slug}: fetching ${aiCompNames.length} competitors from LinkedIn...`);
-      const competitorData = await Promise.all(
-        aiCompNames.slice(0, 8).map(async (cname) => {
-          const compSlug = cname.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-          try {
-            const cr = await fetchLinkedInCompany(compSlug);
-            const logo = cr.data?.profilePicUrl ?? "";
-            const realName = cr.data?.name ?? cname;
-            const url = cr.status === 200 ? `https://www.linkedin.com/company/${compSlug}/` : "";
-            const websiteUrl = (cr.data as unknown as Record<string, unknown>)?.websiteUrl ?? cr.data?.website ?? "";
-            return { name: realName || cname, logoUrl: logo, url, websiteUrl: String(websiteUrl) };
-          } catch {
-            return { name: cname, logoUrl: "", url: "", websiteUrl: "" };
-          }
-        })
-      );
-
-      // 6. Firecrawl: scrape company + competitor websites for adherence scoring
-      // 6. Scrape competitor websites (company site already scraped in step 3.5)
-      console.log(`[analyze] Company ${slug}: scraping competitor websites...`);
-      const competitorScrapes = await Promise.all(
-        competitorData.map(async (c) => {
-          if (!c.websiteUrl) return { ...c, siteContent: "", score: 0, reason: "", selected: false };
-          const scrape = await scrapeWebsite(c.websiteUrl, { userId: user.id, searchId: profile.id });
-          const content = scrape ? `${scrape.title}. ${scrape.description}. ${scrape.content}` : "";
-          return { ...c, siteContent: content, score: 0, reason: "", selected: false };
-        })
-      );
-
-      // 7. AI: score competitor adherence + enrich themes
-      let enrichedThemes = aiResult?.themes ?? "";
-      const competitorsWithScores = competitorScrapes.map((c) => ({ ...c }));
-
-      // Score ALL competitors — those with site data get richer analysis, others scored by AI knowledge
-      const allForScoring = competitorScrapes.map((c) => ({
-        name: c.name,
-        siteContent: c.siteContent.length > 50 ? c.siteContent : `(no website data - score based on company name and market knowledge)`,
-      }));
-      if (allForScoring.length > 0) {
-        console.log(`[analyze] Company ${slug}: scoring ${allForScoring.length} competitors (${competitorScrapes.filter(c => c.siteContent.length > 50).length} with site data)...`);
-        const scoreResult = await scoreCompetitorAdherence(
-          companyInfo?.name ?? slug,
-          companyInfo?.description ?? "",
-          companySiteContent,
-          allForScoring,
-          country,
-        );
-        logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "openrouter", operation: "scoreCompetitorAdherence", estimatedCost: API_COSTS.openrouter.classifyTopics });
-
-        if (scoreResult) {
-          if (scoreResult.enrichedThemes) enrichedThemes = scoreResult.enrichedThemes;
-          for (const s of scoreResult.scores) {
-            const match = competitorsWithScores.find((c) => c.name.toLowerCase() === s.name.toLowerCase());
-            if (match) { match.score = s.score; match.reason = s.reason; }
-          }
-        }
-      }
-
-      // Select top 2 competitors by score
-      const sorted = [...competitorsWithScores].sort((a, b) => b.score - a.score);
-      const topNames = new Set(sorted.slice(0, 2).filter((c) => c.score > 0).map((c) => c.name));
-      for (const c of competitorsWithScores) { c.selected = topNames.has(c.name); }
-
-      // Build final competitors array (drop siteContent to save DB space).
-      // `postsPerMonth` is attached further below after fetching competitor posts.
-      type CompetitorEntry = Omit<typeof competitorsWithScores[number], "siteContent"> & { postsPerMonth?: number };
-      const competitors: CompetitorEntry[] = competitorsWithScores.map(({ siteContent: _, ...rest }) => rest);
-      const selectedComps = competitors.filter((c) => c.selected);
-      console.log(`[analyze] Company ${slug}: ${competitors.length} competitors, ${selectedComps.length} selected`);
-
       // 7.5. Compute posts/month for the main company page (reuse rawPosts)
       const companyPostsPerMonth = computePostsPerMonth(rawPosts);
       console.log(`[analyze] Company ${slug}: companyPPM=${companyPostsPerMonth}`);
 
-      // 7.6. Fetch 3 posts per selected competitor to estimate their posting frequency
-      if (selectedComps.length > 0) {
-        const freqResults = await Promise.all(
-          selectedComps.map(async (c) => {
-            const url = String(c.url ?? "");
-            if (!url) return { name: String(c.name ?? ""), postsPerMonth: 0 };
-            const posts = await fetchProfilePosts(url, 3).catch(() => [] as Array<Record<string, unknown>>);
-            logApiCost({
-              userId: user.id,
-              source: "leads",
-              searchId: profile.id,
-              provider: "apify",
-              operation: "fetchProfilePosts",
-              estimatedCost: API_COSTS.apify.fetchProfilePosts,
-              metadata: { context: "competitor-frequency", competitor: c.name, postsFound: posts.length },
-            });
-            return { name: String(c.name ?? ""), postsPerMonth: computePostsPerMonth(posts) };
+      // Extract proprietary brands for the main company
+      let mainBrands = await extractBrands(companyName, companySiteContent, String(companyInfo?.description ?? ""));
+      // Fallback: use brands from Gemini analysis if DeepSeek + Gemini Lite both failed
+      if (mainBrands.length === 0 && aiResult?.brands && aiResult.brands.length > 0) {
+        console.log(`[analyze] Company ${slug}: using Gemini brands as fallback`);
+        mainBrands = aiResult.brands;
+      }
+      // Always ensure company name is first
+      if (mainBrands.length === 0 || mainBrands[0]?.toLowerCase() !== companyName.toLowerCase()) {
+        mainBrands = [companyName, ...mainBrands.filter((b) => b.toLowerCase() !== companyName.toLowerCase())];
+      }
+      console.log(`[analyze] Company ${slug}: brands=${JSON.stringify(mainBrands)}`);
+
+      const enrichedThemes = aiResult?.themes ?? "";
+      type CompetitorEntry = { name: string; logoUrl: string; url: string; score: number; reason: string; selected: boolean; postsPerMonth?: number; employeeCount?: number };
+      const competitors: CompetitorEntry[] = [];
+      const competitorEmployees: Record<string, EmpCandidate[]> = {};
+      const inactiveCompetitorEmployees: Record<string, EmpCandidate[]> = {};
+      const competitorBrands: Record<string, string[]> = {};
+
+      if (competitorUrlsFromUser.length > 0) {
+        // ---- USER-PROVIDED COMPETITORS: fetch info + employees directly ----
+        console.log(`[analyze] Company ${slug}: processing ${competitorUrlsFromUser.length} user-provided competitors...`);
+
+        const compResults = await Promise.all(
+          competitorUrlsFromUser.map(async (compUrl) => {
+            const compSlug = compUrl.match(/\/company\/([^/?#]+)/)?.[1]?.replace(/\/$/, "") ?? "";
+            if (!compSlug) return null;
+            const companyUrl = `https://www.linkedin.com/company/${compSlug}/`;
+
+            // Fetch company info
+            const cr = await fetchLinkedInCompany(compSlug).catch(() => ({ status: 0, data: null as Record<string, unknown> | null }));
+            logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "apify", operation: "fetchLinkedInCompany", estimatedCost: API_COSTS.apify.fetchLinkedInCompany, metadata: { slug: compSlug, context: "user-competitor" } });
+
+            const realName = cr.data?.name || compSlug.replace(/-/g, " ");
+            const logoUrl = cr.data?.profilePicUrl || "";
+            const employeeCount = cr.data?.employeeCount ?? 0;
+
+            // Scrape competitor website for brand extraction
+            const compWebsiteUrl = String((cr.data as unknown as Record<string, unknown>)?.websiteUrl ?? (cr.data as unknown as Record<string, unknown>)?.website ?? "");
+            let compSiteContent = "";
+            if (compWebsiteUrl) {
+              const scrape = await scrapeWebsite(compWebsiteUrl, { userId: user.id, searchId: profile.id });
+              if (scrape) compSiteContent = `${scrape.title}. ${scrape.description}. ${scrape.content}`;
+            }
+            const compBrands = await extractBrands(String(realName), compSiteContent, String(cr.data?.description ?? ""));
+
+            // Fetch posts for frequency
+            const posts = await fetchProfilePosts(companyUrl, 5).catch(() => [] as Array<Record<string, unknown>>);
+            logApiCost({ userId: user.id, source: "leads", searchId: profile.id, provider: "apify", operation: "fetchProfilePosts", estimatedCost: API_COSTS.apify.fetchProfilePosts, metadata: { slug: compSlug, context: "user-competitor-freq" } });
+            const postsPerMonth = computePostsPerMonth(posts);
+
+            // Search executives
+            const { active: activeEmps, inactive: inactiveEmps } = await findActiveEmployees(compSlug, String(realName), user.id, profile.id, 12, true, country);
+            console.log(`[analyze]   Competitor ${realName}: ${activeEmps.length} active, ${inactiveEmps.length} inactive executives`);
+
+            return {
+              comp: { name: String(realName), logoUrl: String(logoUrl), url: companyUrl, score: 0, reason: "user-provided", selected: true, postsPerMonth, employeeCount } as CompetitorEntry,
+              activeEmps,
+              inactiveEmps,
+              brands: compBrands,
+            };
           })
         );
-        for (const r of freqResults) {
-          const match = competitors.find((c) => c.name === r.name);
-          if (match) match.postsPerMonth = r.postsPerMonth;
+
+        for (const r of compResults) {
+          if (!r) continue;
+          competitors.push(r.comp);
+          competitorEmployees[r.comp.name] = r.activeEmps;
+          inactiveCompetitorEmployees[r.comp.name] = r.inactiveEmps;
+          if (r.brands.length > 0) competitorBrands[r.comp.name] = r.brands;
         }
-        console.log(`[analyze] Company ${slug}: competitorPPM=${JSON.stringify(freqResults)}`);
+        console.log(`[analyze] Company ${slug}: ${competitors.length} user-provided competitors processed`);
+      } else {
+        // ---- NO COMPETITORS: skip SERP discovery ----
+        console.log(`[analyze] Company ${slug}: no competitors provided, skipping competitor discovery`);
       }
 
-      // 8. Find active employees for each selected competitor (in parallel)
-      const competitorEmployees: Record<string, EmpCandidate[]> = {};
-      if (selectedComps.length > 0) {
-        console.log(`[analyze] Searching employees for ${selectedComps.length} selected competitors...`);
-        const compEmpResults = await Promise.all(
-          selectedComps.map(async (comp) => {
-            const compSlug = comp.url.match(/\/company\/([^/?#]+)/)?.[1] ?? comp.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-            const emps = await findActiveEmployees(compSlug, comp.name, user.id, profile.id, 4, true, country);
-            return { name: comp.name, employees: emps };
-          })
-        );
-        for (const r of compEmpResults) {
-          competitorEmployees[r.name] = r.employees;
-          console.log(`[analyze]   ${r.name}: ${r.employees.length} employees`);
-        }
-      }
+      // NOTE: SERP competitor discovery code is available in /api/sol/discover-competitors for on-demand use
 
       const employeeProfiles = allEmployees.map((e) => ({
         name: e.name, slug: e.slug, headline: e.headline,
@@ -397,17 +324,11 @@ export async function POST(request: Request) {
         employee_profiles: employeeProfiles,
         icp_description: "",
         company_posts_per_month: companyPostsPerMonth,
-        proprietary_brands: (() => {
-          const brandName = companyInfo?.name ?? slug.replace(/-/g, " ");
-          const aiBrands = (aiResult?.brands ?? []).filter(
-            (b) => b.toLowerCase() !== brandName.toLowerCase()
-          );
-          return [brandName, ...aiBrands];
-        })(),
+        proprietary_brands: mainBrands.length > 0 ? mainBrands : [companyInfo?.name ?? slug.replace(/-/g, " ")],
         job_titles: [],
         departments: [],
         company_sizes: [],
-        ai_response: { ...aiResult, companyInfo, employeeCount: allEmployees.length, competitor_employees: competitorEmployees, country },
+        ai_response: { ...aiResult, companyInfo, employeeCount: allEmployees.length, competitor_employees: competitorEmployees, inactive_competitor_employees: inactiveCompetitorEmployees, inactive_employees: inactiveEmployees, company_brands: mainBrands, competitor_brands: competitorBrands, country },
       };
 
       const { data: savedOptions, error: optError } = await service

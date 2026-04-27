@@ -23,7 +23,7 @@ interface Options {
   departments: string[];
   company_sizes: string[];
   // Share of LinkedIn fields (company flow)
-  competitors?: Array<{ name: string; logoUrl?: string; url?: string; score?: number; reason?: string; selected?: boolean; postsPerMonth?: number } | string>;
+  competitors?: Array<{ name: string; logoUrl?: string; url?: string; score?: number; reason?: string; selected?: boolean; postsPerMonth?: number; _pending?: boolean; employeeCount?: number } | string>;
   employee_profiles?: Array<{ name: string; slug: string; headline: string; linkedinUrl: string; profilePicUrl?: string; postsPerMonth?: number }>;
   icp_description?: string;
   company_posts_per_month?: number | null;
@@ -175,6 +175,17 @@ export default function LeadsGenerationOptionsPage() {
   // Profile history for dropdown
   const [profileHistory, setProfileHistory] = useState<AnalyzedProfile[]>([]);
 
+  // SOL (Share of LinkedIn) report state
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [solReportStatus, setSolReportStatus] = useState<"idle" | "processing" | "complete" | "failed" | "cancelled">("idle");
+  const [currentReportId, setCurrentReportId] = useState<string | null>(null);
+  const [solReports, setSolReports] = useState<Array<{ id: string; status: string; period_start: string; period_end: string }>>([]);
+  const [solPostsCollected, setSolPostsCollected] = useState(0);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const solPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [processingCompetitorIdxs, setProcessingCompetitorIdxs] = useState<Set<number>>(new Set());
+  const [processingEmployees, setProcessingEmployees] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
       const [optRes, resultsRes, historyRes, meRes] = await Promise.all([
@@ -201,8 +212,15 @@ export default function LeadsGenerationOptionsPage() {
           job_titles: data.options.job_titles ?? [],
           departments: data.options.departments ?? [],
           company_sizes: data.options.company_sizes ?? [],
-          // Share of LinkedIn fields
-          competitors: data.options.competitors ?? [],
+          // Share of LinkedIn fields — normalize string competitors to objects
+          competitors: (data.options.competitors ?? []).map((c: unknown) => {
+            if (typeof c === "string") {
+              const slugMatch = (c as string).match(/linkedin\.com\/company\/([^/?#]+)/);
+              const slug = slugMatch ? slugMatch[1].replace(/\/$/, "") : (c as string).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+              return { name: slug.replace(/-/g, " "), url: `https://www.linkedin.com/company/${slug}/`, selected: true, _pending: true };
+            }
+            return c;
+          }),
           employee_profiles: data.options.employee_profiles ?? [],
           icp_description: data.options.icp_description ?? "",
           company_posts_per_month: data.options.company_posts_per_month ?? null,
@@ -222,11 +240,210 @@ export default function LeadsGenerationOptionsPage() {
         const data = await historyRes.json();
         setProfileHistory(data.profiles ?? []);
       }
+
+      // Fetch SOL reports
+      try {
+        const solRes = await fetch(`/api/sol/reports?profileId=${profileId}`);
+        if (solRes.ok) {
+          const solData = await solRes.json();
+          const reps = solData.reports ?? [];
+          setSolReports(reps);
+          // Determine current status
+          const processing = reps.find((r: { status: string }) => r.status === "processing");
+          const complete = reps.find((r: { status: string }) => r.status === "complete");
+          if (processing) {
+            setSolReportStatus("processing");
+            setCurrentReportId(processing.id);
+          } else if (complete) {
+            setSolReportStatus("complete");
+            setCurrentReportId(complete.id);
+          }
+        }
+      } catch { /* ignore */ }
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }, [profileId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // SOL polling effect
+  useEffect(() => {
+    if (solReportStatus !== "processing" || !currentReportId) {
+      if (solPollRef.current) { clearInterval(solPollRef.current); solPollRef.current = null; }
+      return;
+    }
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/sol/reports/${currentReportId}/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setSolPostsCollected(data.posts_collected ?? 0);
+        if (data.status === "complete") {
+          setSolReportStatus("complete");
+        } else if (data.status === "failed") {
+          setSolReportStatus("failed");
+        } else if (data.status === "cancelled") {
+          setSolReportStatus("cancelled");
+        }
+      } catch { /* ignore */ }
+    };
+    poll();
+    solPollRef.current = setInterval(poll, 5000);
+    return () => { if (solPollRef.current) { clearInterval(solPollRef.current); solPollRef.current = null; } };
+  }, [solReportStatus, currentReportId]);
+
+  async function handleConfirmMapping() {
+    setConfirmLoading(true);
+    try {
+      const res = await fetch("/api/sol/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId }),
+      });
+      if (!res.ok) {
+        setErrorMessage("Erro ao iniciar geração do relatório.");
+        return;
+      }
+      const data = await res.json();
+      setCurrentReportId(data.reportId);
+      setSolReportStatus("processing");
+      setShowConfirmModal(false);
+      setSolPostsCollected(0);
+    } catch {
+      setErrorMessage("Erro ao iniciar geração do relatório.");
+    } finally {
+      setConfirmLoading(false);
+    }
+  }
+
+  async function handleCancelReport() {
+    if (!currentReportId) return;
+    try {
+      await fetch("/api/sol/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId: currentReportId }),
+      });
+      setSolReportStatus("cancelled");
+    } catch { /* ignore */ }
+  }
+
+  async function handleProcessCompetitor(index: number, slug: string) {
+    setProcessingCompetitorIdxs((prev) => new Set(prev).add(index));
+    try {
+      const res = await fetch("/api/sol/process-competitor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId, competitorIndex: index, slug }),
+      });
+      if (!res.ok) {
+        setErrorMessage("Erro ao processar concorrente.");
+        return;
+      }
+      const data = await res.json();
+      setOptions((prev) => {
+        if (!prev) return prev;
+        const updated = { ...prev };
+        const comps = [...(updated.competitors ?? [])];
+        comps[index] = data.competitor;
+        updated.competitors = comps;
+        const aiResp = { ...(updated.ai_response as Record<string, unknown>) };
+        const ce = { ...(aiResp.competitor_employees as Record<string, unknown> ?? {}) };
+        ce[data.competitor.name] = data.employees;
+        aiResp.competitor_employees = ce;
+        // Save inactive employees
+        const ice = { ...(aiResp.inactive_competitor_employees as Record<string, unknown> ?? {}) };
+        ice[data.competitor.name] = data.inactiveEmployees ?? [];
+        aiResp.inactive_competitor_employees = ice;
+        updated.ai_response = aiResp;
+        return updated;
+      });
+    } catch {
+      setErrorMessage("Erro ao processar concorrente.");
+    } finally {
+      setProcessingCompetitorIdxs((prev) => {
+        const next = new Set(prev);
+        next.delete(index);
+        return next;
+      });
+    }
+  }
+
+  async function handleProcessAllCompetitors() {
+    if (!options) return;
+    const comps = (options.competitors ?? []) as Array<Record<string, unknown>>;
+    const inactiveCompEmpsAll = ((options.ai_response as Record<string, unknown>)?.inactive_competitor_employees ?? {}) as Record<string, unknown>;
+    const pending: Array<{ index: number; slug: string }> = [];
+    comps.forEach((comp, i) => {
+      if (typeof comp !== "object" || !comp || !comp.selected) return;
+      const url = String(comp.url ?? "");
+      const sl = url.match(/\/company\/([^/?#]+)/)?.[1] ?? "";
+      if (!sl) return;
+      const companyPending = comp._pending || (!comp.logoUrl && comp.postsPerMonth == null);
+      const nm = String(comp.name ?? "");
+      const compEmps = ((options.ai_response as Record<string, unknown>)?.competitor_employees as Record<string, unknown[]>)?.[nm] ?? [];
+      const hasInactiveCached = !!inactiveCompEmpsAll[nm];
+      const needsProc = companyPending || compEmps.length === 0 || !hasInactiveCached;
+      if (needsProc) pending.push({ index: i, slug: sl });
+    });
+    await Promise.all(pending.map((p) => handleProcessCompetitor(p.index, p.slug)));
+  }
+
+  async function handleProcessEmployees() {
+    setProcessingEmployees(true);
+    try {
+      const res = await fetch("/api/sol/process-employees", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId }),
+      });
+      if (!res.ok) {
+        setErrorMessage("Erro ao processar colaboradores.");
+        return;
+      }
+      const data = await res.json();
+      if (options) {
+        setOptions({ ...options, employee_profiles: data.employees });
+      }
+    } catch {
+      setErrorMessage("Erro ao processar colaboradores.");
+    } finally {
+      setProcessingEmployees(false);
+    }
+  }
+
+  const [discoveringCompetitors, setDiscoveringCompetitors] = useState(false);
+  const [discoveredCompetitors, setDiscoveredCompetitors] = useState<Array<{ name: string; logoUrl: string; url: string; employeeCount: number }> | null>(null);
+
+  async function handleDiscoverCompetitors() {
+    setDiscoveringCompetitors(true);
+    setDiscoveredCompetitors(null);
+    try {
+      const res = await fetch("/api/sol/discover-competitors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId }),
+      });
+      if (!res.ok) {
+        setErrorMessage("Erro ao procurar concorrentes.");
+        return;
+      }
+      const data = await res.json();
+      setDiscoveredCompetitors(data.competitors ?? []);
+    } catch {
+      setErrorMessage("Erro ao procurar concorrentes.");
+    } finally {
+      setDiscoveringCompetitors(false);
+    }
+  }
+
+  function addDiscoveredCompetitor(comp: { name: string; logoUrl: string; url: string; employeeCount: number }) {
+    if (!options) return;
+    const newComp = { name: comp.name, logoUrl: comp.logoUrl, url: comp.url, selected: true, _pending: true, employeeCount: comp.employeeCount };
+    autoSave({ ...options, competitors: [...(options.competitors ?? []), newComp] });
+    // Remove from discovered list
+    setDiscoveredCompetitors((prev) => prev ? prev.filter((c) => c.url !== comp.url) : null);
+  }
 
   function autoSave(updated: Options) {
     setOptions(updated);
@@ -570,7 +787,6 @@ export default function LeadsGenerationOptionsPage() {
                 <span>Colaboradores: <span className="text-white font-bold">{(options.employee_profiles ?? []).length}</span></span>
                 <span>Concorrentes: <span className="text-white font-bold">{(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).length}</span></span>
                 <span>Temas: <span className="text-white font-bold">{options.market_context ? "preenchido" : "vazio"}</span></span>
-                <span>Marcas: <span className="text-white font-bold">{(options.proprietary_brands ?? []).length}</span></span>
               </div>
               <span className="text-sm font-bold text-[#ca98ff] uppercase tracking-wider group-hover:translate-x-1 transition-transform">Editar mapeamento →</span>
             </button>
@@ -620,6 +836,35 @@ export default function LeadsGenerationOptionsPage() {
                         )}
                       </div>
                     </div>
+                    {/* Company brands */}
+                    {(() => {
+                      const brands = ((options.ai_response as Record<string,unknown>)?.company_brands as string[]) ?? (options.proprietary_brands ?? []);
+                      const updateBrands = (updated: string[]) => {
+                        autoSave({ ...options, proprietary_brands: updated, ai_response: { ...(options.ai_response as Record<string,unknown>), company_brands: updated } });
+                      };
+                      return (
+                        <div className="mt-3">
+                          <p className="text-[0.6rem] font-bold tracking-[0.15em] text-white/30 uppercase mb-1.5">Marcas proprietárias</p>
+                          {brands.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {brands.map((b, i) => (
+                                <span key={`${b}-${i}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-xs text-[#ca98ff]">
+                                  <span className="font-medium">{b}</span>
+                                  <button type="button" onClick={() => updateBrands(brands.filter((_, j) => j !== i))} className="text-[#ca98ff]/60 hover:text-[#ff946e] transition-colors text-sm leading-none">&times;</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <input type="text" placeholder="Adicionar marca e pressionar Enter" className="w-full bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 text-xs text-white placeholder-white/20 outline-none focus:border-[#ca98ff]/40 transition-colors" onKeyDown={(e) => {
+                            if (e.key !== "Enter") return;
+                            const val = e.currentTarget.value.trim();
+                            if (!val || brands.some((b) => b.toLowerCase() === val.toLowerCase())) { e.currentTarget.value = ""; return; }
+                            updateBrands([...brands, val]);
+                            e.currentTarget.value = "";
+                          }} />
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -630,21 +875,23 @@ export default function LeadsGenerationOptionsPage() {
                   Colaboradores Ativos ({(options.employee_profiles ?? []).length})
                 </label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {(options.employee_profiles ?? []).map((emp, i) => (
-                    <div key={i} className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors">
+                  {(options.employee_profiles ?? []).map((emp, i) => {
+                    const empPending = !emp.headline && !emp.profilePicUrl;
+                    return (
+                    <div key={i} className={`flex items-center gap-3 bg-white/[0.02] border rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors ${empPending ? "border-[#f59e0b]/20" : "border-white/[0.08]"}`}>
                       <div className="w-10 h-10 rounded-full bg-[#262626] flex items-center justify-center shrink-0 overflow-hidden">
                         {emp.profilePicUrl ? (
                           <img src={emp.profilePicUrl} alt="" className="w-10 h-10 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                         ) : (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#adaaaa" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={empPending ? "#f59e0b" : "#adaaaa"} strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm text-white font-medium truncate">{emp.name}</p>
-                          <PostsFreqBadge ppm={(emp as Record<string,unknown>).postsPerMonth as number | undefined} size="md" />
+                          {empPending ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-[#f59e0b] bg-[#f59e0b]/10">Pendente</span> : <PostsFreqBadge ppm={(emp as Record<string,unknown>).postsPerMonth as number | undefined} size="md" />}
                         </div>
-                        <p className="text-[10px] text-white/40 truncate">{emp.headline}</p>
+                        {emp.headline ? <p className="text-[10px] text-white/40 truncate">{emp.headline}</p> : <p className="text-[10px] text-white/20 italic">Processar para buscar dados</p>}
                         {emp.linkedinUrl && (
                           <a href={emp.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">
                             {emp.linkedinUrl.replace("https://www.linkedin.com", "").replace("https://linkedin.com", "")}
@@ -660,7 +907,8 @@ export default function LeadsGenerationOptionsPage() {
                         title="Remover"
                       >&times;</button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {/* Add employee input */}
                 <div className="flex gap-2">
@@ -695,11 +943,88 @@ export default function LeadsGenerationOptionsPage() {
                     + Adicionar
                   </button>
                 </div>
+                {(options.employee_profiles ?? []).some((e) => !e.headline && !e.profilePicUrl) && (
+                  <button
+                    onClick={handleProcessEmployees}
+                    disabled={processingEmployees}
+                    className="w-full py-2.5 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] text-xs font-bold hover:bg-[#ca98ff]/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {processingEmployees ? (
+                      <>
+                        <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        Processando colaboradores...
+                      </>
+                    ) : (
+                      <>Processar {(options.employee_profiles ?? []).filter((e) => !e.headline && !e.profilePicUrl).length} colaborador(es) pendente(s)</>
+                    )}
+                  </button>
+                )}
+                {/* Inactive employees — executives found but without recent posts */}
+                {(() => {
+                  const inactiveEmps = ((options.ai_response as Record<string,unknown>)?.inactive_employees as Array<{name:string;slug:string;headline:string;linkedinUrl:string;profilePicUrl:string;postsPerMonth:number}>) ?? [];
+                  const activeSlugs = new Set((options.employee_profiles ?? []).map((e) => e.slug));
+                  const available = inactiveEmps.filter((e) => !activeSlugs.has(e.slug));
+                  if (available.length === 0) return null;
+                  return (
+                    <details className="group">
+                      <summary className="cursor-pointer text-xs text-white/30 hover:text-white/50 select-none flex items-center gap-1.5">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-open:rotate-90 shrink-0"><path d="m9 18 6-6-6-6"/></svg>
+                        {available.length} executivo(s) sem postagens recentes
+                      </summary>
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                        {available.map((emp) => (
+                          <div key={emp.slug} className="flex items-center gap-2.5 bg-white/[0.01] border border-white/[0.05] rounded-lg px-3 py-2">
+                            <div className="w-8 h-8 rounded-full bg-[#262626] flex items-center justify-center shrink-0 overflow-hidden">
+                              {emp.profilePicUrl ? <img src={emp.profilePicUrl} alt="" className="w-8 h-8 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-white/50 font-medium truncate">{emp.name}</p>
+                              {emp.headline && <p className="text-[9px] text-white/25 truncate">{emp.headline}</p>}
+                            </div>
+                            <span className="text-[9px] text-white/20 shrink-0">{emp.postsPerMonth ?? 0}/mês</span>
+                            <button
+                              onClick={() => autoSave({ ...options, employee_profiles: [...(options.employee_profiles ?? []), emp] })}
+                              className="text-[9px] font-bold px-2 py-1 rounded-lg bg-[#ca98ff]/10 text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors shrink-0"
+                            >+ Adicionar</button>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  );
+                })()}
               </div>
 
               {/* Section 2: Empresas Concorrentes */}
               <div className="space-y-3">
                 <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">Concorrentes Selecionados ({(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).length})</label>
+                {(() => {
+                  const selectedComps = (options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected) as Array<Record<string, unknown>>;
+                  const inactiveCompEmpsAll = ((options.ai_response as Record<string, unknown>)?.inactive_competitor_employees ?? {}) as Record<string, unknown>;
+                  const pendingCount = selectedComps.filter((c) => {
+                    const compPending = c._pending || (!c.logoUrl && c.postsPerMonth == null);
+                    const nm = String(c.name ?? "");
+                    const compEmps = ((options.ai_response as Record<string, unknown>)?.competitor_employees as Record<string, unknown[]>)?.[nm] ?? [];
+                    const hasInactiveCached = !!inactiveCompEmpsAll[nm];
+                    return compPending || compEmps.length === 0 || !hasInactiveCached;
+                  }).length;
+                  if (pendingCount === 0) return null;
+                  return (
+                    <button
+                      onClick={handleProcessAllCompetitors}
+                      disabled={processingCompetitorIdxs.size > 0}
+                      className="w-full py-2.5 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] text-xs font-bold hover:bg-[#ca98ff]/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {processingCompetitorIdxs.size > 0 ? (
+                        <>
+                          <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                          Processando {processingCompetitorIdxs.size} concorrente(s)...
+                        </>
+                      ) : (
+                        <>Processar todos ({pendingCount} pendente{pendingCount > 1 ? "s" : ""})</>
+                      )}
+                    </button>
+                  );
+                })()}
                 <div className="space-y-3">
                   {(options.competitors ?? []).map((comp, i) => {
                     const isObj = typeof comp === "object" && comp !== null;
@@ -709,20 +1034,116 @@ export default function LeadsGenerationOptionsPage() {
                     const url = isObj ? (comp.url ?? "") : "";
                     const sl = url.match(/\/company\/([^/?#]+)/)?.[1] ?? "";
                     const lc = ["#ca98ff","#a2f31f","#ff946e","#5b9bff","#f472b6","#34d399"][(nm.charCodeAt(0)||0) % 6];
-                    return (<div key={i}><div className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style={{backgroundColor:lc+"15"}}>
-                        {logo ? <img src={logo} alt="" className="w-10 h-10 rounded-xl object-cover" onError={(e)=>{e.currentTarget.style.display="none"}}/> : <span style={{color:lc}} className="text-base font-extrabold">{nm[0]?.toUpperCase()}</span>}
+                    const companyPending = isObj && (comp._pending || (!comp.logoUrl && comp.postsPerMonth == null));
+                    const compEmps = ((options.ai_response as Record<string,unknown>)?.competitor_employees as Record<string,Array<{name:string;slug:string;headline:string;linkedinUrl:string;profilePicUrl:string}>>)?.[nm] ?? [];
+                    const hasPendingEmps = compEmps.some((e) => !e.headline && !e.profilePicUrl);
+                    const hasNoEmps = compEmps.length === 0;
+                    const hasInactiveCached = !!((options.ai_response as Record<string,unknown>)?.inactive_competitor_employees as Record<string,unknown>)?.[nm];
+                    const needsProcessing = companyPending || hasPendingEmps || hasNoEmps;
+                    const canReprocess = !needsProcessing && !hasInactiveCached;
+                    const isProcessing = processingCompetitorIdxs.has(i);
+                    return (<div key={i}><div className={`flex items-center gap-3 bg-white/[0.02] border rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors ${needsProcessing ? "border-[#f59e0b]/30" : "border-white/[0.08]"}`}>
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style={{backgroundColor: companyPending ? "#f59e0b15" : lc+"15"}}>
+                        {logo ? <img src={logo} alt="" className="w-10 h-10 rounded-xl object-cover" onError={(e)=>{e.currentTarget.style.display="none"}}/> : <span style={{color: companyPending ? "#f59e0b" : lc}} className="text-base font-extrabold">{nm[0]?.toUpperCase()}</span>}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm text-white font-medium truncate capitalize">{nm}</p>
-                          {isObj && comp.postsPerMonth != null && <PostsFreqBadge ppm={comp.postsPerMonth} size="md" />}
+                          {companyPending && !isProcessing && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-[#f59e0b] bg-[#f59e0b]/10">Processamento obrigatório</span>}
+                          {!companyPending && hasNoEmps && !isProcessing && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-[#f59e0b] bg-[#f59e0b]/10">Processamento obrigatório</span>}
+                          {!companyPending && !hasNoEmps && hasPendingEmps && !isProcessing && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-[#f59e0b] bg-[#f59e0b]/10">{compEmps.filter((e) => !e.headline && !e.profilePicUrl).length} exec. pendentes</span>}
+                          {!needsProcessing && !isProcessing && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-[#a2f31f] bg-[#a2f31f]/10">Processado</span>}
+                          {isProcessing && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-[#ca98ff] bg-[#ca98ff]/10 flex items-center gap-1">
+                              <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                              Processando...
+                            </span>
+                          )}
+                          {!needsProcessing && isObj && comp.postsPerMonth != null && <PostsFreqBadge ppm={comp.postsPerMonth} size="md" />}
                         </div>
-                        {sl && <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate block mt-0.5">{sl}</a>}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {sl && <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] truncate">{sl}</a>}
+                          {isObj && comp.employeeCount ? <span className="text-[10px] text-white/20">{comp.employeeCount.toLocaleString("pt-BR")} funcionários</span> : null}
+                        </div>
                       </div>
+                      {(needsProcessing || canReprocess) && !isProcessing && (
+                        <button
+                          onClick={() => handleProcessCompetitor(i, sl)}
+                          className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors shrink-0"
+                        >
+                          {canReprocess ? "Reprocessar" : "Processar"}
+                        </button>
+                      )}
                       <button onClick={() => { const u = (options.competitors??[]).map((c,j) => j===i && typeof c==="object" && c!==null ? {...c,selected:false} : c); autoSave({...options,competitors:u}); }} className="w-7 h-7 rounded-full bg-white/5 hover:bg-[#ff946e]/20 text-white/30 hover:text-[#ff946e] flex items-center justify-center text-base font-bold shrink-0 transition-colors opacity-0 group-hover/card:opacity-100" title="Remover">&times;</button>
                     </div>
                     <CompetitorEmployees companyName={nm} employees={((options.ai_response as Record<string,unknown>)?.competitor_employees as Record<string,Array<{name:string;slug:string;headline:string;linkedinUrl:string;profilePicUrl:string}>>)?.[nm] ?? []} onUpdate={(emps) => { const ce = {...((options.ai_response as Record<string,unknown>)?.competitor_employees as Record<string,unknown>) ?? {}, [nm]: emps}; autoSave({...options, ai_response: {...(options.ai_response as Record<string,unknown>), competitor_employees: ce}}); }} />
+                    {/* Inactive competitor executives */}
+                    {(() => {
+                      const inactiveCompEmps = ((options.ai_response as Record<string,unknown>)?.inactive_competitor_employees as Record<string,Array<{name:string;slug:string;headline:string;linkedinUrl:string;profilePicUrl:string;postsPerMonth:number}>>)?.[nm] ?? [];
+                      const activeSlugs = new Set(compEmps.map((e) => e.slug));
+                      const available = inactiveCompEmps.filter((e) => !activeSlugs.has(e.slug));
+                      if (available.length === 0) return null;
+                      return (
+                        <details className="group/inactive ml-4 mt-1">
+                          <summary className="cursor-pointer text-[10px] text-white/25 hover:text-white/40 select-none flex items-center gap-1">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-open/inactive:rotate-90 shrink-0"><path d="m9 18 6-6-6-6"/></svg>
+                            {available.length} executivo(s) sem postagens recentes
+                          </summary>
+                          <div className="mt-1.5 space-y-1">
+                            {available.map((emp) => (
+                              <div key={emp.slug} className="flex items-center gap-2 bg-white/[0.01] border border-white/[0.04] rounded-lg px-3 py-1.5">
+                                <div className="w-6 h-6 rounded-full bg-[#262626] flex items-center justify-center shrink-0 overflow-hidden">
+                                  {emp.profilePicUrl ? <img src={emp.profilePicUrl} alt="" className="w-6 h-6 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] text-white/40 font-medium truncate">{emp.name}</p>
+                                  {emp.headline && <p className="text-[9px] text-white/20 truncate">{emp.headline}</p>}
+                                </div>
+                                <span className="text-[8px] text-white/15 shrink-0">{emp.postsPerMonth ?? 0}/mês</span>
+                                <button
+                                  onClick={() => {
+                                    const ce = {...((options.ai_response as Record<string,unknown>)?.competitor_employees as Record<string,unknown>) ?? {}, [nm]: [...compEmps, emp]};
+                                    autoSave({...options, ai_response: {...(options.ai_response as Record<string,unknown>), competitor_employees: ce}});
+                                  }}
+                                  className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-[#ca98ff]/10 text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors shrink-0"
+                                >+ Adicionar</button>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      );
+                    })()}
+                    {/* Competitor brands */}
+                    {(() => {
+                      const allCompBrands = ((options.ai_response as Record<string,unknown>)?.competitor_brands ?? {}) as Record<string,string[]>;
+                      const compBrands = allCompBrands[nm] ?? [];
+                      const updateCompBrands = (updated: string[]) => {
+                        const newMap = { ...allCompBrands, [nm]: updated };
+                        autoSave({ ...options, ai_response: { ...(options.ai_response as Record<string,unknown>), competitor_brands: newMap } });
+                      };
+                      return (
+                        <div className="ml-4 mt-2 mb-1">
+                          <p className="text-[0.6rem] font-bold tracking-[0.15em] text-white/25 uppercase mb-1.5">Marcas proprietárias</p>
+                          {compBrands.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {compBrands.map((b, bi) => (
+                                <span key={`${b}-${bi}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-white/60">
+                                  <span className="font-medium">{b}</span>
+                                  <button type="button" onClick={() => updateCompBrands(compBrands.filter((_, j) => j !== bi))} className="text-white/30 hover:text-[#ff946e] transition-colors text-sm leading-none">&times;</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <input type="text" placeholder="Adicionar marca e pressionar Enter" className="w-full bg-white/[0.02] border border-white/[0.05] rounded-lg px-3 py-2 text-xs text-white placeholder-white/15 outline-none focus:border-[#ca98ff]/30 transition-colors" onKeyDown={(e) => {
+                            if (e.key !== "Enter") return;
+                            const val = e.currentTarget.value.trim();
+                            if (!val || compBrands.some((b) => b.toLowerCase() === val.toLowerCase())) { e.currentTarget.value = ""; return; }
+                            updateCompBrands([...compBrands, val]);
+                            e.currentTarget.value = "";
+                          }} />
+                        </div>
+                      );
+                    })()}
                     </div>);
                   })}
                 </div>
@@ -739,6 +1160,7 @@ export default function LeadsGenerationOptionsPage() {
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-open/comp:rotate-90 shrink-0 text-white/30"><path d="m9 18 6-6-6-6"/></svg>
                         <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{backgroundColor:lc+"15"}}>{logo ? <img src={logo} alt="" className="w-6 h-6 rounded-lg object-cover"/> : <span style={{color:lc}} className="text-[10px] font-extrabold">{nm[0]?.toUpperCase()}</span>}</div>
                         <span className="text-xs text-white/80 font-medium capitalize truncate">{nm}</span>
+                        {comp.employeeCount ? <span className="text-[10px] text-white/20">{Number(comp.employeeCount).toLocaleString("pt-BR")} func.</span> : null}
                         {sl && <span className="text-[10px] text-white/20">{sl}</span>}
                       </summary>
                       <div className="mt-1 ml-7 bg-white/[0.02] border border-white/[0.06] rounded-lg px-4 py-3 space-y-2">
@@ -752,24 +1174,33 @@ export default function LeadsGenerationOptionsPage() {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="Nome da empresa ou linkedin.com/company/slug"
+                    placeholder="linkedin.com/company/slug ou nome da empresa"
                     className="flex-1 bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#ca98ff]/40 transition-colors"
+                    id="add-competitor-input"
                     onKeyDown={(e) => {
                       if (e.key !== "Enter") return;
                       const input = e.currentTarget;
-                      const val = input.value.trim();
-                      if (!val) return;
-                      autoSave({ ...options, competitors: [...(options.competitors ?? []), val] });
+                      const raw = input.value.trim();
+                      if (!raw) return;
+                      const slugMatch = raw.match(/linkedin\.com\/company\/([^/?#]+)/);
+                      const slug = slugMatch ? slugMatch[1].replace(/\/$/, "") : raw.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                      const displayName = slug.replace(/-/g, " ");
+                      const compUrl = `https://www.linkedin.com/company/${slug}/`;
+                      autoSave({ ...options, competitors: [...(options.competitors ?? []), { name: displayName, url: compUrl, selected: true, _pending: true }] });
                       input.value = "";
                     }}
                   />
                   <button
                     onClick={() => {
-                      const input = document.querySelector<HTMLInputElement>('input[placeholder*="empresa"]');
+                      const input = document.getElementById("add-competitor-input") as HTMLInputElement | null;
                       if (!input) return;
-                      const val = input.value.trim();
-                      if (!val) return;
-                      autoSave({ ...options, competitors: [...(options.competitors ?? []), val] });
+                      const raw = input.value.trim();
+                      if (!raw) return;
+                      const slugMatch = raw.match(/linkedin\.com\/company\/([^/?#]+)/);
+                      const slug = slugMatch ? slugMatch[1].replace(/\/$/, "") : raw.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                      const displayName = slug.replace(/-/g, " ");
+                      const compUrl = `https://www.linkedin.com/company/${slug}/`;
+                      autoSave({ ...options, competitors: [...(options.competitors ?? []), { name: displayName, url: compUrl, selected: true, _pending: true }] });
                       input.value = "";
                     }}
                     className="px-4 py-2.5 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] text-sm font-medium hover:bg-[#ca98ff]/20 transition-colors whitespace-nowrap"
@@ -777,6 +1208,45 @@ export default function LeadsGenerationOptionsPage() {
                     + Adicionar
                   </button>
                 </div>
+                {/* Discover competitors button */}
+                <button
+                  onClick={handleDiscoverCompetitors}
+                  disabled={discoveringCompetitors}
+                  className="w-full py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.08] text-white/40 text-xs font-medium hover:border-[#ca98ff]/30 hover:text-[#ca98ff] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {discoveringCompetitors ? (
+                    <>
+                      <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      Procurando concorrentes...
+                    </>
+                  ) : (
+                    <>Procurar concorrentes automaticamente</>
+                  )}
+                </button>
+                {discoveredCompetitors && discoveredCompetitors.length > 0 && (
+                  <div className="space-y-1.5 mt-2">
+                    <p className="text-[10px] text-white/30">{discoveredCompetitors.length} concorrente(s) encontrado(s):</p>
+                    {discoveredCompetitors.map((dc) => {
+                      const dcSlug = dc.url.match(/\/company\/([^/?#]+)/)?.[1] ?? "";
+                      const lc = ["#ca98ff","#a2f31f","#ff946e","#5b9bff","#f472b6","#34d399"][(dc.name.charCodeAt(0)||0) % 6];
+                      return (
+                        <div key={dc.url} className="flex items-center gap-2.5 bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2">
+                          <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{backgroundColor: lc+"15"}}>
+                            {dc.logoUrl ? <img src={dc.logoUrl} alt="" className="w-7 h-7 rounded-lg object-cover" /> : <span style={{color: lc}} className="text-[10px] font-extrabold">{dc.name[0]?.toUpperCase()}</span>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-white/70 font-medium truncate capitalize">{dc.name}</p>
+                            <p className="text-[9px] text-white/25">{dcSlug}{dc.employeeCount ? ` · ${dc.employeeCount.toLocaleString("pt-BR")} func.` : ""}</p>
+                          </div>
+                          <button onClick={() => addDiscoveredCompetitor(dc)} className="px-3 py-1 rounded-lg text-[10px] font-bold bg-[#ca98ff]/10 text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors shrink-0">+ Adicionar</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {discoveredCompetitors && discoveredCompetitors.length === 0 && (
+                  <p className="text-[10px] text-white/25 mt-1">Nenhum concorrente encontrado via busca automática.</p>
+                )}
               </div>
 
               {/* Section 3: Temas de Interesse */}
@@ -793,288 +1263,163 @@ export default function LeadsGenerationOptionsPage() {
                 </div>
               </div>
 
-              {/* Section 4: Marcas Proprietárias */}
-              <div className="space-y-3">
-                <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">
-                  Marcas Proprietárias ({(options.proprietary_brands ?? []).length})
-                </label>
-                {(options.proprietary_brands ?? []).length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {(options.proprietary_brands ?? []).map((brand, i) => (
-                      <span key={`${brand}-${i}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-xs text-[#ca98ff]">
-                        <span className="font-medium">{brand}</span>
-                        <button
-                          type="button"
-                          onClick={() => autoSave({
-                            ...options,
-                            proprietary_brands: (options.proprietary_brands ?? []).filter((_, j) => j !== i),
-                          })}
-                          className="text-[#ca98ff]/60 hover:text-[#ff946e] transition-colors text-sm leading-none"
-                          title="Remover"
-                        >
-                          &times;
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <input
-                  type="text"
-                  placeholder="Adicionar marca (ex. HubSpot CRM) e pressionar Enter"
-                  className="w-full bg-white/[0.02] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#ca98ff]/40 transition-colors"
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter") return;
-                    const input = e.currentTarget;
-                    const val = input.value.trim();
-                    if (!val) return;
-                    const existing = options.proprietary_brands ?? [];
-                    if (existing.some((b) => b.toLowerCase() === val.toLowerCase())) {
-                      input.value = "";
-                      return;
-                    }
-                    autoSave({ ...options, proprietary_brands: [...existing, val] });
-                    input.value = "";
-                  }}
-                />
-              </div>
-
               {/* ICP section removed — now handled at leads scan level */}
             </div>
 
-            {/* Confirmar button (placeholder) */}
+            {/* Confirmar / Status / Ver Relatório */}
             <div className="mt-8 relative z-10">
-              <button
-                onClick={() => setScanSuccess("Em breve! A análise semanal será ativada na próxima atualização.")}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide"
-              >
-                CONFIRMAR MAPEAMENTO
-              </button>
+              {solReportStatus === "idle" && (() => {
+                const selectedComps = (options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected) as Array<Record<string, unknown>>;
+                const allProcessed = selectedComps.length === 0 || selectedComps.every((c) => !!(c.logoUrl || c.postsPerMonth != null));
+                const unprocessedCount = selectedComps.filter((c) => !(c.logoUrl || c.postsPerMonth != null)).length;
+                return (
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => allProcessed && setShowConfirmModal(true)}
+                      disabled={!allProcessed}
+                      className={`w-full py-4 rounded-2xl font-bold text-sm tracking-wide transition-all active:scale-[0.98] ${allProcessed ? "bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px]" : "bg-white/5 text-white/30 cursor-not-allowed"}`}
+                    >
+                      CONFIRMAR MAPEAMENTO
+                    </button>
+                    {!allProcessed && (
+                      <p className="text-center text-[11px] text-[#f59e0b]">
+                        {unprocessedCount === 1 ? "1 concorrente precisa" : `${unprocessedCount} concorrentes precisam`} ser processado{unprocessedCount > 1 ? "s" : ""} antes de confirmar
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+              {solReportStatus === "processing" && (
+                <div className="space-y-3">
+                  <div className="w-full py-4 rounded-2xl bg-[#ca98ff]/10 border border-[#ca98ff]/30 text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <svg className="animate-spin h-5 w-5 text-[#ca98ff]" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      <span className="text-[#ca98ff] font-bold text-sm">Gerando relatório...</span>
+                    </div>
+                    <p className="text-white/40 text-xs mt-2">
+                      {solPostsCollected > 0 ? `${solPostsCollected} posts coletados` : "Coletando posts..."} — Você pode sair da página.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleCancelReport}
+                    className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/70 text-xs font-medium transition-colors"
+                  >
+                    Cancelar análise
+                  </button>
+                </div>
+              )}
+              {solReportStatus === "complete" && currentReportId && (
+                <button
+                  onClick={() => router.push(`/casting/share-of-linkedin/${profileId}/report/${currentReportId}`)}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#a2f31f] to-[#7bc41f] text-[#0a1a00] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(162,243,31,0.3)] hover:shadow-[0_15px_40px_-5px_rgba(162,243,31,0.4)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide"
+                >
+                  VER RELATÓRIO
+                </button>
+              )}
+              {solReportStatus === "failed" && (
+                <div className="space-y-3">
+                  <div className="w-full py-4 rounded-2xl bg-[#ff946e]/10 border border-[#ff946e]/30 text-center">
+                    <p className="text-[#ff946e] font-bold text-sm">Erro ao gerar relatório</p>
+                    <p className="text-white/40 text-xs mt-1">Tente novamente.</p>
+                  </div>
+                  <button
+                    onClick={() => { setSolReportStatus("idle"); setCurrentReportId(null); }}
+                    className="w-full py-3 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm tracking-wide hover:translate-y-[-1px] transition-all"
+                  >
+                    Tentar novamente
+                  </button>
+                </div>
+              )}
+              {solReportStatus === "cancelled" && (
+                <div className="space-y-3">
+                  <div className="w-full py-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+                    <p className="text-white/50 text-sm">Análise cancelada</p>
+                  </div>
+                  <button
+                    onClick={() => { setSolReportStatus("idle"); setCurrentReportId(null); }}
+                    className="w-full py-3 rounded-2xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm tracking-wide hover:translate-y-[-1px] transition-all"
+                  >
+                    Gerar novamente
+                  </button>
+                </div>
+              )}
             </div>
+
+            {/* Reports history */}
+            {solReports.filter((r) => r.status === "complete").length > 0 && (
+              <div className="mt-6">
+                <h4 className="text-xs font-bold tracking-[0.15em] text-white/40 uppercase mb-3">Relatórios</h4>
+                <div className="space-y-2">
+                  {solReports.filter((r) => r.status === "complete").map((r) => {
+                    const start = new Date(r.period_start + "T12:00:00");
+                    const label = start.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+                    return (
+                      <button
+                        key={r.id}
+                        onClick={() => router.push(`/casting/share-of-linkedin/${profileId}/report/${r.id}`)}
+                        className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 hover:border-[#ca98ff]/30 transition-colors group"
+                      >
+                        <span className="text-sm text-white/70 group-hover:text-white capitalize">{label}</span>
+                        <span className="text-xs text-[#a2f31f]">Ver relatório →</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
           )}
 
-          {/* ============================================================ */}
-          {/* Relatório Semanal — mockup com dados fixos */}
-          {/* ============================================================ */}
-          <div className="space-y-6">
-            {/* Banner */}
-            <div className="rounded-xl bg-[#f59e0b]/10 border border-[#f59e0b]/30 px-5 py-3 flex items-center gap-3">
-              <span className="text-[#f59e0b] text-lg">&#9888;</span>
-              <p className="text-sm text-[#f59e0b] font-medium">Dados ilustrativos — esta análise será gerada automaticamente na próxima atualização</p>
+          {/* Mockup report removed — real report generated via CONFIRMAR MAPEAMENTO */}
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && options && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowConfirmModal(false)}>
+          <div className="bg-[#1a1919] border border-[#ca98ff]/30 rounded-2xl p-8 max-w-lg w-full mx-4 shadow-[0_20px_60px_rgba(0,0,0,0.5)]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Confirmar Mapeamento</h3>
+
+            <div className="space-y-3 mb-6">
+              <div className="bg-white/[0.03] border border-white/10 rounded-xl p-4">
+                <p className="text-sm text-white/80">
+                  <span className="font-semibold text-[#ca98ff]">{profile?.name}</span>
+                  {" — "}
+                  {(options.employee_profiles ?? []).length} colaboradores
+                </p>
+                {(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).map((c, i) => {
+                  const comp = c as { name: string; selected: boolean };
+                  const compEmps = ((options.ai_response as Record<string, unknown>)?.competitor_employees as Record<string, unknown[]>)?.[comp.name] ?? [];
+                  return (
+                    <p key={i} className="text-sm text-white/60 mt-1">
+                      + <span className="text-white/80">{comp.name}</span> — {compEmps.length} colaboradores
+                    </p>
+                  );
+                })}
+              </div>
+
+              <p className="text-sm text-white/50">
+                Um relatório mensal será gerado com a análise do <span className="text-white/80">mês anterior completo</span>.
+              </p>
+              <p className="text-xs text-white/40">
+                O processamento leva alguns minutos. Você pode sair da página — será notificado quando estiver pronto.
+              </p>
             </div>
 
-            {/* Header */}
-            <div>
-              <h2 className="text-2xl font-extrabold text-white font-[family-name:var(--font-lexend)]">Relatório Semanal — Share of LinkedIn</h2>
-              <p className="text-sm text-white/40 mt-1">Semana de 14/04 a 21/04</p>
-            </div>
-
-            {/* Seção 1: Resumo Executivo */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-white/[0.03] border border-[#ca98ff]/20 rounded-xl p-5">
-                <p className="text-[10px] font-bold tracking-[0.15em] text-white/40 uppercase mb-2">Share of Voice</p>
-                <p className="text-3xl font-black text-[#ca98ff] font-[family-name:var(--font-lexend)]">18%</p>
-                <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                  <div className="h-full bg-[#ca98ff] rounded-full" style={{ width: "18%" }} />
-                </div>
-                <p className="text-[10px] text-white/30 mt-1.5">Líder: TechCloud Solutions 32%</p>
-              </div>
-              <div className="bg-white/[0.03] border border-[#a2f31f]/20 rounded-xl p-5">
-                <p className="text-[10px] font-bold tracking-[0.15em] text-white/40 uppercase mb-2">RER Medio</p>
-                <p className="text-3xl font-black text-[#a2f31f] font-[family-name:var(--font-lexend)]">38%</p>
-                <span className="inline-block mt-2 text-[10px] font-bold text-[#a2f31f] bg-[#a2f31f]/10 px-2 py-0.5 rounded-full">+13% vs média</span>
-              </div>
-              <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5">
-                <p className="text-[10px] font-bold tracking-[0.15em] text-white/40 uppercase mb-2">Posts analisados</p>
-                <p className="text-3xl font-black text-white font-[family-name:var(--font-lexend)]">247</p>
-                <p className="text-[10px] text-white/30 mt-2">de 8 empresas</p>
-              </div>
-              <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5">
-                <p className="text-[10px] font-bold tracking-[0.15em] text-white/40 uppercase mb-2">Decisores engajados</p>
-                <p className="text-3xl font-black text-white font-[family-name:var(--font-lexend)]">89</p>
-                <p className="text-[10px] text-white/30 mt-2">decisores únicos identificados</p>
-              </div>
-            </div>
-
-            {/* Seção 2: Diagnóstico Competitivo */}
-            <div className="rounded-2xl border border-white/10 p-6">
-              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
-                Diagnóstico Competitivo
-                <InfoTooltip text="Comparativo semanal de presença no LinkedIn entre sua empresa e concorrentes. Mede colaboradores ativos, volume de posts, engajamento médio e RER (Revenue Engagement Rate — % de engajadores que são decisores de compra). Posts motivacionais e anúncios de vagas são excluídos automaticamente." />
-              </h3>
-              <p className="text-xs text-white/40 mb-4">Engajamento de decisores — posts motivacionais e anúncios de vagas foram excluídos da análise</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm min-w-[650px]">
-                  <thead>
-                    <tr className="border-b border-white/10">
-                      <th className="py-2.5 pr-3 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase w-8">#</th>
-                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Empresa</th>
-                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Colab. ativos</th>
-                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Posts/mes</th>
-                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Engaj. medio</th>
-                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">RER</th>
-                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Top Tema</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {[
-                      { pos: 1, name: "TechCloud Solutions", colabs: 8, posts: 22, engaj: 310, rer: 42, tema: "IA Generativa", highlight: false },
-                      { pos: 2, name: "Sua Empresa", colabs: 5, posts: 12, engaj: 142, rer: 38, tema: "Cloud Computing", highlight: true },
-                      { pos: 3, name: "DataBridge Corp", colabs: 6, posts: 18, engaj: 195, rer: 28, tema: "Transformação Digital", highlight: false },
-                      { pos: 4, name: "InfraNext", colabs: 4, posts: 8, engaj: 89, rer: 22, tema: "Segurança em Nuvem", highlight: false },
-                      { pos: 5, name: "CloudSync Brasil", colabs: 3, posts: 6, engaj: 55, rer: 15, tema: "Migração Cloud", highlight: false },
-                    ].map((row) => {
-                      const rerColor = row.rer >= 30 ? "text-[#a2f31f]" : row.rer >= 15 ? "text-[#f59e0b]" : "text-[#ff946e]";
-                      const rerBg = row.rer >= 30 ? "bg-[#a2f31f]/10" : row.rer >= 15 ? "bg-[#f59e0b]/10" : "bg-[#ff946e]/10";
-                      return (
-                        <tr key={row.pos} className={row.highlight ? "bg-[#ca98ff]/[0.06]" : ""}>
-                          <td className="py-3 pr-3">
-                            <span className={`text-xs font-black ${row.pos === 1 ? "text-[#f59e0b]" : row.pos === 2 ? "text-[#adaaaa]" : row.pos === 3 ? "text-[#cd7f32]" : "text-white/30"}`}>{row.pos}</span>
-                          </td>
-                          <td className={`py-3 font-medium ${row.highlight ? "text-[#ca98ff]" : "text-white/80"}`}>{row.name}</td>
-                          <td className="py-3 text-center text-white/60">{row.colabs}</td>
-                          <td className="py-3 text-center text-white/60">{row.posts}</td>
-                          <td className="py-3 text-center text-white/60">{row.engaj}</td>
-                          <td className="py-3 text-center"><span className={`${rerColor} ${rerBg} text-xs font-bold px-2 py-0.5 rounded-full`}>{row.rer}%</span></td>
-                          <td className="py-3 text-white/50 text-xs">{row.tema}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Seção 3: Top Posts da Semana */}
-            <div className="rounded-2xl border border-white/10 p-6">
-              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
-                Top Posts da Semana
-                <InfoTooltip text="Os 3 posts com maior RER (Revenue Engagement Rate) da semana no seu nicho. São os conteúdos que mais atraíram decisores de compra — servem como referência para sua estratégia de conteúdo." />
-              </h3>
-              <p className="text-xs text-white/40 mb-4">Posts com maior Revenue Engagement Rate entre decisores</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {[
-                  { company: "TechCloud Solutions", author: "Ana Silva, CEO", text: "Reduzimos o custo de infraestrutura cloud em 40% para um cliente do setor financeiro usando FinOps. Aqui estão os 3 passos que seguimos...", likes: 342, comments: 47, rer: 52 },
-                  { company: "Sua Empresa", author: "Pedro Santos, CTO", text: "A migração para multi-cloud não é sobre tecnologia — é sobre estratégia de negócios. Depois de 3 anos liderando migrações, aprendi que...", likes: 189, comments: 31, rer: 45 },
-                  { company: "DataBridge Corp", author: "Carlos Lima, Head of Data", text: "IA generativa está mudando a forma como processamos dados não-estruturados. Na semana passada, implementamos um pipeline que...", likes: 267, comments: 38, rer: 41 },
-                ].map((post, i) => (
-                  <div key={i} className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-[#ca98ff]">{post.company}</p>
-                        <p className="text-[10px] text-white/40">{post.author}</p>
-                      </div>
-                      <span className="text-[10px] font-bold text-[#a2f31f] bg-[#a2f31f]/10 px-2 py-0.5 rounded-full">RER {post.rer}%</span>
-                    </div>
-                    <p className="text-sm text-white/70 leading-relaxed line-clamp-3">{post.text}</p>
-                    <div className="flex items-center gap-4 text-[10px] text-white/30 pt-1 border-t border-white/5">
-                      <span>{post.likes} curtidas</span>
-                      <span>{post.comments} comentários</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Seção 4: Recomendações de Conteúdo */}
-            <div className="rounded-2xl border border-white/10 p-6">
-              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
-                Recomendações de Conteúdo
-                <InfoTooltip text="3 recomendações semanais geradas por IA com base na análise competitiva. Cada uma inclui: tema a abordar, ângulo sugerido, justificativa com dados reais do mercado, e um post de referência de concorrente que inspirou a recomendação." />
-              </h3>
-              <p className="text-xs text-white/40 mb-4">Temas, ângulos e justificativas baseadas nos dados da semana</p>
-              <div className="space-y-4">
-                {[
-                  {
-                    num: "01", tema: "Otimização de custos com FinOps",
-                    angulo: "Publique um case study mostrando como sua equipe reduziu custos em cloud para um cliente real. Use números concretos e o framework FinOps.",
-                    justificativa: "TechCloud Solutions publicou 3 posts sobre FinOps com RER acima de 40%. O tema atrai decisores financeiros (CFOs, VPs de Finanças) que são o ICP com maior poder de compra.",
-                    ref: { author: "Ana Silva — TechCloud Solutions", text: "Reduzimos o custo de infraestrutura cloud em 40% para um cliente do setor financeiro usando FinOps..." }
-                  },
-                  {
-                    num: "02", tema: "IA generativa aplicada a dados corporativos",
-                    angulo: "Crie um tutorial prático mostrando como sua empresa usa IA generativa nos serviços de dados. Foque em resultados mensuráveis, não na tecnologia.",
-                    justificativa: "Nenhum concorrente está abordando IA generativa aplicada a dados — é uma lacuna temática com alta demanda. Posts sobre IA tiveram +34% de engajamento no último mês.",
-                    ref: { author: "Carlos Lima — DataBridge Corp", text: "IA generativa está mudando a forma como processamos dados não-estruturados..." }
-                  },
-                  {
-                    num: "03", tema: "Erros comuns na migração para nuvem",
-                    angulo: "Compartilhe os 5 erros mais frequentes que você vê em projetos de migração cloud, com a perspectiva de quem já liderou dezenas de projetos.",
-                    justificativa: "3 concorrentes publicaram sobre migração com alto engajamento. O ângulo de 'erros comuns' gera identificação e debate — ideal para atrair comentários de decisores.",
-                    ref: { author: "Pedro Santos — Sua Empresa", text: "A migração para multi-cloud não é sobre tecnologia — é sobre estratégia de negócios..." }
-                  },
-                ].map((rec) => (
-                  <div key={rec.num} className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-5">
-                    <div className="flex items-start gap-4">
-                      <span className="text-3xl font-black text-[#ca98ff]/30 font-[family-name:var(--font-lexend)] leading-none shrink-0">{rec.num}</span>
-                      <div className="flex-1 space-y-3">
-                        <div>
-                          <p className="text-base font-bold text-white">{rec.tema}</p>
-                          <p className="text-sm text-white/60 mt-1 leading-relaxed">{rec.angulo}</p>
-                        </div>
-                        <div className="bg-[#a2f31f]/5 border border-[#a2f31f]/15 rounded-lg px-4 py-2.5">
-                          <p className="text-[10px] font-bold text-[#a2f31f] uppercase tracking-wider mb-1">Justificativa</p>
-                          <p className="text-xs text-[#a2f31f]/80 leading-relaxed">{rec.justificativa}</p>
-                        </div>
-                        <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg px-4 py-2.5">
-                          <p className="text-[10px] font-bold text-white/30 uppercase tracking-wider mb-1">Post de referência</p>
-                          <p className="text-[10px] text-[#ca98ff]/60 mb-0.5">{rec.ref.author}</p>
-                          <p className="text-xs text-white/40 italic">&ldquo;{rec.ref.text}&rdquo;</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Seção 5: Lacunas + Tendências */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-white/10 p-6">
-                <h3 className="text-base font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
-                  Lacunas Temáticas
-                  <InfoTooltip text="Temas B2B relevantes para seu mercado que nenhum concorrente está abordando no LinkedIn. São oportunidades de conteúdo com demanda real e baixa competição — ideais para se posicionar como referência." />
-                </h3>
-                <p className="text-xs text-white/40 mb-4">Temas que nenhum concorrente está explorando</p>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    "FinOps para PMEs",
-                    "IA + compliance regulatório",
-                    "Cloud soberana no Brasil",
-                    "Sustentabilidade em data centers",
-                    "Edge computing industrial",
-                    "Dados em tempo real para varejo",
-                    "Governanca multi-cloud",
-                  ].map((t) => (
-                    <span key={t} className="inline-flex items-center gap-1.5 bg-[#a2f31f]/10 border border-[#a2f31f]/20 text-[#a2f31f] text-xs font-medium px-3 py-1.5 rounded-full">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v8m-4-4h8"/></svg>
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-white/10 p-6">
-                <h3 className="text-base font-bold text-white font-[family-name:var(--font-lexend)] mb-1">
-                  Tendências em Alta
-                  <InfoTooltip text="Temas cujo engajamento de decisores cresceu significativamente no último mês. Indicam mudanças de interesse do mercado — publicar sobre esses temas agora aumenta a chance de alcançar decisores ativamente interessados." />
-                </h3>
-                <p className="text-xs text-white/40 mb-4">Temas com engajamento crescente no último mês</p>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { tema: "IA Generativa", pct: "+52%" },
-                    { tema: "FinOps", pct: "+34%" },
-                    { tema: "Segurança Zero Trust", pct: "+28%" },
-                    { tema: "Observabilidade", pct: "+24%" },
-                    { tema: "Platform Engineering", pct: "+19%" },
-                    { tema: "MLOps", pct: "+15%" },
-                  ].map((t) => (
-                    <span key={t.tema} className="inline-flex items-center gap-1.5 bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] text-xs font-medium px-3 py-1.5 rounded-full">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/></svg>
-                      {t.tema} <span className="text-[#a2f31f] font-bold">{t.pct}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 font-medium text-sm transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmMapping}
+                disabled={confirmLoading}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] font-bold text-sm shadow-[0_4px_15px_rgba(204,151,255,0.3)] hover:shadow-[0_6px_20px_rgba(204,151,255,0.4)] transition-all disabled:opacity-50"
+              >
+                {confirmLoading ? "Gerando..." : "Confirmar e gerar relatório"}
+              </button>
             </div>
           </div>
         </div>

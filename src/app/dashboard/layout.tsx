@@ -10,6 +10,7 @@ const navTop = [
   { label: "Overview", href: "/dashboard" },
   { label: "Users", href: "/dashboard/users" },
   { label: "API Costs", href: "/dashboard/api-costs" },
+  { label: "Relatórios", href: "/dashboard/relatorios" },
 ];
 
 const navItems = [

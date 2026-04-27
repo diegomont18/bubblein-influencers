@@ -55,6 +55,62 @@ export async function classifyTopics(
   }
 }
 
+export async function classifyPost(
+  textContent: string,
+  marketThemes: string
+): Promise<{ theme: string; content_type: string; summary: string }> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const fallback = { theme: "outros", content_type: "outros", summary: "" };
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping post classification");
+    return fallback;
+  }
+  if (!textContent.trim()) return fallback;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `Classifique este post de LinkedIn. Responda APENAS com JSON válido, sem markdown:\n{"theme":"tema principal","content_type":"produto|institucional|vagas|outros","summary":"resumo de 1 frase"}\n\nRegras:\n- theme: escolha o tema mais relevante da lista fornecida\n- content_type: "produto" para cases, teses, insights de negócio; "institucional" para eventos, prêmios, anúncios; "vagas" para recrutamento/RH; "outros" para motivacional, pessoal\n- summary: resumo objetivo de 1 frase em português`,
+          },
+          {
+            role: "user",
+            content: `Temas disponíveis: ${marketThemes}\n\nPost:\n${textContent.slice(0, 500)}`,
+          },
+        ],
+        temperature: 0,
+        max_tokens: 200,
+      }),
+    });
+
+    if (!res.ok) {
+      console.error(`[ai] classifyPost failed: status=${res.status}`);
+      return fallback;
+    }
+
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content ?? "";
+    const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      theme: String(parsed.theme ?? "outros"),
+      content_type: String(parsed.content_type ?? "outros"),
+      summary: String(parsed.summary ?? ""),
+    };
+  } catch (err) {
+    console.error(`[ai] classifyPost exception: ${err instanceof Error ? err.message : err}`);
+    return fallback;
+  }
+}
+
 export async function checkRelevance(
   searchThemes: string[],
   headline: string | null,
@@ -562,10 +618,10 @@ export async function analyzeCompanyForShareOfLinkedin(
 Company: ${companyName} | ${industry} | ${specialties}${countryCtx}
 ${description.slice(0, 300)}${siteCtx}
 
-1) "themes": 5-10 B2B market themes this company discusses on LinkedIn. Comma-separated. Write in Portuguese if the company is Brazilian.
+1) "themes": 10-15 B2B market themes this company discusses on LinkedIn. Comma-separated. Include BOTH the English term AND the local language term for each theme (e.g. for Brazil: "Marketing Automation, Automação de Marketing, CRM, Gestão de Relacionamento, Sales Enablement, Capacitação de Vendas"). This ensures we capture posts written in either language.
 2) "brands": array of proprietary product/brand names owned by this company (e.g. for HubSpot: ["HubSpot Marketing Hub","HubSpot CRM","HubSpot Service Hub"]). Keep the original product names even for Brazilian companies. Empty array if the company has no distinct product lines.
 
-{"themes":"tema1, tema2, tema3, tema4, tema5","brands":["Produto A","Produto B"]}`;
+{"themes":"English Theme 1, Tema em Português 1, English Theme 2, Tema em Português 2","brands":["Produto A","Produto B"]}`;
 
   try {
     let content = "";
@@ -619,6 +675,72 @@ ${description.slice(0, 300)}${siteCtx}
     console.error(`[ai] analyzeCompanyForShareOfLinkedin exception:`, err);
     return null;
   }
+}
+
+/**
+ * Extract proprietary product/brand names from a company's website + LinkedIn data.
+ * Uses DeepSeek (cheapest model) since this is a straightforward extraction task.
+ */
+export async function extractBrands(
+  companyName: string,
+  siteContent: string,
+  linkedinDescription: string,
+): Promise<string[]> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) return [];
+
+  const prompt = `Extract proprietary product/brand names owned by "${companyName}". The company name itself is ALWAYS the first brand. Return ONLY a JSON array. No explanation, no markdown.
+
+Website content:
+${siteContent.slice(0, 2000)}
+
+LinkedIn: ${linkedinDescription.slice(0, 300)}
+
+Examples: for "RD Station" → ["RD Station","RD Station Marketing","RD Station CRM","RD Station Conversas"]
+For "HubSpot" → ["HubSpot","HubSpot Marketing Hub","HubSpot CRM","HubSpot Service Hub"]
+For "Agendor" → ["Agendor"]
+ALWAYS include "${companyName}" as the first element.`;
+
+  const models = ["deepseek/deepseek-v4-flash", "google/gemini-2.5-flash-lite"];
+
+  for (const model of models) {
+    try {
+      console.log(`[ai] extractBrands(${companyName}): trying ${model}`);
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.1,
+          max_tokens: 500,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) {
+        console.error(`[ai] extractBrands(${companyName}) ${model} failed: status=${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content ?? "";
+      console.log(`[ai] extractBrands(${companyName}) ${model}: ${content.slice(0, 200)}`);
+      if (!content.trim()) {
+        console.warn(`[ai] extractBrands(${companyName}) ${model}: empty response, trying next`);
+        continue;
+      }
+      const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+      const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (!arrMatch) continue;
+      const parsed = JSON.parse(arrMatch[0]);
+      if (!Array.isArray(parsed) || parsed.length === 0) continue;
+      return parsed.filter((b): b is string => typeof b === "string" && b.trim().length > 0).map((b) => b.trim());
+    } catch (err) {
+      console.error(`[ai] extractBrands(${companyName}) ${model} exception:`, err);
+    }
+  }
+
+  console.warn(`[ai] extractBrands(${companyName}): all models failed`);
+  return [];
 }
 
 export async function scoreCompetitorAdherence(
