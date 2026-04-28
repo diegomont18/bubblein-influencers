@@ -10,11 +10,17 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Placeholder values for build-time only (Next.js prerender needs these defined)
-# Real values are injected at runtime via Coolify environment variables
-ENV NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key
-ENV NEXT_PUBLIC_SITE_URL=https://placeholder.local
+# Build-time vars for Next.js. NEXT_PUBLIC_* are inlined into the client bundle
+# at build time, so the real values must be present here — not just at runtime.
+# In Coolify, set these as "Build Variables" (not Environment Variables) so they
+# are passed via --build-arg.
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG NEXT_PUBLIC_SITE_URL
+
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 
 RUN npm run build
 
@@ -31,6 +37,9 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# sharp is required by Next.js in standalone mode for image optimization
+RUN cd /app && npm install --omit=dev --no-package-lock sharp && chown -R nextjs:nodejs /app/node_modules/sharp /app/node_modules/@img 2>/dev/null || true
 
 USER nextjs
 EXPOSE 3000

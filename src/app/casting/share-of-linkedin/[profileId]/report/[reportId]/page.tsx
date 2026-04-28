@@ -294,6 +294,7 @@ export default function ReportPage() {
   const [editingTerms, setEditingTerms] = useState(false);
   const [termsValue, setTermsValue] = useState("");
   const [savingTerms, setSavingTerms] = useState(false);
+  const [influencerFilter, setInfluencerFilter] = useState<"all" | "with_brands">("all");
 
   const loadReport = useCallback(async () => {
     try {
@@ -327,7 +328,12 @@ export default function ReportPage() {
   const allInfluencerCards = data?.report?.raw_data?.influencers ?? [];
   const archivedInfluencerKeys = data?.report?.raw_data?.archived_influencers ?? [];
   const archivedSet = useMemo(() => new Set(archivedInfluencerKeys), [archivedInfluencerKeys]);
-  const influencerCards = useMemo(() => allInfluencerCards.filter((c) => !archivedSet.has(c.linkedin_url || c.name)), [allInfluencerCards, archivedSet]);
+  const activeInfluencerCards = useMemo(() => allInfluencerCards.filter((c) => !archivedSet.has(c.linkedin_url || c.name)), [allInfluencerCards, archivedSet]);
+  const withBrandsCount = useMemo(() => activeInfluencerCards.filter((c) => c.brands_mentioned.length > 0).length, [activeInfluencerCards]);
+  const influencerCards = useMemo(() => {
+    if (influencerFilter === "with_brands") return activeInfluencerCards.filter((c) => c.brands_mentioned.length > 0);
+    return activeInfluencerCards;
+  }, [activeInfluencerCards, influencerFilter]);
   const archivedInfluencerCards = useMemo(() => allInfluencerCards.filter((c) => archivedSet.has(c.linkedin_url || c.name)), [allInfluencerCards, archivedSet]);
   const influencerMentionsByKey = data?.report?.raw_data?.influencer_mentions ?? {};
 
@@ -1250,6 +1256,25 @@ export default function ReportPage() {
                       )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Filter tabs */}
+              {activeInfluencerCards.length > 0 && (
+                <div className="mb-4 flex items-center gap-2">
+                  <button
+                    onClick={() => setInfluencerFilter("all")}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${influencerFilter === "all" ? "bg-[#ca98ff]/20 text-[#ca98ff] border border-[#ca98ff]/30" : "bg-white/[0.03] text-white/40 border border-white/10 hover:text-white/60"}`}
+                  >
+                    Todos ({activeInfluencerCards.length})
+                  </button>
+                  <button
+                    onClick={() => withBrandsCount > 0 && setInfluencerFilter("with_brands")}
+                    disabled={withBrandsCount === 0}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${influencerFilter === "with_brands" ? "bg-[#ca98ff]/20 text-[#ca98ff] border border-[#ca98ff]/30" : withBrandsCount === 0 ? "bg-white/[0.02] text-white/15 border border-white/[0.05] cursor-not-allowed" : "bg-white/[0.03] text-white/40 border border-white/10 hover:text-white/60"}`}
+                  >
+                    Citam marcas ({withBrandsCount})
+                  </button>
                 </div>
               )}
 

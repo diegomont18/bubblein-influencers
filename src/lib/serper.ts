@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { logApiCost, API_COSTS, CostCtx } from "./api-costs";
+import { notifyError } from "./error-notifier";
 import { searchGoogleApify } from "./apify";
 import type { ApifyGoogleSearchResult, ApifyGoogleSearchOptions } from "./apify";
 
@@ -95,7 +96,7 @@ export async function searchGoogle(
     return result;
   }
 
-  const num = options?.results ?? 10;
+  const num = Math.min(options?.results ?? 10, 40);
   const page = options?.page ?? 0;
 
   console.log(`[serper] searchGoogle query="${query.slice(0, 80)}" page=${page} num=${num}`);
@@ -157,13 +158,15 @@ export async function searchGoogle(
       const text = await res.text();
       console.error(`[serper] Error status=${status} body=${text.slice(0, 400)}`);
 
-      if ((status === 429 || status >= 500) && attempt < MAX_RETRIES) {
+      if ((status === 400 || status === 429 || status >= 500) && attempt < MAX_RETRIES) {
         const delay = (attempt + 1) * 3000;
-        console.log(`[serper] Retrying in ${delay}ms…`);
+        console.log(`[serper] Retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES + 1})…`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
 
+      console.error(`[serper] FAILED after ${attempt + 1} attempts (status=${status}): "${query.slice(0, 80)}"`);
+      notifyError("serper-search-failed", new Error(`Serper ${status}: ${text.slice(0, 200)}`), { query: query.slice(0, 200) });
       return { results: [] };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
