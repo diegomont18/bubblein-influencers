@@ -1,5 +1,6 @@
-import { fetchProfilePosts, fetchLinkedInProfileApify, searchGoogleApify } from "./apify";
-import { logApiCost, API_COSTS } from "./api-costs";
+import { fetchProfilePosts, fetchLinkedInProfileCached } from "./apify";
+import { searchGoogle } from "./serper";
+import { logApiCost, API_COSTS, CostCtx } from "./api-costs";
 
 export interface EmpCandidate {
   name: string;
@@ -97,6 +98,7 @@ export async function findActiveEmployees(
   maxCandidates = 12,
   lite = false,
   country?: string,
+  costCtx?: CostCtx,
 ): Promise<FindEmployeesResult> {
   const searchName = companyName || companySlug.replace(/-/g, " ");
   const countryLabel = country ? COUNTRY_SERP_LABEL[country] ?? "" : "";
@@ -116,7 +118,7 @@ export async function findActiveEmployees(
 
   try {
     const serpResults = await Promise.all(
-      serpQueries.map((q) => searchGoogleApify(q, { results: 15, country: country || undefined }).catch(() => ({ results: [] })))
+      serpQueries.map((q) => searchGoogle(q, { results: 15, country: country || undefined }, costCtx).catch(() => ({ results: [] })))
     );
     for (const sr of serpResults) {
       for (const r of sr.results) {
@@ -129,10 +131,6 @@ export async function findActiveEmployees(
     }
     if (candidateSlugs.length > maxCandidates) candidateSlugs = candidateSlugs.slice(0, maxCandidates);
     console.log(`[find-employees] ${companyName}: ${candidateSlugs.length} candidates from SERP`);
-
-    serpQueries.forEach(() => {
-      logApiCost({ userId, source: "leads", searchId: profileId, provider: "apify", operation: "searchGoogleApify", estimatedCost: API_COSTS.apify.searchGoogleApify });
-    });
   } catch (err) {
     console.error(`[find-employees] ${companyName}: SERP failed:`, err);
   }
@@ -146,7 +144,7 @@ export async function findActiveEmployees(
     const batch = candidateSlugs.slice(i, i + 5);
     const results = await Promise.all(batch.map(async (empSlug) => {
       try {
-        const profileRes = await fetchLinkedInProfileApify(empSlug);
+        const profileRes = await fetchLinkedInProfileCached(empSlug, costCtx);
         if (profileRes.status !== 200 || !profileRes.data) return null;
         const d = profileRes.data as Record<string, unknown>;
         const headline = String(d.headline ?? "");
@@ -210,6 +208,15 @@ export async function findActiveEmployees(
 
         // Fetch posts to check activity
         const empPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${empSlug}/`, 3);
+        logApiCost({
+          userId: costCtx?.userId ?? userId,
+          source: costCtx?.source ?? "sol",
+          searchId: costCtx?.searchId ?? profileId,
+          provider: "apify",
+          operation: "fetchProfilePosts",
+          estimatedCost: API_COSTS.apify.fetchProfilePosts,
+          metadata: { slug: empSlug, context: "find-employees" },
+        });
 
         if (empPosts.length === 0) {
           console.log(`[find-employees]   inactive ${empSlug}: no posts`);

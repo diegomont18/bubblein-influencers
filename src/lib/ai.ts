@@ -1,50 +1,103 @@
+// ---------------------------------------------------------------------------
+// Shared OpenRouter caller with multi-model fallback
+// ---------------------------------------------------------------------------
+
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+interface CallOpenRouterOpts {
+  models: string[];
+  messages: Array<{ role: string; content: string }>;
+  temperature?: number;
+  max_tokens?: number;
+  timeoutMs?: number;
+  label: string;
+}
+
+/**
+ * Call OpenRouter with automatic model fallback. For each model in the list:
+ * - Tries up to 2 retries on 429/5xx (5s delay for 429, 3s for 5xx)
+ * - On persistent failure, moves to the next model
+ * Returns the response content string, or null if all models fail.
+ */
+async function callOpenRouter(opts: CallOpenRouterOpts): Promise<string | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error(`[ai] ${opts.label}: OPENROUTER_API_KEY not set`);
+    return null;
+  }
+
+  for (const model of opts.models) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const fetchOpts: RequestInit & { signal?: AbortSignal } = {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model,
+            messages: opts.messages,
+            temperature: opts.temperature ?? 0,
+            max_tokens: opts.max_tokens ?? 500,
+          }),
+        };
+        if (opts.timeoutMs) {
+          fetchOpts.signal = AbortSignal.timeout(opts.timeoutMs);
+        }
+
+        const res = await fetch(OPENROUTER_URL, fetchOpts);
+
+        if (res.ok) {
+          const data = await res.json();
+          const content = data.choices?.[0]?.message?.content ?? "";
+          if (content.trim()) return content;
+          console.warn(`[ai] ${opts.label}: ${model} returned empty content`);
+          break; // try next model
+        }
+
+        if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+          const delay = res.status === 429 ? 5000 : 3000;
+          console.warn(`[ai] ${opts.label}: ${model} returned ${res.status}, retry ${attempt}/2 (wait ${delay}ms)`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+
+        console.error(`[ai] ${opts.label}: ${model} failed with status ${res.status}`);
+        break; // try next model
+      } catch (err) {
+        console.error(`[ai] ${opts.label}: ${model} exception: ${err instanceof Error ? err.message : err}`);
+        break; // try next model
+      }
+    }
+    console.warn(`[ai] ${opts.label}: ${model} exhausted, trying next model...`);
+  }
+
+  console.error(`[ai] ${opts.label}: all models failed`);
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// AI functions
+// ---------------------------------------------------------------------------
+
 export async function classifyTopics(
   headline: string | null,
   about: string | null,
   roles: string[]
 ): Promise<string[]> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    console.error("[ai] OPENROUTER_API_KEY is not set — skipping topic classification");
-    return [];
-  }
-
   const text = [headline, about, ...roles].filter(Boolean).join("\n");
   if (!text.trim()) return [];
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You classify LinkedIn influencers into topics. Return ONLY a JSON array of 3-5 lowercase topic strings. Example: [\"ai\", \"marketing\", \"leadership\"]. No explanation.",
-          },
-          {
-            role: "user",
-            content: `Classify this person's topics:\n${text}`,
-          },
-        ],
-        temperature: 0,
-        max_tokens: 150,
-      }),
+    const content = await callOpenRouter({
+      models: ["openai/gpt-4o-mini", "deepseek/deepseek-v4-flash"],
+      messages: [
+        { role: "system", content: "You classify LinkedIn influencers into topics. Return ONLY a JSON array of 3-5 lowercase topic strings. Example: [\"ai\", \"marketing\", \"leadership\"]. No explanation." },
+        { role: "user", content: `Classify this person's topics:\n${text}` },
+      ],
+      temperature: 0,
+      max_tokens: 150,
+      label: "classifyTopics",
     });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`[ai] classifyTopics failed: status=${res.status} body=${errText.slice(0, 300)}`);
-      return [];
-    }
-
-    const json = await res.json();
-    const content = json.choices?.[0]?.message?.content ?? "";
+    if (!content) return [];
     const parsed = JSON.parse(content);
     const result = Array.isArray(parsed) ? parsed.slice(0, 5) : [];
     console.log(`[ai] classifyTopics result: ${JSON.stringify(result)}`);
@@ -59,45 +112,21 @@ export async function classifyPost(
   textContent: string,
   marketThemes: string
 ): Promise<{ theme: string; content_type: string; summary: string }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
   const fallback = { theme: "outros", content_type: "outros", summary: "" };
-  if (!apiKey) {
-    console.error("[ai] OPENROUTER_API_KEY is not set — skipping post classification");
-    return fallback;
-  }
   if (!textContent.trim()) return fallback;
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `Classifique este post de LinkedIn. Responda APENAS com JSON válido, sem markdown:\n{"theme":"tema principal","content_type":"produto|institucional|vagas|outros","summary":"resumo de 1 frase"}\n\nRegras:\n- theme: escolha o tema mais relevante da lista fornecida\n- content_type: "produto" para cases, teses, insights de negócio; "institucional" para eventos, prêmios, anúncios; "vagas" para recrutamento/RH; "outros" para motivacional, pessoal\n- summary: resumo objetivo de 1 frase em português`,
-          },
-          {
-            role: "user",
-            content: `Temas disponíveis: ${marketThemes}\n\nPost:\n${textContent.slice(0, 500)}`,
-          },
-        ],
-        temperature: 0,
-        max_tokens: 200,
-      }),
+    const content = await callOpenRouter({
+      models: ["openai/gpt-4o-mini", "deepseek/deepseek-v4-flash"],
+      messages: [
+        { role: "system", content: `Classifique este post de LinkedIn. Responda APENAS com JSON válido, sem markdown:\n{"theme":"tema principal","content_type":"produto|institucional|vagas|outros","summary":"resumo de 1 frase"}\n\nRegras:\n- theme: escolha o tema mais relevante da lista fornecida\n- content_type: "produto" para cases, teses, insights de negócio; "institucional" para eventos, prêmios, anúncios; "vagas" para recrutamento/RH; "outros" para motivacional, pessoal\n- summary: resumo objetivo de 1 frase em português` },
+        { role: "user", content: `Temas disponíveis: ${marketThemes}\n\nPost:\n${textContent.slice(0, 500)}` },
+      ],
+      temperature: 0,
+      max_tokens: 200,
+      label: "classifyPost",
     });
-
-    if (!res.ok) {
-      console.error(`[ai] classifyPost failed: status=${res.status}`);
-      return fallback;
-    }
-
-    const json = await res.json();
-    const content = json.choices?.[0]?.message?.content ?? "";
+    if (!content) return fallback;
     const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     const parsed = JSON.parse(cleaned);
     return {
@@ -117,55 +146,25 @@ export async function checkRelevance(
   about: string | null,
   roles: string[]
 ): Promise<{ relevant: boolean; score: number }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    console.error("[ai] OPENROUTER_API_KEY is not set — skipping relevance check");
-    return { relevant: true, score: 0 };
-  }
-
   const profileText = [
     headline ? `Headline: ${headline}` : null,
     about ? `About: ${about}` : null,
     roles.length > 0 ? `Roles: ${roles.join(", ")}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
+  ].filter(Boolean).join("\n");
   if (!profileText.trim()) return { relevant: true, score: 0 };
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              'You evaluate whether a LinkedIn profile is relevant to specific search themes based on what the person TALKS ABOUT and POSTS ABOUT, not their job title or profession. A person is relevant if their content, posts, or areas of interest relate to the search themes — regardless of their formal profession. For example, an engineer who posts about marketing metrics IS relevant to marketing themes. Only mark as irrelevant if the person clearly does not discuss or create content related to the search themes at all. When in doubt, mark as relevant. Search themes may be in any language. Return JSON only: {"relevant": boolean, "score": 0.0-1.0, "reason": string}',
-          },
-          {
-            role: "user",
-            content: `Search themes: ${searchThemes.join(", ")}\n\nProfile:\n${profileText}`,
-          },
-        ],
-        temperature: 0,
-        max_tokens: 200,
-      }),
+    const content = await callOpenRouter({
+      models: ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001"],
+      messages: [
+        { role: "system", content: 'You evaluate whether a LinkedIn profile is relevant to specific search themes based on what the person TALKS ABOUT and POSTS ABOUT, not their job title or profession. A person is relevant if their content, posts, or areas of interest relate to the search themes — regardless of their formal profession. For example, an engineer who posts about marketing metrics IS relevant to marketing themes. Only mark as irrelevant if the person clearly does not discuss or create content related to the search themes at all. When in doubt, mark as relevant. Search themes may be in any language. Return JSON only: {"relevant": boolean, "score": 0.0-1.0, "reason": string}' },
+        { role: "user", content: `Search themes: ${searchThemes.join(", ")}\n\nProfile:\n${profileText}` },
+      ],
+      temperature: 0,
+      max_tokens: 200,
+      label: "checkRelevance",
     });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`[ai] checkRelevance failed: status=${res.status} body=${errText.slice(0, 300)}`);
-      return { relevant: true, score: 0 };
-    }
-
-    const json = await res.json();
-    const content = json.choices?.[0]?.message?.content ?? "";
+    if (!content) return { relevant: true, score: 0 };
     const parsed = JSON.parse(content);
     const relevant = Boolean(parsed.relevant);
     const score = typeof parsed.score === "number" ? parsed.score : 0;
@@ -185,46 +184,18 @@ const LANGUAGE_NAMES: Record<string, string> = {
 };
 
 export async function generateSearchSynonyms(theme: string, language?: string): Promise<string[]> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    console.error("[ai] OPENROUTER_API_KEY is not set — skipping synonym generation");
-    return [];
-  }
-
   const languageName = language ? LANGUAGE_NAMES[language] : null;
-  const languageInstruction = languageName
-    ? `All synonyms MUST be in ${languageName}. Do NOT return synonyms in other languages.`
-    : "";
+  const languageInstruction = languageName ? `All synonyms MUST be in ${languageName}. Do NOT return synonyms in other languages.` : "";
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "meta-llama/llama-3-8b-instruct",
-        messages: [
-          {
-            role: "user",
-            content: `Generate 5 alternative search queries (synonyms, related terms) for finding LinkedIn posts about: ${theme}.\n${languageInstruction}\nReturn ONLY a JSON array of strings. No explanation.`,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 200,
-      }),
+    const content = await callOpenRouter({
+      models: ["meta-llama/llama-3-8b-instruct", "deepseek/deepseek-v4-flash"],
+      messages: [{ role: "user", content: `Generate 5 alternative search queries (synonyms, related terms) for finding LinkedIn posts about: ${theme}.\n${languageInstruction}\nReturn ONLY a JSON array of strings. No explanation.` }],
+      temperature: 0.7,
+      max_tokens: 200,
+      label: "generateSearchSynonyms",
     });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`[ai] generateSearchSynonyms failed: status=${res.status} body=${errText.slice(0, 300)}`);
-      return [];
-    }
-
-    const json = await res.json();
-    const content = json.choices?.[0]?.message?.content ?? "";
-    // Extract JSON array from response (may contain markdown fences)
+    if (!content) return [];
     const match = content.match(/\[[\s\S]*?\]/);
     if (!match) return [];
     const parsed = JSON.parse(match[0]);
@@ -238,45 +209,18 @@ export async function generateSearchSynonyms(theme: string, language?: string): 
 }
 
 export async function generateTitleSynonyms(title: string, language?: string): Promise<string[]> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    console.error("[ai] OPENROUTER_API_KEY is not set — skipping title synonym generation");
-    return [];
-  }
-
   const languageName = language ? LANGUAGE_NAMES[language] : null;
-  const languageInstruction = languageName
-    ? `Include variations in ${languageName} as well as English. All synonyms should be relevant for ${languageName}-speaking markets.`
-    : "";
+  const languageInstruction = languageName ? `Include variations in ${languageName} as well as English. All synonyms should be relevant for ${languageName}-speaking markets.` : "";
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "meta-llama/llama-3-8b-instruct",
-        messages: [
-          {
-            role: "user",
-            content: `Generate 5 alternative job titles and variations for: ${title}.\nInclude common abbreviations, full forms, and related titles.\nExample: for "CEO" → ["Chief Executive Officer", "Co-Founder & CEO", "Founder & CEO", "Diretor Executivo", "Managing Director"]\n${languageInstruction}\nReturn ONLY a JSON array of strings. No explanation.`,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 200,
-      }),
+    const content = await callOpenRouter({
+      models: ["meta-llama/llama-3-8b-instruct", "deepseek/deepseek-v4-flash"],
+      messages: [{ role: "user", content: `Generate 5 alternative job titles and variations for: ${title}.\nInclude common abbreviations, full forms, and related titles.\nExample: for "CEO" → ["Chief Executive Officer", "Co-Founder & CEO", "Founder & CEO", "Diretor Executivo", "Managing Director"]\n${languageInstruction}\nReturn ONLY a JSON array of strings. No explanation.` }],
+      temperature: 0.7,
+      max_tokens: 200,
+      label: "generateTitleSynonyms",
     });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`[ai] generateTitleSynonyms failed: status=${res.status} body=${errText.slice(0, 300)}`);
-      return [];
-    }
-
-    const json = await res.json();
-    const content = json.choices?.[0]?.message?.content ?? "";
+    if (!content) return [];
     const match = content.match(/\[[\s\S]*?\]/);
     if (!match) return [];
     const parsed = JSON.parse(match[0]);
@@ -293,73 +237,35 @@ export async function checkPublishLanguage(
   profileData: Record<string, unknown>,
   targetLanguage: string
 ): Promise<boolean> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    console.error("[ai] OPENROUTER_API_KEY is not set — skipping language check");
-    return true;
-  }
-
   const languageName = LANGUAGE_NAMES[targetLanguage];
   if (!languageName) return true;
 
   const parts: string[] = [];
   if (profileData.headline) parts.push(`Headline: ${profileData.headline}`);
   if (profileData.about) parts.push(`About: ${profileData.about}`);
-
   const activities = profileData.activities;
   if (Array.isArray(activities)) {
-    const activityTexts = activities
-      .slice(0, 10)
-      .map((a: unknown) => {
-        if (typeof a === "string") return a;
-        if (a && typeof a === "object") {
-          const obj = a as Record<string, unknown>;
-          return obj.text ?? obj.title ?? obj.content ?? "";
-        }
-        return "";
-      })
-      .filter(Boolean);
-    if (activityTexts.length > 0) {
-      parts.push(`Recent posts:\n${activityTexts.join("\n")}`);
-    }
+    const activityTexts = activities.slice(0, 10).map((a: unknown) => {
+      if (typeof a === "string") return a;
+      if (a && typeof a === "object") { const obj = a as Record<string, unknown>; return obj.text ?? obj.title ?? obj.content ?? ""; }
+      return "";
+    }).filter(Boolean);
+    if (activityTexts.length > 0) parts.push(`Recent posts:\n${activityTexts.join("\n")}`);
   }
-
   if (parts.length === 0) return true;
 
-  const profileText = parts.join("\n\n").slice(0, 3000);
-
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You determine if a LinkedIn user publishes content primarily in ${languageName}. Analyze their headline, about section, and recent posts. Return ONLY a JSON object: {"publishes_in_language": true/false}. No explanation.`,
-          },
-          {
-            role: "user",
-            content: profileText,
-          },
-        ],
-        temperature: 0,
-        max_tokens: 50,
-      }),
+    const content = await callOpenRouter({
+      models: ["openai/gpt-4o-mini", "deepseek/deepseek-v4-flash"],
+      messages: [
+        { role: "system", content: `You determine if a LinkedIn user publishes content primarily in ${languageName}. Analyze their headline, about section, and recent posts. Return ONLY a JSON object: {"publishes_in_language": true/false}. No explanation.` },
+        { role: "user", content: parts.join("\n\n").slice(0, 3000) },
+      ],
+      temperature: 0,
+      max_tokens: 50,
+      label: "checkPublishLanguage",
     });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`[ai] checkPublishLanguage failed: status=${res.status} body=${errText.slice(0, 300)}`);
-      return true;
-    }
-
-    const json = await res.json();
-    const content = json.choices?.[0]?.message?.content ?? "";
+    if (!content) return true;
     const parsed = JSON.parse(content);
     const result = Boolean(parsed.publishes_in_language);
     console.log(`[ai] checkPublishLanguage: ${result} for language=${targetLanguage}`);
@@ -468,32 +374,17 @@ Respond ONLY with a JSON array, one object per lead:
 Where: i=index, s=score, mt=matchedTitles, md=matchedDepartments, c=company, jt=jobTitle, rl=roleLevel`;
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-001",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens: 2000,
-      }),
-      signal: AbortSignal.timeout(30_000),
+    const content = await callOpenRouter({
+      models: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 2000,
+      timeoutMs: 30_000,
+      label: "batchScoreIcpMatch",
     });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`[ai] batchScoreIcpMatch failed: status=${res.status} body=${errText.slice(0, 300)}`);
-      return results;
-    }
-
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content ?? "";
+    if (!content) return results;
     console.log(`[ai] batchScoreIcpMatch raw response: ${content.slice(0, 500)}`);
 
-    // Parse JSON from response (handle markdown code blocks)
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       console.error("[ai] batchScoreIcpMatch: could not find JSON array in response");
@@ -560,23 +451,15 @@ Respond ONLY with a JSON array:
 [{"i":0,"c":"Acme Corp"},{"i":1,"c":""},...]`;
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-001",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens: 1500,
-      }),
-      signal: AbortSignal.timeout(30_000),
+    const content = await callOpenRouter({
+      models: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 1500,
+      timeoutMs: 30_000,
+      label: "extractCompaniesFromHeadlines",
     });
-    if (!res.ok) {
-      console.error(`[ai] extractCompaniesFromHeadlines failed: status=${res.status}`);
-      return results;
-    }
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content ?? "";
+    if (!content) return results;
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return results;
     const parsed = JSON.parse(jsonMatch[0]) as Array<{ i: number; c?: string }>;
@@ -604,13 +487,9 @@ export async function analyzeCompanyForShareOfLinkedin(
   siteContent?: string,
   country?: string,
 ): Promise<{ themes: string; brands: string[] } | null> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return null;
-
   const countryNames: Record<string, string> = { br: "Brazil", us: "USA", pt: "Portugal", es: "Spain", mx: "Mexico", ar: "Argentina", co: "Colombia", cl: "Chile", uk: "UK", de: "Germany", fr: "France", it: "Italy", in: "India", ca: "Canada", au: "Australia" };
   const countryName = country ? countryNames[country] ?? country.toUpperCase() : "";
   const countryCtx = countryName ? `\nCountry: ${countryName}` : "";
-
   const siteCtx = siteContent ? `\nWebsite: ${siteContent.slice(0, 600)}` : "";
 
   const prompt = `Identify market themes AND proprietary product/brand names for this company. Return JSON only, no markdown.
@@ -624,33 +503,16 @@ ${description.slice(0, 300)}${siteCtx}
 {"themes":"English Theme 1, Tema em Português 1, English Theme 2, Tema em Português 2","brands":["Produto A","Produto B"]}`;
 
   try {
-    let content = "";
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: "google/gemini-2.0-flash-001",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.3,
-          max_tokens: 1200,
-        }),
-        signal: AbortSignal.timeout(45_000),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        content = data.choices?.[0]?.message?.content ?? "";
-        break;
-      }
-      if ((res.status >= 500 || res.status === 429) && attempt < 3) {
-        const delay = res.status === 429 ? 5000 : 3000;
-        console.warn(`[ai] analyzeCompanyForShareOfLinkedin retry ${attempt}/2 after ${res.status} (wait ${delay}ms)`);
-        await new Promise((r) => setTimeout(r, delay));
-        continue;
-      }
-      console.error(`[ai] analyzeCompanyForShareOfLinkedin failed: status=${res.status}`);
-      return null;
-    }
+    const content = await callOpenRouter({
+      models: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-v4-flash"],
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 1200,
+      timeoutMs: 45_000,
+      label: "analyzeCompanyForShareOfLinkedin",
+    });
+    if (!content) return null;
+
     console.log(`[ai] analyzeCompanyForShareOfLinkedin response: ${content.slice(0, 300)}`);
     const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
@@ -686,9 +548,6 @@ export async function extractBrands(
   siteContent: string,
   linkedinDescription: string,
 ): Promise<string[]> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return [];
-
   const prompt = `Extract proprietary product/brand names owned by "${companyName}". The company name itself is ALWAYS the first brand. Return ONLY a JSON array. No explanation, no markdown.
 
 Website content:
@@ -701,46 +560,26 @@ For "HubSpot" → ["HubSpot","HubSpot Marketing Hub","HubSpot CRM","HubSpot Serv
 For "Agendor" → ["Agendor"]
 ALWAYS include "${companyName}" as the first element.`;
 
-  const models = ["deepseek/deepseek-v4-flash", "google/gemini-2.5-flash-lite"];
-
-  for (const model of models) {
-    try {
-      console.log(`[ai] extractBrands(${companyName}): trying ${model}`);
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.1,
-          max_tokens: 500,
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (!res.ok) {
-        console.error(`[ai] extractBrands(${companyName}) ${model} failed: status=${res.status}`);
-        continue;
-      }
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content ?? "";
-      console.log(`[ai] extractBrands(${companyName}) ${model}: ${content.slice(0, 200)}`);
-      if (!content.trim()) {
-        console.warn(`[ai] extractBrands(${companyName}) ${model}: empty response, trying next`);
-        continue;
-      }
-      const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-      const arrMatch = cleaned.match(/\[[\s\S]*\]/);
-      if (!arrMatch) continue;
-      const parsed = JSON.parse(arrMatch[0]);
-      if (!Array.isArray(parsed) || parsed.length === 0) continue;
-      return parsed.filter((b): b is string => typeof b === "string" && b.trim().length > 0).map((b) => b.trim());
-    } catch (err) {
-      console.error(`[ai] extractBrands(${companyName}) ${model} exception:`, err);
-    }
+  try {
+    const content = await callOpenRouter({
+      models: ["deepseek/deepseek-v4-flash", "google/gemini-2.5-flash-lite", "openai/gpt-4o-mini"],
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 500,
+      timeoutMs: 30_000,
+      label: `extractBrands(${companyName})`,
+    });
+    if (!content) return [];
+    const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+    if (!arrMatch) return [];
+    const parsed = JSON.parse(arrMatch[0]);
+    if (!Array.isArray(parsed) || parsed.length === 0) return [];
+    return parsed.filter((b): b is string => typeof b === "string" && b.trim().length > 0).map((b) => b.trim());
+  } catch (err) {
+    console.error(`[ai] extractBrands(${companyName}) exception:`, err);
+    return [];
   }
-
-  console.warn(`[ai] extractBrands(${companyName}): all models failed`);
-  return [];
 }
 
 export async function scoreCompetitorAdherence(
@@ -750,9 +589,6 @@ export async function scoreCompetitorAdherence(
   competitors: Array<{ name: string; siteContent: string }>,
   country?: string,
 ): Promise<{ enrichedThemes: string; scores: Array<{ name: string; score: number; reason: string }> } | null> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return null;
-
   const countryNames: Record<string, string> = { br: "Brazil", us: "USA", pt: "Portugal", es: "Spain", mx: "Mexico", ar: "Argentina", uk: "UK", de: "Germany", fr: "France" };
   const countryName = country ? countryNames[country] ?? "" : "";
 
@@ -770,33 +606,16 @@ Return COMPACT JSON. Keep reasons under 8 words each.
 {"enriched_themes":"tema1,tema2,...","scores":[{"name":"X","score":8,"reason":"curto"}]}`;
 
   try {
-    let content = "";
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: "google/gemini-2.0-flash-001",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.3,
-          max_tokens: 2500,
-        }),
-        signal: AbortSignal.timeout(60_000),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        content = data.choices?.[0]?.message?.content ?? "";
-        break;
-      }
-      if ((res.status >= 500 || res.status === 429) && attempt < 3) {
-        const delay = res.status === 429 ? 5000 : 3000;
-        console.warn(`[ai] scoreCompetitorAdherence retry ${attempt}/2 after ${res.status} (wait ${delay}ms)`);
-        await new Promise((r) => setTimeout(r, delay));
-        continue;
-      }
-      console.error(`[ai] scoreCompetitorAdherence failed: status=${res.status}`);
-      return null;
-    }
+    const content = await callOpenRouter({
+      models: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 2500,
+      timeoutMs: 60_000,
+      label: "scoreCompetitorAdherence",
+    });
+    if (!content) return null;
+
     console.log(`[ai] scoreCompetitorAdherence response: ${content.slice(0, 500)}`);
     const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
@@ -808,12 +627,10 @@ Return COMPACT JSON. Keep reasons under 8 words each.
         scores: Array.isArray(parsed.scores) ? parsed.scores : [],
       };
     } catch (parseErr) {
-      // Try to salvage partial/truncated JSON
       console.warn(`[ai] scoreCompetitorAdherence JSON parse failed, trying salvage...`);
       const raw = jsonMatch[0];
       const themesMatch = raw.match(/"enriched_themes"\s*:\s*"([^"]+)"/);
       const scoresArr: Array<{ name: string; score: number; reason: string }> = [];
-      // Regex that handles: complete entries, truncated reason, or missing reason
       const scoreRegex = /"name"\s*:\s*"([^"]+)"\s*,\s*"score"\s*:\s*(\d+)(?:\s*,\s*"reason"\s*:\s*"([^"]*?)(?:"|$))?/g;
       let m;
       while ((m = scoreRegex.exec(raw)) !== null) {
@@ -868,36 +685,22 @@ Respond ONLY with a JSON object:
 {"market_context":"...","job_titles":["..."],"departments":["..."],"company_sizes":["..."]}`;
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-001",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
-        max_tokens: 1000,
-      }),
-      signal: AbortSignal.timeout(30_000),
+    const content = await callOpenRouter({
+      models: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 1000,
+      timeoutMs: 30_000,
+      label: "analyzeProfileForLeads",
     });
+    if (!content) return null;
 
-    if (!res.ok) {
-      console.error(`[ai] analyzeProfileForLeads failed: status=${res.status}`);
-      return null;
-    }
-
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content ?? "";
     console.log(`[ai] analyzeProfileForLeads response: ${content.slice(0, 500)}`);
-
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.error("[ai] analyzeProfileForLeads: no JSON found");
       return null;
     }
-
     const parsed = JSON.parse(jsonMatch[0]);
     return {
       market_context: parsed.market_context ?? "",
@@ -933,21 +736,15 @@ Respond ONLY with a JSON array: [{"id":"...","s":85}, ...]
 Where id=post id, s=relevance score 0-100.`;
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-001",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens: 1000,
-      }),
-      signal: AbortSignal.timeout(30_000),
+    const content = await callOpenRouter({
+      models: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 1000,
+      timeoutMs: 30_000,
+      label: "rankPostsForLeadGeneration",
     });
-
-    if (!res.ok) return results;
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content ?? "";
+    if (!content) return results;
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return results;
 
@@ -961,4 +758,185 @@ Where id=post id, s=relevance score 0-100.`;
   }
 
   return results;
+}
+
+export async function classifySentiment(
+  textContent: string,
+  brand: string,
+): Promise<{ sentiment: "positivo" | "neutro" | "negativo"; summary: string }> {
+  const fallback = { sentiment: "neutro" as const, summary: "" };
+  if (!textContent.trim()) return fallback;
+
+  try {
+    const content = await callOpenRouter({
+      models: ["openai/gpt-4o-mini", "deepseek/deepseek-v4-flash"],
+      messages: [
+        { role: "system", content: `Classifique o sentimento de um post de LinkedIn em relação à marca mencionada. Responda APENAS com JSON válido, sem markdown:\n{"sentiment":"positivo|neutro|negativo","summary":"resumo de 1 frase"}\n\nRegras:\n- "positivo": elogia, recomenda, celebra resultado, defende a marca\n- "negativo": critica, reclama, alerta sobre problemas, frustração\n- "neutro": comparativo equilibrado, observação factual, análise sem julgamento\n- summary: resumo objetivo de 1 frase em português, focado no que o autor diz da marca` },
+        { role: "user", content: `Marca: ${brand}\n\nPost:\n${textContent.slice(0, 800)}` },
+      ],
+      temperature: 0,
+      max_tokens: 200,
+      label: "classifySentiment",
+    });
+    if (!content) return fallback;
+    const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const raw = String(parsed.sentiment ?? "neutro").toLowerCase();
+    const sentiment: "positivo" | "neutro" | "negativo" =
+      raw === "positivo" ? "positivo" : raw === "negativo" ? "negativo" : "neutro";
+    return { sentiment, summary: String(parsed.summary ?? "") };
+  } catch (err) {
+    console.error(`[ai] classifySentiment exception: ${err instanceof Error ? err.message : err}`);
+    return fallback;
+  }
+}
+
+interface SolRecBundle {
+  period: string;
+  mainCompany: string;
+  mainBrands: string[];
+  marketContext: string;
+  companies: Record<
+    string,
+    {
+      brand_owner: "main" | "competitor";
+      posts_count: number;
+      engagement_total: number;
+      rer_avg: number;
+      sol_score: number;
+      decisores_estimated: number;
+      top_themes: string[];
+      content_composition: Record<string, number>;
+      top_posts: Array<{ summary: string; rer: number | null; engagement: number; author: string }>;
+    }
+  >;
+  sov_totals: Record<string, { brand_owner: "main" | "competitor"; positivo: number; neutro: number; negativo: number }>;
+  top_influencers: Array<{
+    name: string;
+    company: string;
+    followers: number;
+    posts_about: number;
+    sentiment: string;
+    brands_mentioned: Array<{ brand: string; brand_owner: "main" | "competitor" }>;
+  }>;
+}
+
+export interface SolRecommendation {
+  id: number;
+  title: string;
+  tag: "DEFENSIVA" | "CONTEÚDO" | "OFENSIVA" | "CONSOLIDACAO" | "RELACIONAMENTO";
+  urgency: "alta" | "média" | "baixa";
+  desc: string;
+  who: string;
+  details: string;
+}
+
+export interface SolRecommendationsOutput {
+  insights: {
+    positives: Array<{ title: string; description: string }>;
+    concerns: Array<{ title: string; description: string }>;
+  };
+  recommendations: SolRecommendation[];
+  movements: Array<{ company: string; text: string }>;
+}
+
+export async function generateSolRecommendations(
+  bundle: SolRecBundle,
+): Promise<SolRecommendationsOutput> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const fallback: SolRecommendationsOutput = {
+    insights: { positives: [], concerns: [] },
+    recommendations: [],
+    movements: [],
+  };
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping SOL recommendations");
+    return fallback;
+  }
+
+  const systemPrompt = `Você é um analista estratégico de presença no LinkedIn. Recebe métricas comparativas de uma empresa principal e seus concorrentes, mais menções externas e influenciadores, e gera insights estratégicos, recomendações priorizadas e movimentos competitivos observados.
+
+Responda APENAS com JSON válido (sem markdown), no formato exato:
+{
+  "insights": {
+    "positives": [{"title":"...","description":"..."}],
+    "concerns":  [{"title":"...","description":"..."}]
+  },
+  "recommendations": [
+    {"id":1,"title":"...","tag":"DEFENSIVA|CONTEÚDO|OFENSIVA|CONSOLIDACAO|RELACIONAMENTO","urgency":"alta|média|baixa","desc":"...","who":"...","details":"..."}
+  ],
+  "movements": [{"company":"...","text":"..."}]
+}
+
+Regras:
+- Tudo em português, voltado à empresa principal informada
+- 3 positives + 3 concerns (insights)
+- 5 a 8 recommendations priorizadas — cada uma com tag, urgência, "desc" curto (1-2 frases acionáveis), "who" (quem deve publicar — pessoas reais dos colaboradores quando possível), "details" multi-linha (justificativa + tópicos sugeridos, separados por \\n)
+- 3 a 5 movements — observações sobre concorrentes (volumes anormais, ataques diretos, articulação de pauta)
+- Tags possíveis (escolher a mais apropriada):
+  - DEFENSIVA: defender território perdido para concorrente
+  - CONTEÚDO: nova pauta a publicar
+  - OFENSIVA: atacar pauta de concorrente
+  - CONSOLIDACAO: aumentar liderança em pauta já vencida
+  - RELACIONAMENTO: ativar influenciadores externos
+- Use os dados quantitativos do bundle nas justificativas (% de SOL, RER, contagens)`;
+
+  try {
+    const content = await callOpenRouter({
+      models: ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001"],
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Dados do período:\n${JSON.stringify(bundle, null, 2)}` },
+      ],
+      temperature: 0.3,
+      max_tokens: 4000,
+      label: "generateSolRecommendations",
+    });
+    if (!content) return fallback;
+
+    const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleaned) as Partial<SolRecommendationsOutput>;
+
+    const positives = Array.isArray(parsed.insights?.positives) ? parsed.insights!.positives : [];
+    const concerns = Array.isArray(parsed.insights?.concerns) ? parsed.insights!.concerns : [];
+    const rawRecs = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
+    const movements = Array.isArray(parsed.movements) ? parsed.movements : [];
+
+    const allowedTags: SolRecommendation["tag"][] = [
+      "DEFENSIVA",
+      "CONTEÚDO",
+      "OFENSIVA",
+      "CONSOLIDACAO",
+      "RELACIONAMENTO",
+    ];
+    const allowedUrg: SolRecommendation["urgency"][] = ["alta", "média", "baixa"];
+
+    const recommendations: SolRecommendation[] = rawRecs.map((r, i) => {
+      const tagRaw = String(r.tag ?? "CONTEÚDO").toUpperCase();
+      const tag = (allowedTags.includes(tagRaw as SolRecommendation["tag"]) ? tagRaw : "CONTEÚDO") as SolRecommendation["tag"];
+      const urgRaw = String(r.urgency ?? "média").toLowerCase();
+      const urgency = (allowedUrg.includes(urgRaw as SolRecommendation["urgency"]) ? urgRaw : "média") as SolRecommendation["urgency"];
+      return {
+        id: typeof r.id === "number" ? r.id : i + 1,
+        title: String(r.title ?? ""),
+        tag,
+        urgency,
+        desc: String(r.desc ?? ""),
+        who: String(r.who ?? ""),
+        details: String(r.details ?? ""),
+      };
+    });
+
+    return {
+      insights: {
+        positives: positives.map((p) => ({ title: String(p.title ?? ""), description: String(p.description ?? "") })),
+        concerns: concerns.map((c) => ({ title: String(c.title ?? ""), description: String(c.description ?? "") })),
+      },
+      recommendations,
+      movements: movements.map((m) => ({ company: String(m.company ?? ""), text: String(m.text ?? "") })),
+    };
+  } catch (err) {
+    console.error(`[ai] generateSolRecommendations exception: ${err instanceof Error ? err.message : err}`);
+    return fallback;
+  }
 }

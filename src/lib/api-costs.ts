@@ -25,6 +25,9 @@ export const API_COSTS = {
     fetchLinkedInCompany: 0.005,
     fetchCompanyEmployees: 0.004, // per employee
   },
+  serper: {
+    searchGoogle: 0.001,
+  },
   openrouter: {
     classifyTopics: 0.001,
     checkRelevance: 0.001,
@@ -33,11 +36,21 @@ export const API_COSTS = {
     checkPublishLanguage: 0.001,
     generateEmbedding: 0.0001,
     batchScoreIcpMatch: 0.0002,
+    classifyPost: 0.001,
+    classifySentiment: 0.0005,
+    generateSolRecommendations: 0.01,
+    extractBrands: 0.001,
   },
 } as const;
 
 export type Provider = keyof typeof API_COSTS;
 export type Source = "casting" | "leads" | "enrichment" | "sol";
+
+export interface CostCtx {
+  userId?: string;
+  source?: Source;
+  searchId?: string;
+}
 
 interface LogParams {
   userId?: string;

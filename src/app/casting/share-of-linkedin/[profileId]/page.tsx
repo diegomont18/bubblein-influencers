@@ -29,6 +29,7 @@ interface Options {
   company_posts_per_month?: number | null;
   proprietary_brands?: string[];
   ai_response?: Record<string, unknown>;
+  ai_incomplete?: boolean;
 }
 
 interface Profile {
@@ -140,6 +141,7 @@ export default function LeadsGenerationOptionsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [options, setOptions] = useState<Options | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reprocessingAi, setReprocessingAi] = useState(false);
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Leads results state
@@ -251,12 +253,16 @@ export default function LeadsGenerationOptionsPage() {
           // Determine current status
           const processing = reps.find((r: { status: string }) => r.status === "processing");
           const complete = reps.find((r: { status: string }) => r.status === "complete");
+          const failed = reps.find((r: { status: string }) => r.status === "failed");
           if (processing) {
             setSolReportStatus("processing");
             setCurrentReportId(processing.id);
           } else if (complete) {
             setSolReportStatus("complete");
             setCurrentReportId(complete.id);
+          } else if (failed) {
+            setSolReportStatus("failed");
+            setCurrentReportId(failed.id);
           }
         }
       } catch { /* ignore */ }
@@ -872,10 +878,10 @@ export default function LeadsGenerationOptionsPage() {
               {/* Section 1: Colaboradores Ativos */}
               <div className="space-y-3">
                 <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">
-                  Colaboradores Ativos ({(options.employee_profiles ?? []).length})
+                  Colaboradores Ativos ({(options.employee_profiles ?? []).filter(e => !(e as Record<string,unknown>).archived).length})
                 </label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {(options.employee_profiles ?? []).map((emp, i) => {
+                  {(options.employee_profiles ?? []).filter(e => !(e as Record<string,unknown>).archived).map((emp, i) => {
                     const empPending = !emp.headline && !emp.profilePicUrl;
                     return (
                     <div key={i} className={`flex items-center gap-3 bg-white/[0.02] border rounded-xl px-4 py-3 group/card hover:border-white/15 transition-colors ${empPending ? "border-[#f59e0b]/20" : "border-white/[0.08]"}`}>
@@ -900,11 +906,13 @@ export default function LeadsGenerationOptionsPage() {
                       </div>
                       <button
                         onClick={() => {
-                          const updated = (options.employee_profiles ?? []).filter((_, j) => j !== i);
+                          const updated = (options.employee_profiles ?? []).map((e) =>
+                            e.slug === emp.slug ? { ...e, archived: true } : e
+                          );
                           autoSave({ ...options, employee_profiles: updated });
                         }}
                         className="w-7 h-7 rounded-full bg-white/5 hover:bg-[#ff946e]/20 text-white/30 hover:text-[#ff946e] flex items-center justify-center text-base font-bold shrink-0 transition-colors opacity-0 group-hover/card:opacity-100"
-                        title="Remover"
+                        title="Arquivar"
                       >&times;</button>
                     </div>
                     );
@@ -943,7 +951,7 @@ export default function LeadsGenerationOptionsPage() {
                     + Adicionar
                   </button>
                 </div>
-                {(options.employee_profiles ?? []).some((e) => !e.headline && !e.profilePicUrl) && (
+                {(options.employee_profiles ?? []).filter(e => !(e as Record<string,unknown>).archived).some((e) => !e.headline && !e.profilePicUrl) && (
                   <button
                     onClick={handleProcessEmployees}
                     disabled={processingEmployees}
@@ -955,7 +963,7 @@ export default function LeadsGenerationOptionsPage() {
                         Processando colaboradores...
                       </>
                     ) : (
-                      <>Processar {(options.employee_profiles ?? []).filter((e) => !e.headline && !e.profilePicUrl).length} colaborador(es) pendente(s)</>
+                      <>Processar {(options.employee_profiles ?? []).filter(e => !(e as Record<string,unknown>).archived).filter((e) => !e.headline && !e.profilePicUrl).length} colaborador(es) pendente(s)</>
                     )}
                   </button>
                 )}
@@ -984,6 +992,42 @@ export default function LeadsGenerationOptionsPage() {
                             <span className="text-[9px] text-white/20 shrink-0">{emp.postsPerMonth ?? 0}/mês</span>
                             <button
                               onClick={() => autoSave({ ...options, employee_profiles: [...(options.employee_profiles ?? []), emp] })}
+                              className="text-[9px] font-bold px-2 py-1 rounded-lg bg-[#ca98ff]/10 text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors shrink-0"
+                            >+ Adicionar</button>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  );
+                })()}
+                {/* Archived employees */}
+                {(() => {
+                  const archivedEmps = (options.employee_profiles ?? []).filter(e => !!(e as Record<string,unknown>).archived);
+                  if (archivedEmps.length === 0) return null;
+                  return (
+                    <details className="group">
+                      <summary className="cursor-pointer text-xs text-white/30 hover:text-white/50 select-none flex items-center gap-1.5">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-open:rotate-90 shrink-0"><path d="m9 18 6-6-6-6"/></svg>
+                        {archivedEmps.length} colaborador(es) arquivado(s)
+                      </summary>
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                        {archivedEmps.map((emp) => (
+                          <div key={emp.slug} className="flex items-center gap-2.5 bg-white/[0.01] border border-white/[0.05] rounded-lg px-3 py-2">
+                            <div className="w-8 h-8 rounded-full bg-[#262626] flex items-center justify-center shrink-0 overflow-hidden">
+                              {emp.profilePicUrl ? <img src={emp.profilePicUrl} alt="" className="w-8 h-8 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-white/50 font-medium truncate">{emp.name}</p>
+                              {emp.headline && <p className="text-[9px] text-white/25 truncate">{emp.headline}</p>}
+                            </div>
+                            <PostsFreqBadge ppm={(emp as Record<string,unknown>).postsPerMonth as number | undefined} />
+                            <button
+                              onClick={() => {
+                                const updated = (options.employee_profiles ?? []).map((e) =>
+                                  e.slug === emp.slug ? { ...e, archived: false } : e
+                                );
+                                autoSave({ ...options, employee_profiles: updated });
+                              }}
                               className="text-[9px] font-bold px-2 py-1 rounded-lg bg-[#ca98ff]/10 text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors shrink-0"
                             >+ Adicionar</button>
                           </div>
@@ -1076,6 +1120,37 @@ export default function LeadsGenerationOptionsPage() {
                       )}
                       <button onClick={() => { const u = (options.competitors??[]).map((c,j) => j===i && typeof c==="object" && c!==null ? {...c,selected:false} : c); autoSave({...options,competitors:u}); }} className="w-7 h-7 rounded-full bg-white/5 hover:bg-[#ff946e]/20 text-white/30 hover:text-[#ff946e] flex items-center justify-center text-base font-bold shrink-0 transition-colors opacity-0 group-hover/card:opacity-100" title="Remover">&times;</button>
                     </div>
+                    {/* Competitor brands */}
+                    {(() => {
+                      const allCompBrands = ((options.ai_response as Record<string,unknown>)?.competitor_brands ?? {}) as Record<string,string[]>;
+                      const compBrands = allCompBrands[nm] ?? [];
+                      const updateCompBrands = (updated: string[]) => {
+                        const newMap = { ...allCompBrands, [nm]: updated };
+                        autoSave({ ...options, ai_response: { ...(options.ai_response as Record<string,unknown>), competitor_brands: newMap } });
+                      };
+                      return (
+                        <div className="mt-3">
+                          <p className="text-[0.6rem] font-bold tracking-[0.15em] text-white/30 uppercase mb-1.5">Marcas proprietárias</p>
+                          {compBrands.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {compBrands.map((b, bi) => (
+                                <span key={`${b}-${bi}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-white/60">
+                                  <span className="font-medium">{b}</span>
+                                  <button type="button" onClick={() => updateCompBrands(compBrands.filter((_, j) => j !== bi))} className="text-white/30 hover:text-[#ff946e] transition-colors text-sm leading-none">&times;</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <input type="text" placeholder="Adicionar marca e pressionar Enter" className="w-full bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 text-xs text-white placeholder-white/20 outline-none focus:border-[#ca98ff]/40 transition-colors" onKeyDown={(e) => {
+                            if (e.key !== "Enter") return;
+                            const val = e.currentTarget.value.trim();
+                            if (!val || compBrands.some((b) => b.toLowerCase() === val.toLowerCase())) { e.currentTarget.value = ""; return; }
+                            updateCompBrands([...compBrands, val]);
+                            e.currentTarget.value = "";
+                          }} />
+                        </div>
+                      );
+                    })()}
                     <CompetitorEmployees companyName={nm} employees={((options.ai_response as Record<string,unknown>)?.competitor_employees as Record<string,Array<{name:string;slug:string;headline:string;linkedinUrl:string;profilePicUrl:string}>>)?.[nm] ?? []} onUpdate={(emps) => { const ce = {...((options.ai_response as Record<string,unknown>)?.competitor_employees as Record<string,unknown>) ?? {}, [nm]: emps}; autoSave({...options, ai_response: {...(options.ai_response as Record<string,unknown>), competitor_employees: ce}}); }} />
                     {/* Inactive competitor executives */}
                     {(() => {
@@ -1111,37 +1186,6 @@ export default function LeadsGenerationOptionsPage() {
                             ))}
                           </div>
                         </details>
-                      );
-                    })()}
-                    {/* Competitor brands */}
-                    {(() => {
-                      const allCompBrands = ((options.ai_response as Record<string,unknown>)?.competitor_brands ?? {}) as Record<string,string[]>;
-                      const compBrands = allCompBrands[nm] ?? [];
-                      const updateCompBrands = (updated: string[]) => {
-                        const newMap = { ...allCompBrands, [nm]: updated };
-                        autoSave({ ...options, ai_response: { ...(options.ai_response as Record<string,unknown>), competitor_brands: newMap } });
-                      };
-                      return (
-                        <div className="ml-4 mt-2 mb-1">
-                          <p className="text-[0.6rem] font-bold tracking-[0.15em] text-white/25 uppercase mb-1.5">Marcas proprietárias</p>
-                          {compBrands.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              {compBrands.map((b, bi) => (
-                                <span key={`${b}-${bi}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-white/60">
-                                  <span className="font-medium">{b}</span>
-                                  <button type="button" onClick={() => updateCompBrands(compBrands.filter((_, j) => j !== bi))} className="text-white/30 hover:text-[#ff946e] transition-colors text-sm leading-none">&times;</button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          <input type="text" placeholder="Adicionar marca e pressionar Enter" className="w-full bg-white/[0.02] border border-white/[0.05] rounded-lg px-3 py-2 text-xs text-white placeholder-white/15 outline-none focus:border-[#ca98ff]/30 transition-colors" onKeyDown={(e) => {
-                            if (e.key !== "Enter") return;
-                            const val = e.currentTarget.value.trim();
-                            if (!val || compBrands.some((b) => b.toLowerCase() === val.toLowerCase())) { e.currentTarget.value = ""; return; }
-                            updateCompBrands([...compBrands, val]);
-                            e.currentTarget.value = "";
-                          }} />
-                        </div>
                       );
                     })()}
                     </div>);
@@ -1248,6 +1292,38 @@ export default function LeadsGenerationOptionsPage() {
                   <p className="text-[10px] text-white/25 mt-1">Nenhum concorrente encontrado via busca automática.</p>
                 )}
               </div>
+
+              {/* AI incomplete warning */}
+              {options.ai_incomplete && (
+                <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 flex items-center justify-between gap-3">
+                  <p className="text-yellow-300 text-sm">
+                    A analise de IA ficou incompleta. Os temas podem estar vazios ou imprecisos.
+                  </p>
+                  <button
+                    onClick={async () => {
+                      setReprocessingAi(true);
+                      try {
+                        const res = await fetch("/api/leads-generation/reprocess-ai", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ profileId }),
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          if (data.options) {
+                            setOptions((prev) => prev ? { ...prev, market_context: data.options.market_context ?? prev.market_context, proprietary_brands: data.options.proprietary_brands ?? prev.proprietary_brands, ai_incomplete: false } : prev);
+                          }
+                        }
+                      } catch { /* ignore */ }
+                      finally { setReprocessingAi(false); }
+                    }}
+                    disabled={reprocessingAi}
+                    className="shrink-0 rounded-lg bg-yellow-500/20 border border-yellow-500/30 px-3 py-1.5 text-xs font-semibold text-yellow-300 hover:bg-yellow-500/30 disabled:opacity-50"
+                  >
+                    {reprocessingAi ? "Reprocessando..." : "Reprocessar IA"}
+                  </button>
+                </div>
+              )}
 
               {/* Section 3: Temas de Interesse */}
               <div className="space-y-2">
@@ -1385,14 +1461,15 @@ export default function LeadsGenerationOptionsPage() {
                 <p className="text-sm text-white/80">
                   <span className="font-semibold text-[#ca98ff]">{profile?.name}</span>
                   {" — "}
-                  {(options.employee_profiles ?? []).length} colaboradores
+                  {(options.employee_profiles ?? []).filter((e: Record<string,unknown>) => !e.archived).length} colaboradores
                 </p>
                 {(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).map((c, i) => {
                   const comp = c as { name: string; selected: boolean };
-                  const compEmps = ((options.ai_response as Record<string, unknown>)?.competitor_employees as Record<string, unknown[]>)?.[comp.name] ?? [];
+                  const compEmpsAll = ((options.ai_response as Record<string, unknown>)?.competitor_employees as Record<string, Record<string,unknown>[]>)?.[comp.name] ?? [];
+                  const compEmpsActive = compEmpsAll.filter(e => !e.archived);
                   return (
                     <p key={i} className="text-sm text-white/60 mt-1">
-                      + <span className="text-white/80">{comp.name}</span> — {compEmps.length} colaboradores
+                      + <span className="text-white/80">{comp.name}</span> — {compEmpsActive.length} colaboradores
                     </p>
                   );
                 })}

@@ -1,9 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
-import { fetchProfilePosts, fetchPostEngagers, searchLinkedInPosts, searchGoogleApify } from "@/lib/apify";
+import { fetchProfilePosts, fetchPostEngagers, searchLinkedInPosts, fetchLinkedInProfileCached } from "@/lib/apify";
+import { searchGoogle } from "@/lib/serper";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
-import { extractPostDate, computePostsPerMonth } from "@/lib/find-employees";
-import { classifyPost, classifySentiment, generateSolRecommendations } from "@/lib/ai";
+import { extractPostDate } from "@/lib/find-employees";
+import { classifyPost, classifySentiment, generateSolRecommendations, checkPublishLanguage } from "@/lib/ai";
+import { parseAbbreviatedNumber, computeEngagementFromPosts, calculatePostingFrequency } from "@/lib/normalize";
 
 export const maxDuration = 600;
 
@@ -166,8 +168,8 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. Main company employees
-    const employees = (optionsData.employee_profiles ?? []) as EmployeeProfile[];
+    // 2. Main company employees (exclude archived)
+    const employees = ((optionsData.employee_profiles ?? []) as (EmployeeProfile & { archived?: boolean })[]).filter(e => !e.archived);
     for (const emp of employees) {
       if (!emp.slug) continue;
       targets.push({
@@ -206,8 +208,8 @@ export async function POST(request: Request) {
         authorHeadline: "",
       });
 
-      // Competitor employees
-      const compEmps = competitorEmployees[comp.name] ?? [];
+      // Competitor employees (exclude archived)
+      const compEmps = (competitorEmployees[comp.name] ?? []).filter(e => !(e as EmployeeProfile & { archived?: boolean }).archived);
       for (const emp of compEmps) {
         if (!emp.slug) continue;
         targets.push({
@@ -291,6 +293,16 @@ export async function POST(request: Request) {
     }
 
     console.log(`[sol-collect] Report ${reportId}: collected ${totalPostsCollected} posts total`);
+
+    // If no posts were collected at all, mark as failed and stop
+    if (totalPostsCollected === 0) {
+      console.error(`[sol-collect] Report ${reportId}: 0 posts collected — marking as failed`);
+      await service.from("sol_reports").update({
+        status: "failed",
+        metrics: { error: "no_data", message: "Não foi possível coletar posts. As contas de coleta podem ter atingido o limite mensal." },
+      }).eq("id", reportId);
+      return Response.json({ success: false, error: "no_posts_collected" });
+    }
 
     // ============================================================
     // Phase 2: Classify posts via AI
@@ -542,11 +554,11 @@ export async function POST(request: Request) {
       reactions: number;
       comments: number;
     }
-    const normalizeMention = (raw: Record<string, unknown>): MentionCandidate | null => {
+    const normalizeMention = (raw: Record<string, unknown>, skipPeriodFilter = false): MentionCandidate | null => {
       const info = extractPostInfo(raw);
       if (!info.postUrl || !info.textContent) return null;
       if (!info.postedDate) return null;
-      if (info.postedDate < periodStart || info.postedDate > periodEnd) return null;
+      if (!skipPeriodFilter && (info.postedDate < periodStart || info.postedDate > periodEnd)) return null;
       const author = (raw.author && typeof raw.author === "object" ? raw.author : {}) as Record<string, unknown>;
       const authorSlug = String(
         author.publicIdentifier ?? author.universalName ?? info.authorSlug ?? "",
@@ -629,20 +641,11 @@ export async function POST(request: Request) {
         if (rawPosts.length === 0 && topBrands.length > 0) {
           try {
             const orQuery = topBrands.map((b) => `"${b}"`).join(" OR ");
-            const fallback = await searchGoogleApify(`(${orQuery}) site:linkedin.com`, {
+            const fallback = await searchGoogle(`(${orQuery}) site:linkedin.com`, {
               results: 15,
               tbs: "qdr:m",
               country,
-            });
-            logApiCost({
-              userId,
-              source: "sol",
-              searchId: reportId,
-              provider: "apify",
-              operation: "searchGoogleApify",
-              estimatedCost: API_COSTS.apify.searchGoogleApify,
-              metadata: { phase: "sov-fallback", company: cb.name, returned: fallback.results.length },
-            });
+            }, { userId, source: "sol", searchId: reportId });
             rawPosts = fallback.results as unknown as Array<Record<string, unknown>>;
           } catch (err) {
             console.error(`[sol-collect] SOV fallback SERP error for ${cb.name}:`, err instanceof Error ? err.message : err);
@@ -721,7 +724,7 @@ export async function POST(request: Request) {
     }
 
     // ----------------------------------------------------------
-    // Phase 5b: Influencers — search by market themes
+    // Phase 5b: Influencers — curated sample via Serper + profile enrichment
     // ----------------------------------------------------------
     interface InfluencerCard {
       name: string;
@@ -736,6 +739,11 @@ export async function POST(request: Request) {
       frequency: number;
       sentiment: "positivo" | "neutro" | "negativo";
       potential: "alto" | "médio" | "baixo";
+      profile_photo?: string;
+      slug?: string;
+      posts_per_month?: number;
+      avg_likes?: number | null;
+      avg_comments?: number | null;
     }
     interface InfluencerMentionRow {
       date: string;
@@ -743,9 +751,59 @@ export async function POST(request: Request) {
       brand?: string;
       brand_owner?: "main" | "competitor";
       sentiment?: "positivo" | "neutro" | "negativo";
+      post_url?: string;
     }
     const influencers: InfluencerCard[] = [];
     const influencerMentionsMap: Record<string, InfluencerMentionRow[]> = {};
+
+    // Country/language helpers (same as casting)
+    const INF_COUNTRY_NAMES: Record<string, string> = {
+      br: "Brazil", us: "United States", es: "Spain", fr: "France",
+    };
+    const INF_COUNTRY_CITIES: Record<string, string[]> = {
+      br: ["são paulo", "sao paulo", "rio de janeiro", "brasília", "brasilia", "belo horizonte", "curitiba", "porto alegre", "recife", "salvador", "fortaleza", "campinas", "florianópolis", "florianopolis", "brasil"],
+      us: ["new york", "san francisco", "los angeles", "chicago", "houston", "phoenix", "seattle", "boston", "austin", "denver", "miami", "atlanta", "dallas"],
+      es: ["madrid", "barcelona", "valencia", "sevilla", "seville", "bilbao", "málaga", "malaga", "españa"],
+      fr: ["paris", "lyon", "marseille", "toulouse", "nice", "nantes", "strasbourg", "bordeaux"],
+    };
+    const INF_COUNTRY_LANG: Record<string, string> = { br: "lang_pt", us: "lang_en", es: "lang_es", fr: "lang_fr" };
+    const INF_COUNTRY_HINT: Record<string, string> = { br: "Brasil", us: "USA", es: "España", fr: "France" };
+
+    const infMatchesCountry = (profileLocation: string, countryCode: string): boolean => {
+      if (!profileLocation) return true;
+      const loc = profileLocation.toLowerCase();
+      const name = (INF_COUNTRY_NAMES[countryCode] ?? "").toLowerCase();
+      if (name && loc.includes(name)) return true;
+      const cities = INF_COUNTRY_CITIES[countryCode] ?? [];
+      for (const city of cities) { if (loc.includes(city)) return true; }
+      for (const [code, cName] of Object.entries(INF_COUNTRY_NAMES)) {
+        if (code !== countryCode && loc.includes(cName.toLowerCase())) return false;
+      }
+      for (const [code, cities2] of Object.entries(INF_COUNTRY_CITIES)) {
+        if (code !== countryCode) { for (const c2 of cities2) { if (loc.includes(c2)) return false; } }
+      }
+      return true;
+    };
+
+    const infExtractSlug = (url: string): string | null => {
+      const postMatch = url.match(/linkedin\.com\/posts\/([^_/?#]+)/);
+      if (postMatch) { try { return decodeURIComponent(postMatch[1]); } catch { return postMatch[1]; } }
+      const profileMatch = url.match(/linkedin\.com\/in\/([^/?#]+)/);
+      if (!profileMatch) return null;
+      try { return decodeURIComponent(profileMatch[1]); } catch { return profileMatch[1]; }
+    };
+
+    const JOB_POST_RE = /\b(vagas?|contratando|hiring|we.re hiring|estamos contratando|oportunidade de emprego|job opening|open position|open role|vem ser|venha fazer parte)\b/i;
+    const REPOST_RE = /\b(reposted this|repostou|compartilhou isso|compartilhou isto|shared this)\b/i;
+
+    const cleanSnippetText = (text: string): string => {
+      return text
+        .replace(/\b(Denunciar est[ea] (comentário|comentario|publicação|publicacao|post)|Report this (comment|post))\b\.?/gi, "")
+        .replace(/\b(Curtir|Comentar|Compartilhar|Like|Comment|Share|Repost)\b/g, "")
+        .replace(/,?\s*\d+\s*(sem|d|h|min)\.?(\s|,|$)/g, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+    };
 
     try {
       const themesRaw = String(optionsData.market_context ?? "").trim();
@@ -753,201 +811,318 @@ export async function POST(request: Request) {
         ? themesRaw.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
         : [];
 
-      if (themes.length > 0) {
-        const themeQueries = themes.slice(0, 4).map((t) => `"${t}"`);
-        console.log(`[sol-collect] Influencers searching themes: ${JSON.stringify(themeQueries)}`);
-
-        let themePosts: Array<Record<string, unknown>> = [];
-        try {
-          themePosts = await searchLinkedInPosts({
-            searchQueries: themeQueries,
-            maxResults: 50,
-            datePosted: "past-month",
-            contentLanguage: "pt",
-          });
-          logApiCost({
-            userId,
-            source: "sol",
-            searchId: reportId,
-            provider: "apify",
-            operation: "searchLinkedInPosts",
-            estimatedCost: API_COSTS.apify.searchLinkedInPosts,
-            metadata: { phase: "influencers", returned: themePosts.length },
-          });
-        } catch (err) {
-          console.error(`[sol-collect] Influencers searchLinkedInPosts error:`, err instanceof Error ? err.message : err);
-        }
-
-        // Normalize and group by author
-        interface AuthorBucket {
-          name: string;
-          role: string;
-          company: string;
-          linkedin_url: string;
-          slug: string;
-          followers: number;
-          posts: Array<{
-            text: string;
-            posted_at: string;
-            engagement: number;
-            theme_hits: string[];
-          }>;
-        }
-        const buckets = new Map<string, AuthorBucket>();
-        const themeRegexes = themes.map((t) => ({
-          theme: t,
-          re: new RegExp(`\\b${t.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i"),
-        }));
-
-        for (const raw of themePosts) {
-          const m = normalizeMention(raw);
-          if (!m) continue;
-          // Identify which themes this post hits
-          const themeHits = themeRegexes.filter((tr) => tr.re.test(m.text)).map((tr) => tr.theme);
-          if (themeHits.length === 0) continue;
-          const key = m.author_linkedin_url || m.author_slug || m.author_name;
-          if (!key) continue;
-          let bucket = buckets.get(key);
-          if (!bucket) {
-            bucket = {
-              name: m.author_name,
-              role: m.author_role,
-              company: m.author_company,
-              linkedin_url: m.author_linkedin_url,
-              slug: m.author_slug,
-              followers: m.followers,
-              posts: [],
-            };
-            buckets.set(key, bucket);
+      // Combine themes + brands for search (deduplicated)
+      const allSearchTerms: string[] = [...themes];
+      for (const cb of companyBrandsList) {
+        for (const b of cb.brands) {
+          if (!allSearchTerms.some(t => t.toLowerCase() === b.toLowerCase())) {
+            allSearchTerms.push(b);
           }
-          bucket.posts.push({
-            text: m.text,
-            posted_at: m.posted_at ?? "",
-            engagement: m.reactions + m.comments,
-            theme_hits: themeHits,
-          });
+        }
+      }
+
+      if (allSearchTerms.length > 0) {
+        const targetLang = INF_COUNTRY_LANG[country] ?? "lang_pt";
+        const countryHint = INF_COUNTRY_HINT[country] ?? "";
+
+        // Step 1: Serper-based discovery — up to 5 queries (themes + brands)
+        const searchTerms = allSearchTerms.slice(0, 5);
+        const candidateSlugs = new Set<string>();
+        const slugSnippets = new Map<string, { title: string; snippet: string; link: string }>();
+
+        for (const theme of searchTerms) {
+          if (candidateSlugs.size >= 20) break;
+          const query = `site:linkedin.com/posts "${theme}"${countryHint ? ` ${countryHint}` : ""}`;
+          console.log(`[sol-collect] Influencers Serper query: ${query}`);
+          try {
+            const { results } = await searchGoogle(query, {
+              results: 20,
+              tbs: "qdr:m",
+              country: country || undefined,
+              language: targetLang.replace("lang_", "") || undefined,
+            }, { userId, source: "sol", searchId: reportId });
+
+            for (const r of results) {
+              if (candidateSlugs.size >= 20) break;
+              const slug = infExtractSlug(r.link);
+              if (!slug) continue;
+              if (ownSlugs.has(slug.toLowerCase())) continue;
+              if (JOB_POST_RE.test(r.title) || JOB_POST_RE.test(r.snippet)) continue;
+              if (REPOST_RE.test(r.title) || REPOST_RE.test(r.snippet)) continue;
+              if (!candidateSlugs.has(slug)) {
+                candidateSlugs.add(slug);
+                slugSnippets.set(slug, { title: r.title, snippet: r.snippet, link: r.link });
+              }
+            }
+          } catch (err) {
+            console.error(`[sol-collect] Influencers Serper error for "${theme}":`, err instanceof Error ? err.message : err);
+          }
         }
 
-        // Filter authors with ≥2 posts
-        const candidates = Array.from(buckets.values()).filter((b) => b.posts.length >= 2);
-        console.log(`[sol-collect] Influencers: ${buckets.size} unique authors, ${candidates.length} with ≥2 posts`);
+        console.log(`[sol-collect] Influencers: ${candidateSlugs.size} candidate slugs from Serper`);
 
-        // Build cross-brand index: for each candidate, scan their posts for brand mentions
+        // Step 2: Enrich candidates via profile fetch + filtering
         const allBrandRegexes: Array<{ brand: string; brand_owner: "main" | "competitor"; company_name: string; re: RegExp }> = [];
         for (const cb of companyBrandsList) {
           for (const b of cb.brands) {
             allBrandRegexes.push({
-              brand: b,
-              brand_owner: cb.brand_owner,
-              company_name: cb.name,
+              brand: b, brand_owner: cb.brand_owner, company_name: cb.name,
               re: new RegExp(`\\b${b.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i"),
             });
           }
         }
 
-        // Index existing SOV mentions by author for sentiment merge
-        const sovByAuthor = new Map<string, SovMention[]>();
+        // Index existing SOV mentions by author slug for sentiment merge
+        const sovBySlug = new Map<string, SovMention[]>();
         for (const sm of sovMentions) {
-          const k = sm.author_linkedin_url || sm.author_slug || sm.author_name;
+          const k = sm.author_slug || sm.author_linkedin_url || sm.author_name;
           if (!k) continue;
-          const arr = sovByAuthor.get(k) ?? [];
+          const arr = sovBySlug.get(k) ?? [];
           arr.push(sm);
-          sovByAuthor.set(k, arr);
+          sovBySlug.set(k, arr);
         }
 
-        for (const b of candidates) {
-          const key = b.linkedin_url || b.slug || b.name;
-          const themesCoveredSet = new Set<string>();
-          for (const p of b.posts) for (const t of p.theme_hits) themesCoveredSet.add(t);
+        const themeRegexes = themes.map((t) => ({
+          theme: t,
+          re: new RegExp(`\\b${t.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i"),
+        }));
 
-          // Brand mentions across this author's theme-posts
-          const brandsHitMap = new Map<string, { brand: string; brand_owner: "main" | "competitor"; company_name: string }>();
-          const mentionsRows: InfluencerMentionRow[] = [];
-          for (const p of b.posts) {
-            const hit = allBrandRegexes.find((br) => br.re.test(p.text));
-            mentionsRows.push({
-              date: p.posted_at ? p.posted_at.slice(0, 10) : "",
-              text: p.text.slice(0, 600),
-              ...(hit
-                ? { brand: hit.brand, brand_owner: hit.brand_owner }
-                : {}),
+        const costCtx = { userId, source: "sol" as const, searchId: reportId };
+        let qualifiedCount = 0;
+
+        for (const slug of Array.from(candidateSlugs)) {
+          if (qualifiedCount >= 8) break;
+
+          try {
+            const profileResult = await fetchLinkedInProfileCached(slug, costCtx);
+            if (profileResult.status !== 200 || !profileResult.data) {
+              console.log(`[sol-collect] Influencer ${slug}: profile fetch failed (${profileResult.status})`);
+              continue;
+            }
+            const data = profileResult.data;
+
+            // Country filter
+            const profileLocation = String(data.location ?? data.locationName ?? "");
+            if (country && !infMatchesCountry(profileLocation, country)) {
+              console.log(`[sol-collect] Influencer ${slug}: skipped (location "${profileLocation}" doesn't match ${country})`);
+              continue;
+            }
+
+            // Follower minimum
+            const followers = parseAbbreviatedNumber(data.followerCount)
+              ?? parseAbbreviatedNumber(data.followers)
+              ?? parseAbbreviatedNumber(data.follower_count)
+              ?? parseAbbreviatedNumber(data.followersCount)
+              ?? 0;
+            if (followers < 500) {
+              console.log(`[sol-collect] Influencer ${slug}: skipped (${followers} followers < 500)`);
+              continue;
+            }
+
+            // Language check
+            const publishesInLang = await checkPublishLanguage(data, targetLang);
+            logApiCost({
+              userId, source: "sol", searchId: reportId,
+              provider: "openrouter", operation: "checkPublishLanguage",
+              estimatedCost: API_COSTS.openrouter.checkPublishLanguage,
+              metadata: { phase: "influencers", slug },
             });
-            if (hit) {
-              brandsHitMap.set(`${hit.brand_owner}|${hit.company_name}|${hit.brand}`, {
-                brand: hit.brand,
-                brand_owner: hit.brand_owner,
-                company_name: hit.company_name,
+            if (!publishesInLang) {
+              console.log(`[sol-collect] Influencer ${slug}: skipped (doesn't publish in ${targetLang})`);
+              continue;
+            }
+
+            // Extract profile photo
+            let profilePhoto = "";
+            const photoCandidates = [
+              data.profile_photo, data.profilePicture, data.picture,
+              data.profile_pic_url, data.profile_picture, data.photo,
+              data.avatar, data.profile_image_url, data.profilePictureUrl,
+            ];
+            let rawPhotoUrl = "";
+            for (const c of photoCandidates) {
+              if (typeof c === "string" && c.startsWith("http")) { rawPhotoUrl = c; break; }
+              if (c && typeof c === "object") {
+                const obj = c as Record<string, unknown>;
+                const url = String(obj.original || obj.large || obj.medium || obj.small || "");
+                if (url.startsWith("http")) { rawPhotoUrl = url; break; }
+              }
+            }
+            if (rawPhotoUrl) {
+              try {
+                const photoRes = await fetch(rawPhotoUrl, { signal: AbortSignal.timeout(10_000) });
+                if (photoRes.ok) {
+                  const photoBuffer = await photoRes.arrayBuffer();
+                  const ext = rawPhotoUrl.includes(".png") ? "png" : "jpg";
+                  const safeSlug = slug.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "-");
+                  const filePath = `${safeSlug}.${ext}`;
+                  const { error: uploadError } = await service.storage
+                    .from("profile-photos")
+                    .upload(filePath, photoBuffer, { contentType: ext === "png" ? "image/png" : "image/jpeg", upsert: true });
+                  if (!uploadError) {
+                    const { data: urlData } = service.storage.from("profile-photos").getPublicUrl(filePath);
+                    profilePhoto = urlData.publicUrl;
+                  }
+                }
+              } catch (photoErr) {
+                console.warn(`[sol-collect] Photo error for ${slug}:`, String(photoErr));
+              }
+            }
+
+            // Build influencer card
+            const profileName = String(data.fullName ?? data.full_name ?? data.name ?? slug);
+            const headline = String(data.headline ?? "");
+            const profileCompany = String(
+              (data.company && typeof data.company === "object" ? (data.company as Record<string, unknown>).name : undefined)
+              ?? data.companyName ?? data.currentCompany ?? ""
+            );
+
+            // Fetch real posts from the influencer's profile
+            const snippetData = slugSnippets.get(slug);
+            const snippetText = snippetData ? `${snippetData.title} ${snippetData.snippet}` : "";
+            const themesCoveredSet = new Set<string>();
+            for (const tr of themeRegexes) {
+              if (tr.re.test(headline) || tr.re.test(snippetText)) themesCoveredSet.add(tr.theme);
+            }
+
+            const brandsHitMap = new Map<string, { brand: string; brand_owner: "main" | "competitor"; company_name: string }>();
+            const mentionsRows: InfluencerMentionRow[] = [];
+            let recentPosts: Array<Record<string, unknown>> = [];
+
+            // Fetch real posts from influencer's profile (only keep posts with keywords)
+            try {
+              recentPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${slug}/`, 5);
+              logApiCost({
+                userId, source: "sol", searchId: reportId,
+                provider: "apify", operation: "fetchProfilePosts",
+                estimatedCost: API_COSTS.apify.fetchProfilePosts,
+                metadata: { phase: "influencers", slug, postsRequested: 5 },
+              });
+              for (const rawPost of recentPosts) {
+                const postInfo = extractPostInfo(rawPost);
+                if (!postInfo.textContent || postInfo.textContent.length < 20) continue;
+                // Only include posts that contain at least 1 monitored keyword
+                const hasTheme = themeRegexes.some((tr) => tr.re.test(postInfo.textContent));
+                const hasBrand = allBrandRegexes.some((br) => br.re.test(postInfo.textContent));
+                if (!hasTheme && !hasBrand) continue;
+                const hit = allBrandRegexes.find((br) => br.re.test(postInfo.textContent));
+                if (hit) {
+                  brandsHitMap.set(`${hit.brand_owner}|${hit.company_name}|${hit.brand}`, {
+                    brand: hit.brand, brand_owner: hit.brand_owner, company_name: hit.company_name,
+                  });
+                }
+                for (const tr of themeRegexes) {
+                  if (tr.re.test(postInfo.textContent)) themesCoveredSet.add(tr.theme);
+                }
+                mentionsRows.push({
+                  date: postInfo.postedDate ? postInfo.postedDate.toISOString().slice(0, 10) : "",
+                  text: postInfo.textContent.slice(0, 600),
+                  post_url: postInfo.postUrl || undefined,
+                  ...(hit ? { brand: hit.brand, brand_owner: hit.brand_owner } : {}),
+                });
+              }
+            } catch (postErr) {
+              console.warn(`[sol-collect] Posts fetch error for ${slug}:`, String(postErr));
+            }
+
+            // Fallback: if no real posts fetched, use Serper snippet
+            if (mentionsRows.length === 0 && snippetText) {
+              const hit = allBrandRegexes.find((br) => br.re.test(snippetText));
+              mentionsRows.push({
+                date: "",
+                text: cleanSnippetText(snippetData?.snippet ?? "").slice(0, 600),
+                ...(hit ? { brand: hit.brand, brand_owner: hit.brand_owner } : {}),
+                post_url: snippetData?.link,
+              });
+              if (hit) {
+                brandsHitMap.set(`${hit.brand_owner}|${hit.company_name}|${hit.brand}`, {
+                  brand: hit.brand, brand_owner: hit.brand_owner, company_name: hit.company_name,
+                });
+              }
+            }
+
+            // Merge with SOV mentions for this author
+            const sovForAuthor = sovBySlug.get(slug) ?? sovBySlug.get(profileName) ?? [];
+            for (const sm of sovForAuthor) {
+              mentionsRows.push({
+                date: sm.posted_at ? sm.posted_at.slice(0, 10) : "",
+                text: sm.text.slice(0, 600),
+                brand: sm.brand_term,
+                brand_owner: sm.brand_owner,
+                sentiment: sm.sentiment,
+                post_url: sm.post_url,
+              });
+              brandsHitMap.set(`${sm.brand_owner}|${sm.company_name}|${sm.brand_term}`, {
+                brand: sm.brand_term, brand_owner: sm.brand_owner, company_name: sm.company_name,
               });
             }
-          }
 
-          // Merge with SOV mentions for this author (already classified for sentiment)
-          const sovForAuthor = sovByAuthor.get(key) ?? [];
-          for (const sm of sovForAuthor) {
-            mentionsRows.push({
-              date: sm.posted_at ? sm.posted_at.slice(0, 10) : "",
-              text: sm.text.slice(0, 600),
-              brand: sm.brand_term,
-              brand_owner: sm.brand_owner,
-              sentiment: sm.sentiment,
+            const brandsMentioned = Array.from(brandsHitMap.values());
+            const ownBrandHits = brandsMentioned.filter((x) => x.brand_owner === "main").length;
+
+            // Sentiment from SOV
+            const sentCounts = { positivo: 0, neutro: 0, negativo: 0 };
+            for (const sm of sovForAuthor) sentCounts[sm.sentiment] += 1;
+            const totalSent = sentCounts.positivo + sentCounts.neutro + sentCounts.negativo;
+            let sentiment: "positivo" | "neutro" | "negativo" = "neutro";
+            if (totalSent > 0) {
+              if (sentCounts.positivo >= sentCounts.neutro && sentCounts.positivo >= sentCounts.negativo) sentiment = "positivo";
+              else if (sentCounts.negativo >= sentCounts.neutro && sentCounts.negativo >= sentCounts.positivo) sentiment = "negativo";
+            }
+
+            // Potential scoring with real follower data
+            let potential: "alto" | "médio" | "baixo" = "baixo";
+            if (followers >= 30000 || ownBrandHits >= 2) potential = "alto";
+            else if (followers >= 10000 || ownBrandHits >= 1) potential = "médio";
+
+            const key = `https://www.linkedin.com/in/${slug}/`;
+
+            // Calculate engagement metrics using shared functions from normalize
+            const engMetrics = computeEngagementFromPosts(recentPosts);
+            const { score: postsPerMonth } = calculatePostingFrequency(data);
+
+            influencers.push({
+              name: profileName,
+              role: headline,
+              company: profileCompany,
+              linkedin_url: key,
+              followers,
+              posts_about: mentionsRows.length,
+              themes_covered: Array.from(themesCoveredSet),
+              brands_mentioned: brandsMentioned,
+              avg_engagement: 0,
+              frequency: 0,
+              sentiment,
+              potential,
+              profile_photo: profilePhoto,
+              slug,
+              posts_per_month: postsPerMonth,
+              avg_likes: engMetrics.avgLikes,
+              avg_comments: engMetrics.avgComments,
             });
-            brandsHitMap.set(`${sm.brand_owner}|${sm.company_name}|${sm.brand_term}`, {
-              brand: sm.brand_term,
-              brand_owner: sm.brand_owner,
-              company_name: sm.company_name,
-            });
+            influencerMentionsMap[key] = mentionsRows.slice(0, 10);
+            qualifiedCount++;
+            console.log(`[sol-collect] Influencer ${slug}: QUALIFIED (${followers} followers, ${profilePhoto ? "photo" : "no photo"}, potential=${potential})`);
+          } catch (err) {
+            console.error(`[sol-collect] Influencer ${slug} error:`, err instanceof Error ? err.message : err);
           }
-
-          const brandsMentioned = Array.from(brandsHitMap.values());
-          const ownBrandHits = brandsMentioned.filter((x) => x.brand_owner === "main").length;
-
-          const totalEng = b.posts.reduce((s, p) => s + p.engagement, 0);
-          const avgEngagement = b.posts.length > 0 ? Math.round(totalEng / b.posts.length) : 0;
-          const frequency = computePostsPerMonth(
-            b.posts.map((p) => ({ posted_at: p.posted_at })) as Array<Record<string, unknown>>,
-          );
-
-          // Predominant sentiment
-          const sentCounts = { positivo: 0, neutro: 0, negativo: 0 };
-          for (const sm of sovForAuthor) sentCounts[sm.sentiment] += 1;
-          const totalSent = sentCounts.positivo + sentCounts.neutro + sentCounts.negativo;
-          let sentiment: "positivo" | "neutro" | "negativo" = "neutro";
-          if (totalSent > 0) {
-            if (sentCounts.positivo >= sentCounts.neutro && sentCounts.positivo >= sentCounts.negativo) sentiment = "positivo";
-            else if (sentCounts.negativo >= sentCounts.neutro && sentCounts.negativo >= sentCounts.positivo) sentiment = "negativo";
-            else sentiment = "neutro";
-          }
-
-          // Potential
-          let potential: "alto" | "médio" | "baixo" = "baixo";
-          if (b.followers >= 30000 || ownBrandHits >= 2) potential = "alto";
-          else if (ownBrandHits >= 1 || b.followers >= 15000) potential = "médio";
-          else if (brandsMentioned.length === 0) potential = "baixo";
-
-          influencers.push({
-            name: b.name || "—",
-            role: b.role,
-            company: b.company,
-            linkedin_url: b.linkedin_url,
-            followers: b.followers,
-            posts_about: b.posts.length,
-            themes_covered: Array.from(themesCoveredSet),
-            brands_mentioned: brandsMentioned,
-            avg_engagement: avgEngagement,
-            frequency,
-            sentiment,
-            potential,
-          });
-          influencerMentionsMap[key] = mentionsRows.slice(0, 10);
         }
 
-        // Sort by potential then followers
+        // Sort by potential then followers, keep top 8
         const potentialOrder: Record<string, number> = { alto: 0, "médio": 1, baixo: 2 };
         influencers.sort((a, b) => {
           const p = (potentialOrder[a.potential] ?? 3) - (potentialOrder[b.potential] ?? 3);
           if (p !== 0) return p;
           return b.followers - a.followers;
         });
+        if (influencers.length > 8) {
+          const keptKeys = new Set(influencers.slice(0, 8).map((inf) => inf.linkedin_url || inf.name));
+          for (const key of Object.keys(influencerMentionsMap)) {
+            if (!keptKeys.has(key)) delete influencerMentionsMap[key];
+          }
+          influencers.splice(8);
+        }
+        console.log(`[sol-collect] Influencers final: ${influencers.length} qualified from ${candidateSlugs.size} candidates`);
       } else {
         console.log(`[sol-collect] Influencers skipped: market_context is empty`);
       }
@@ -1067,11 +1242,16 @@ export async function POST(request: Request) {
         metadata: { reportId },
       });
 
-      await service.from("sol_reports").update({ recommendations: aiOutput }).eq("id", reportId);
-      console.log(`[sol-collect] recommendations saved: ${aiOutput.recommendations.length} recs, ${aiOutput.movements.length} movements`);
+      const aiRecsEmpty = aiOutput.recommendations.length === 0 && aiOutput.insights.positives.length === 0;
+      await service.from("sol_reports").update({
+        recommendations: aiOutput,
+        ...(aiRecsEmpty ? { ai_incomplete: true } : {}),
+      }).eq("id", reportId);
+      console.log(`[sol-collect] recommendations saved: ${aiOutput.recommendations.length} recs, ${aiOutput.movements.length} movements${aiRecsEmpty ? " (ai_incomplete)" : ""}`);
     } catch (err) {
       console.error(`[sol-collect] Phase 6 synthesis error:`, err instanceof Error ? err.message : err);
       notifyError("sol-collect-phase6", err, { reportId, profileId });
+      await service.from("sol_reports").update({ ai_incomplete: true }).eq("id", reportId);
     }
 
     // Mark report as complete

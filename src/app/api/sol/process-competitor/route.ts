@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { fetchLinkedInCompany, fetchProfilePosts, fetchLinkedInProfileApify } from "@/lib/apify";
+import { fetchLinkedInCompany, fetchProfilePosts, fetchProfilePostsCached, fetchLinkedInProfileCached } from "@/lib/apify";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
 import { findActiveEmployees, computePostsPerMonth, EmpCandidate } from "@/lib/find-employees";
@@ -62,19 +62,12 @@ export async function POST(request: Request) {
     let postsPerMonth = currentComp.postsPerMonth as number | undefined;
     let employeeCount = Number(currentComp.employeeCount ?? 0);
 
+    const solCostCtx = { userId: user.id, source: "sol" as const };
+
     // 1. Fetch company info only if not already processed
     if (!companyAlreadyProcessed) {
       console.log(`[process-competitor] Fetching company info for ${slug}`);
-      const companyResult = await fetchLinkedInCompany(slug);
-
-      logApiCost({
-        userId: user.id,
-        source: "sol",
-        provider: "apify",
-        operation: "fetchLinkedInCompany",
-        estimatedCost: API_COSTS.apify.fetchLinkedInCompany,
-        metadata: { slug },
-      });
+      const companyResult = await fetchLinkedInCompany(slug, solCostCtx);
 
       const companyInfo = companyResult.data;
       realName = companyInfo?.name || slug.replace(/-/g, " ");
@@ -121,6 +114,14 @@ export async function POST(request: Request) {
       // Re-read it from the stored competitor data or use a simple heuristic
       console.log(`[process-competitor] Extracting brands for ${realName}`);
       const compBrands = await extractBrands(realName, "", "");
+      logApiCost({
+        userId: user.id,
+        source: "sol",
+        provider: "openrouter",
+        operation: "extractBrands",
+        estimatedCost: API_COSTS.openrouter.extractBrands,
+        metadata: { companyName: realName },
+      });
       if (compBrands.length > 0) {
         compBrandsMap[realName] = compBrands;
         aiResponse.competitor_brands = compBrandsMap;
@@ -140,7 +141,7 @@ export async function POST(request: Request) {
     if (needsEmployeeSearch) {
       // Search for executives via SERP + profile validation
       console.log(`[process-competitor] Searching executives for ${realName} (slug: ${slug})`);
-      const { active: found, inactive: inactiveFound } = await findActiveEmployees(slug, realName, user.id, profileId, 12, true, country);
+      const { active: found, inactive: inactiveFound } = await findActiveEmployees(slug, realName, user.id, profileId, 12, true, country, solCostCtx);
       const toEmpData = (e: EmpCandidate): EmployeeData => ({
         name: e.name, slug: e.slug, headline: e.headline,
         linkedinUrl: e.linkedinUrl, profilePicUrl: e.profilePicUrl, postsPerMonth: e.postsPerMonth,
@@ -163,28 +164,18 @@ export async function POST(request: Request) {
 
         console.log(`[process-competitor] Enriching employee ${emp.slug}`);
         try {
-          const result = await fetchLinkedInProfileApify(emp.slug);
-
-          logApiCost({
-            userId: user.id,
-            source: "sol",
-            provider: "apify",
-            operation: "fetchLinkedInProfileApify",
-            estimatedCost: API_COSTS.apify.fetchLinkedInProfileApify,
-            metadata: { slug: emp.slug },
-          });
+          const result = await fetchLinkedInProfileCached(emp.slug, solCostCtx);
 
           if (result.status === 200 && result.data) {
             const d = result.data;
-            const empPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${emp.slug}/`, 5);
-
+            const empPosts = await fetchProfilePostsCached(`https://www.linkedin.com/in/${emp.slug}/`, 5);
             logApiCost({
               userId: user.id,
               source: "sol",
               provider: "apify",
               operation: "fetchProfilePosts",
               estimatedCost: API_COSTS.apify.fetchProfilePosts,
-              metadata: { slug: emp.slug, postsReturned: empPosts.length },
+              metadata: { slug: emp.slug, context: "competitor-employee-enrichment" },
             });
 
             finalEmps.push({

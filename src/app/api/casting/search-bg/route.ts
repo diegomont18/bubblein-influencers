@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { searchGoogleApify as searchGoogle, fetchLinkedInProfileApify as fetchLinkedInProfile, extractActivityId } from "@/lib/apify";
+import { fetchLinkedInProfileCached as fetchLinkedInProfile, extractActivityId } from "@/lib/apify";
+import { searchGoogle } from "@/lib/serper";
 import { fetchProfilePosts, fetchProfilePostsBatch, searchLinkedInProfiles, searchLinkedInPosts } from "@/lib/apify";
 import { parseAbbreviatedNumber, normalizeProfileData, calculatePostingFrequency, calculatePostingFrequencyFromApifyPosts, calculateEngagementMetrics, computeEngagementFromPosts, calculateCreatorScore } from "@/lib/normalize";
 import { checkPublishLanguage, classifyTopics } from "@/lib/ai";

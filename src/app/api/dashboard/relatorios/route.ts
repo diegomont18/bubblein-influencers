@@ -160,15 +160,45 @@ export async function DELETE(request: Request) {
 
   try {
     const { type, id } = await request.json();
+    console.log(`[dashboard-relatorios] DELETE type=${type} id=${id}`);
     if (!type || !id) return NextResponse.json({ error: "type and id required" }, { status: 400 });
 
     const service = createServiceClient();
 
     if (type === "mapeamento") {
+      // Delete dependent sol_posts and sol_reports first (FK without CASCADE)
+      const { data: reports } = await service.from("sol_reports").select("id").eq("profile_id", id);
+      for (const r of reports ?? []) {
+        await service.from("sol_posts").delete().eq("report_id", r.id);
+      }
+      await service.from("sol_reports").delete().eq("profile_id", id);
       await service.from("lg_profiles").delete().eq("id", id);
     } else if (type === "relatorio") {
+      // Buscar profile_id ANTES de deletar para verificação posterior
+      const { data: report } = await service
+        .from("sol_reports")
+        .select("profile_id")
+        .eq("id", id)
+        .single();
+      const profileId = report?.profile_id;
+      console.log(`[dashboard-relatorios] Deleting relatorio ${id}, linked to profile ${profileId}`);
+
       await service.from("sol_posts").delete().eq("report_id", id);
       await service.from("sol_reports").delete().eq("id", id);
+
+      // Verificar que o mapeamento NÃO foi deletado
+      if (profileId) {
+        const { data: profileCheck } = await service
+          .from("lg_profiles")
+          .select("id")
+          .eq("id", profileId)
+          .single();
+        if (!profileCheck) {
+          console.error(`[dashboard-relatorios] BUG: lg_profiles ${profileId} was deleted after relatorio deletion!`);
+        } else {
+          console.log(`[dashboard-relatorios] OK: lg_profiles ${profileId} still exists`);
+        }
+      }
     } else if (type === "influencer") {
       await service.from("casting_lists").delete().eq("id", id);
     } else if (type === "lead") {

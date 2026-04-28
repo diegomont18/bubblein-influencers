@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { fetchPostEngagers, fetchProfilePosts, fetchLinkedInProfileApify } from "@/lib/apify";
+import { fetchPostEngagers, fetchProfilePosts, fetchLinkedInProfileCached } from "@/lib/apify";
 import { batchScoreIcpMatch, extractCompaniesFromHeadlines } from "@/lib/ai";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
@@ -351,7 +351,7 @@ export async function POST(request: Request) {
             let profilePhoto = "";
 
             try {
-              const result = await fetchLinkedInProfileApify(target);
+              const result = await fetchLinkedInProfileCached(target);
 
               if (result.status === 200 && result.data) {
                 const data = result.data as Record<string, unknown>;

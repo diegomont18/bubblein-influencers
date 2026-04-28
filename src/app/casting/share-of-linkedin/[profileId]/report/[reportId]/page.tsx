@@ -22,8 +22,18 @@ function formatDelta(value: number, mainValue: number): { text: string; color: s
   if (mainValue === 0) return null;
   const delta = Math.round(((value - mainValue) / mainValue) * 100);
   if (delta === 0) return null;
+
+  let text: string;
+  if (Math.abs(delta) > 100) {
+    const multiplier = Math.abs(value / mainValue);
+    const formatted = multiplier >= 10 ? `${Math.round(multiplier)}x` : `${multiplier.toFixed(1).replace(/\.0$/, "")}x`;
+    text = delta > 0 ? `+${formatted}` : `-${formatted}`;
+  } else {
+    text = delta > 0 ? `+${delta}%` : `${delta}%`;
+  }
+
   return {
-    text: delta > 0 ? `+${delta}%` : `${delta}%`,
+    text,
     color: delta > 0 ? "text-[#ff946e]" : "text-[#a2f31f]",
   };
 }
@@ -123,6 +133,11 @@ interface InfluencerCard {
   frequency: number;
   sentiment: "positivo" | "neutro" | "negativo";
   potential: "alto" | "médio" | "baixo";
+  profile_photo?: string;
+  slug?: string;
+  posts_per_month?: number;
+  avg_likes?: number | null;
+  avg_comments?: number | null;
 }
 
 interface InfluencerMentionRow {
@@ -131,6 +146,7 @@ interface InfluencerMentionRow {
   brand?: string;
   brand_owner?: "main" | "competitor";
   sentiment?: "positivo" | "neutro" | "negativo";
+  post_url?: string;
 }
 
 interface RecommendationItem {
@@ -156,6 +172,7 @@ interface RawDataPayload {
   sov?: { totals_by_company: Record<string, SovTotals>; mentions: SovMention[] };
   influencers?: InfluencerCard[];
   influencer_mentions?: Record<string, InfluencerMentionRow[]>;
+  archived_influencers?: string[];
 }
 
 interface ReportData {
@@ -171,8 +188,15 @@ interface ReportData {
     } | null;
     raw_data: RawDataPayload | null;
     recommendations: RecommendationsPayload | null;
+    ai_incomplete?: boolean;
   };
   profile: { id: string; name: string; linkedin_url: string };
+  options?: {
+    market_context?: string;
+    proprietary_brands?: string[];
+    competitors?: Array<{ name?: string; selected?: boolean; url?: string }>;
+    ai_response?: Record<string, unknown>;
+  };
   posts: SolPost[];
 }
 
@@ -196,6 +220,33 @@ const SENTIMENT_COLORS: Record<"positivo" | "neutro" | "negativo", { text: strin
   positivo: { text: "text-[#a2f31f]", bg: "bg-[#a2f31f]/10", bar: "#a2f31f", label: "Positivo" },
   neutro: { text: "text-[#f59e0b]", bg: "bg-[#f59e0b]/10", bar: "#f59e0b", label: "Neutro" },
   negativo: { text: "text-[#ff946e]", bg: "bg-[#ff946e]/10", bar: "#ff946e", label: "Negativo" },
+};
+
+function cleanSnippetText(text: string): string {
+  return text
+    .replace(/\b(Denunciar est[ea] (comentário|comentario|publicação|publicacao|post)|Report this (comment|post))\b\.?/gi, "")
+    .replace(/\b(Curtir|Comentar|Compartilhar|Like|Comment|Share|Repost)\b/g, "")
+    .replace(/,?\s*\d+\s*(sem|d|h|min)\.?(\s|,|$)/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function highlightKeywords(text: string, keywords: string[]): React.ReactNode {
+  if (!keywords.length) return text;
+  const escaped = keywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const regex = new RegExp(`(${escaped.join("|")})`, "gi");
+  const parts = text.split(regex);
+  return parts.map((part, i) =>
+    regex.test(part)
+      ? <span key={i} className="text-[#ca98ff] font-semibold">{part}</span>
+      : part
+  );
+}
+
+const POTENTIAL_INFO: Record<string, { label: string; description: string }> = {
+  alto: { label: "Alto", description: "+30k seguidores ou 2+ citações da sua marca" },
+  "médio": { label: "Médio", description: "+10k seguidores ou 1 citação da sua marca" },
+  baixo: { label: "Baixo", description: "Abaixo dos critérios anteriores" },
 };
 
 const POSTS_PER_PAGE = 20;
@@ -233,13 +284,16 @@ export default function ReportPage() {
   const [recVotes, setRecVotes] = useState<Record<number, "like" | "dislike">>({});
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [expandedRec, setExpandedRec] = useState<number | null>(null);
-  // Influencers tab filters
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [influencerThemeFilter, setInfluencerThemeFilter] = useState<string>("Todos");
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [influencerRelationFilter, setInfluencerRelationFilter] = useState<"all" | "main" | "competitor" | "themes-only">("all");
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Influencers tab state
   const [expandedInfluencer, setExpandedInfluencer] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [reprocessingInfluencers, setReprocessingInfluencers] = useState(false);
+  const [showArchivedInfluencers, setShowArchivedInfluencers] = useState(false);
+  const [archivingInfluencer, setArchivingInfluencer] = useState<string | null>(null);
+  const [termsExpanded, setTermsExpanded] = useState(false);
+  const [editingTerms, setEditingTerms] = useState(false);
+  const [termsValue, setTermsValue] = useState("");
+  const [savingTerms, setSavingTerms] = useState(false);
 
   const loadReport = useCallback(async () => {
     try {
@@ -254,6 +308,13 @@ export default function ReportPage() {
 
   useEffect(() => { loadReport(); }, [loadReport]);
 
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.user?.role === "admin") setIsAdmin(true); })
+      .catch(() => {});
+  }, []);
+
   const companies = useMemo(() => {
     if (!data) return [];
     const names = Array.from(new Set(data.posts.map((p) => p.company_name)));
@@ -263,10 +324,48 @@ export default function ReportPage() {
   const metrics = data?.report?.metrics ?? null;
   const sovTotals = data?.report?.raw_data?.sov?.totals_by_company ?? null;
   const recommendationsPayload = data?.report?.recommendations ?? null;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const influencerCards = data?.report?.raw_data?.influencers ?? [];
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const allInfluencerCards = data?.report?.raw_data?.influencers ?? [];
+  const archivedInfluencerKeys = data?.report?.raw_data?.archived_influencers ?? [];
+  const archivedSet = useMemo(() => new Set(archivedInfluencerKeys), [archivedInfluencerKeys]);
+  const influencerCards = useMemo(() => allInfluencerCards.filter((c) => !archivedSet.has(c.linkedin_url || c.name)), [allInfluencerCards, archivedSet]);
+  const archivedInfluencerCards = useMemo(() => allInfluencerCards.filter((c) => archivedSet.has(c.linkedin_url || c.name)), [allInfluencerCards, archivedSet]);
   const influencerMentionsByKey = data?.report?.raw_data?.influencer_mentions ?? {};
+
+  // All monitored keywords (themes + all brands) for mention highlighting
+  const allMonitoredKeywords = useMemo(() => {
+    const keywords: string[] = [];
+    const mc = data?.options?.market_context ?? "";
+    keywords.push(...mc.split(",").map(t => t.trim()).filter(t => t));
+    const brands = (data?.options?.proprietary_brands ?? []) as string[];
+    keywords.push(...brands.filter(b => typeof b === "string" && b.trim()));
+    const aiResp = (data?.options?.ai_response ?? {}) as Record<string, unknown>;
+    const compBrands = (aiResp.competitor_brands ?? {}) as Record<string, unknown>;
+    for (const brandList of Object.values(compBrands)) {
+      if (Array.isArray(brandList)) keywords.push(...brandList.filter((b): b is string => typeof b === "string" && b.trim().length > 0));
+    }
+    return Array.from(new Set(keywords));
+  }, [data]);
+
+  // Brand groups for the terms display
+  const brandGroups = useMemo(() => {
+    const groups: Array<{ name: string; type: "themes" | "main" | "competitor"; brands: string[] }> = [];
+    const mc = data?.options?.market_context ?? "";
+    const themesList = mc.split(",").map(t => t.trim()).filter(t => t);
+    if (themesList.length > 0) groups.push({ name: "Temas do mercado", type: "themes", brands: themesList });
+    const mainBrands = (data?.options?.proprietary_brands ?? []) as string[];
+    const filtered = mainBrands.filter(b => typeof b === "string" && b.trim());
+    if (filtered.length > 0) groups.push({ name: data?.profile?.name ?? "Empresa", type: "main", brands: filtered });
+    const competitors = (data?.options?.competitors ?? []) as Array<{ name?: string; selected?: boolean }>;
+    const aiResp = (data?.options?.ai_response ?? {}) as Record<string, unknown>;
+    const compBrandsMap = (aiResp.competitor_brands ?? {}) as Record<string, unknown>;
+    for (const comp of competitors) {
+      if (!comp.selected || !comp.name) continue;
+      const raw = compBrandsMap[comp.name];
+      const list = Array.isArray(raw) ? raw.filter((b): b is string => typeof b === "string" && b.trim().length > 0) : [];
+      if (list.length > 0) groups.push({ name: comp.name, type: "competitor", brands: list });
+    }
+    return groups;
+  }, [data]);
 
   // Set default collabCompany
   useEffect(() => {
@@ -638,6 +737,16 @@ export default function ReportPage() {
               </div>
             )}
 
+            {/* AI incomplete warning */}
+            {data?.report?.ai_incomplete && (
+              <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-5 py-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-yellow-300 text-sm font-semibold">Analise de IA incompleta</p>
+                  <p className="text-yellow-300/70 text-xs mt-0.5">Algumas classificacoes ou recomendacoes podem estar ausentes. Gere um novo relatorio para completar.</p>
+                </div>
+              </div>
+            )}
+
             {/* Recomendações Estratégicas */}
             {(recommendationsPayload?.recommendations?.length ?? 0) > 0 && (
               <div className="rounded-2xl border border-white/10 p-6">
@@ -725,7 +834,16 @@ export default function ReportPage() {
 
         {activeTab === "analise" && !metrics && (
           <div className="text-center py-12">
-            <p className="text-white/40 text-sm">Métricas ainda não calculadas. Aguarde o processamento completo.</p>
+            {data?.report?.status === "failed" ? (
+              <>
+                <p className="text-red-400 text-sm font-medium">Não foi possível gerar o relatório.</p>
+                <p className="text-white/30 text-xs mt-2">
+                  {(data?.report?.metrics as Record<string, unknown>)?.message as string ?? "As contas de coleta atingiram o limite. Tente novamente mais tarde."}
+                </p>
+              </>
+            ) : (
+              <p className="text-white/40 text-sm">Métricas ainda não calculadas. Aguarde o processamento completo.</p>
+            )}
           </div>
         )}
 
@@ -1038,143 +1156,358 @@ export default function ReportPage() {
         {activeTab === "influencers" && (
           <div className="space-y-6">
             <div className="rounded-2xl border border-white/10 p-6">
-              <div className="mb-4">
-                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">Influenciadores externos</h3>
-                <p className="text-xs text-white/50">Pessoas externas que falam sobre os temas do seu mercado. Identificamos quais delas já citam suas marcas (próprias ou de concorrentes).</p>
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-1">Influenciadores externos</h3>
+                  <p className="text-xs text-white/50">Amostra de pessoas externas que falam sobre os temas do seu mercado. Para uma busca completa com mais filtros e resultados, use a funcionalidade <Link href="/casting" className="text-[#ca98ff] hover:underline">Influencers B2B</Link>.</p>
+                </div>
+                {isAdmin && (
+                  <button
+                    onClick={async () => {
+                      setReprocessingInfluencers(true);
+                      try {
+                        const res = await fetch("/api/sol/reprocess-influencers", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ reportId }),
+                        });
+                        if (res.ok) await loadReport();
+                      } catch { /* ignore */ }
+                      finally { setReprocessingInfluencers(false); }
+                    }}
+                    disabled={reprocessingInfluencers}
+                    className="shrink-0 rounded-lg bg-[#ca98ff]/20 border border-[#ca98ff]/30 px-3 py-1.5 text-xs font-semibold text-[#ca98ff] hover:bg-[#ca98ff]/30 disabled:opacity-50 transition-colors"
+                  >
+                    {reprocessingInfluencers ? "Reprocessando..." : "Reprocessar"}
+                  </button>
+                )}
               </div>
 
-              {influencerCards.length === 0 && (
+              {/* Monitored terms — grouped by company */}
+              {allMonitoredKeywords.length > 0 && (
+                <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <button onClick={() => { setTermsExpanded((v) => !v); if (!editingTerms) setTermsValue(data?.options?.market_context ?? ""); }} className="text-xs text-white/50 hover:text-white/70 transition-colors">
+                      <span className="text-[10px] uppercase tracking-wider text-white/30 mr-2">Termos monitorados</span>
+                      {!termsExpanded && <span className="text-white/50">{allMonitoredKeywords.length} termos</span>}
+                      <span className="ml-1 text-white/30">{termsExpanded ? "▴" : "▾"}</span>
+                    </button>
+                  </div>
+                  {termsExpanded && (
+                    <div className="mt-3 space-y-3">
+                      {brandGroups.map((group) => (
+                        <div key={group.name}>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <p className="text-[10px] uppercase tracking-wider text-white/30">{group.name}</p>
+                            {group.type === "main" && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#ca98ff]/10 text-[#ca98ff]/60">própria</span>}
+                            {group.type === "competitor" && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/[0.04] text-white/30">concorrente</span>}
+                          </div>
+                          {group.type === "themes" && editingTerms ? (
+                            <div>
+                              <textarea
+                                value={termsValue}
+                                onChange={(e) => setTermsValue(e.target.value)}
+                                className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-xs text-white/80 placeholder-white/20 focus:outline-none focus:border-[#ca98ff]/40 resize-none"
+                                rows={2}
+                                placeholder="Termos separados por vírgula"
+                              />
+                              <div className="flex items-center gap-2 mt-2">
+                                <button
+                                  onClick={async () => {
+                                    setSavingTerms(true);
+                                    try {
+                                      const res = await fetch("/api/leads-generation/options", {
+                                        method: "PUT",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ profileId, market_context: termsValue }),
+                                      });
+                                      if (res.ok) {
+                                        setEditingTerms(false);
+                                        await loadReport();
+                                      }
+                                    } catch { /* ignore */ }
+                                    finally { setSavingTerms(false); }
+                                  }}
+                                  disabled={savingTerms}
+                                  className="text-[11px] font-semibold text-[#ca98ff] hover:text-[#dbb8ff] disabled:opacity-50 transition-colors"
+                                >
+                                  {savingTerms ? "Salvando..." : "Salvar"}
+                                </button>
+                                <button onClick={() => setEditingTerms(false)} className="text-[11px] text-white/30 hover:text-white/50 transition-colors">Cancelar</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {group.brands.map((t) => (
+                                <span key={t} className={`text-[11px] px-2 py-0.5 rounded-full border ${group.type === "main" ? "bg-[#ca98ff]/10 text-[#ca98ff] border-[#ca98ff]/20" : group.type === "competitor" ? "bg-white/[0.03] text-white/50 border-white/10" : "bg-[#ca98ff]/10 text-[#ca98ff] border-[#ca98ff]/20"}`}>{t}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {!editingTerms && (
+                        <button onClick={() => { setEditingTerms(true); setTermsValue(data?.options?.market_context ?? ""); }} className="text-[10px] text-white/30 hover:text-white/50 transition-colors">Editar temas de mercado</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {influencerCards.length === 0 && allInfluencerCards.length === 0 && (
                 <div className="text-center py-12">
                   <p className="text-white/40 text-sm">Sem influenciadores externos identificados neste período.</p>
                 </div>
               )}
 
-              {influencerCards.length > 0 && (() => {
-                const allThemes = Array.from(new Set(influencerCards.flatMap((c) => c.themes_covered)));
-                const filtered = influencerCards.filter((c) => {
-                  if (influencerThemeFilter !== "Todos" && !c.themes_covered.includes(influencerThemeFilter)) return false;
-                  if (influencerRelationFilter === "main") {
-                    return c.brands_mentioned.some((b) => b.brand_owner === "main");
-                  }
-                  if (influencerRelationFilter === "competitor") {
-                    return c.brands_mentioned.some((b) => b.brand_owner === "competitor");
-                  }
-                  if (influencerRelationFilter === "themes-only") {
-                    return c.brands_mentioned.length === 0;
-                  }
-                  return true;
-                });
-
-                return (
-                  <>
-                    <div className="space-y-3 mb-4">
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-white/40 mr-1">Tema:</span>
-                        {(["Todos", ...allThemes] as string[]).map((t) => (
-                          <button key={t} onClick={() => setInfluencerThemeFilter(t)} className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${influencerThemeFilter === t ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "bg-white/[0.02] text-white/50 hover:text-white/70"}`}>
-                            {t}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-white/40 mr-1">Relação:</span>
-                        {([
-                          { id: "all", label: "Todos" },
-                          { id: "main", label: "Cita marcas próprias" },
-                          { id: "competitor", label: "Cita concorrentes" },
-                          { id: "themes-only", label: "Só temas de mercado" },
-                        ] as const).map((opt) => (
-                          <button key={opt.id} onClick={() => setInfluencerRelationFilter(opt.id)} className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${influencerRelationFilter === opt.id ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "bg-white/[0.02] text-white/50 hover:text-white/70"}`}>
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {filtered.length === 0 && (
-                      <p className="text-center text-white/30 text-sm py-8">Nenhum influenciador corresponde aos filtros.</p>
-                    )}
-
-                    <div className="grid md:grid-cols-2 gap-3">
-                      {filtered.map((c) => {
-                        const key = c.linkedin_url || c.name;
-                        const isExpanded = expandedInfluencer === key;
-                        const sc = SENTIMENT_COLORS[c.sentiment];
-                        const potColor =
-                          c.potential === "alto" ? "text-[#a2f31f] bg-[#a2f31f]/10" :
-                          c.potential === "médio" ? "text-[#f59e0b] bg-[#f59e0b]/10" :
-                          "text-white/40 bg-white/5";
-                        const mentions = influencerMentionsByKey[key] ?? [];
-                        return (
-                          <div key={key} className="bg-white/[0.02] border border-white/10 rounded-xl p-4">
-                            <div className="cursor-pointer" onClick={() => setExpandedInfluencer(isExpanded ? null : key)}>
-                              <div className="flex items-start justify-between gap-2 mb-2">
+              {allInfluencerCards.length > 0 && (
+                <>
+                  <div className="space-y-3">
+                    {influencerCards.map((c) => {
+                      const key = c.linkedin_url || c.name;
+                      const isExpanded = expandedInfluencer === key;
+                      const sc = SENTIMENT_COLORS[c.sentiment];
+                      const potInfo = POTENTIAL_INFO[c.potential] ?? POTENTIAL_INFO.baixo;
+                      const potColor =
+                        c.potential === "alto" ? "text-[#a2f31f] bg-[#a2f31f]/10" :
+                        c.potential === "médio" ? "text-[#f59e0b] bg-[#f59e0b]/10" :
+                        "text-white/40 bg-white/5";
+                      const mentions = influencerMentionsByKey[key] ?? [];
+                      const mentionKeywords = allMonitoredKeywords;
+                      const isArchiving = archivingInfluencer === key;
+                      return (
+                        <div key={key} className="bg-white/[0.02] border border-white/10 rounded-xl p-5">
+                          {/* Header: photo + name + linkedin link + archive */}
+                          <div className="flex items-start gap-3 mb-4">
+                            {c.profile_photo ? (
+                              <img src={c.profile_photo} alt={c.name} className="w-12 h-12 rounded-full object-cover shrink-0" />
+                            ) : (
+                              <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-white/30 text-base font-bold shrink-0">
+                                {c.name.charAt(0)}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
-                                  <p className="text-sm font-bold text-white truncate">{c.name}</p>
+                                  <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-white hover:text-[#ca98ff] transition-colors truncate block">{c.name}</a>
                                   <p className="text-xs text-white/50 truncate">{c.role}{c.company ? ` · ${c.company}` : ""}</p>
                                 </div>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${potColor}`}>{c.potential.toUpperCase()}</span>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    onClick={async () => {
+                                      setArchivingInfluencer(key);
+                                      try {
+                                        const res = await fetch("/api/sol/archive-influencer", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ reportId, influencerKey: key, archive: true }),
+                                        });
+                                        if (res.ok) await loadReport();
+                                      } catch { /* ignore */ }
+                                      finally { setArchivingInfluencer(null); }
+                                    }}
+                                    disabled={isArchiving}
+                                    className="text-[10px] text-white/20 hover:text-white/50 transition-colors disabled:opacity-50"
+                                    title="Arquivar influenciador"
+                                  >
+                                    {isArchiving ? "..." : "Arquivar"}
+                                  </button>
+                                  <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-white/30 hover:text-[#ca98ff] transition-colors">LinkedIn ↗</a>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-3 text-[11px] text-white/50 mb-2 tabular-nums">
-                                <span>{c.followers.toLocaleString("pt-BR")} seg.</span>
-                                <span>·</span>
-                                <span>{c.posts_about} posts</span>
-                                <span>·</span>
-                                <span>{c.avg_engagement.toLocaleString("pt-BR")} engaj. médio</span>
-                              </div>
-                              {c.themes_covered.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mb-2">
-                                  {c.themes_covered.slice(0, 4).map((t) => (
-                                    <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/[0.03] text-white/50 border border-white/10">{t}</span>
+                            </div>
+                          </div>
+
+                          {/* Metrics grid with headers */}
+                          <div className="grid grid-cols-3 md:grid-cols-6 gap-4 mb-4">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1">Seguidores</p>
+                              <p className="text-sm font-semibold text-white tabular-nums">{c.followers > 0 ? c.followers.toLocaleString("pt-BR") : "—"}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1 flex items-center">Posts/mês<InfoTooltip text="Frequência estimada de publicações por mês no LinkedIn." /></p>
+                              <p className="text-sm font-semibold text-white tabular-nums">{c.posts_per_month != null ? c.posts_per_month : c.posts_about}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1">Avg Likes</p>
+                              <p className="text-sm font-semibold text-white tabular-nums">{c.avg_likes != null ? c.avg_likes.toLocaleString("pt-BR") : "—"}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1">Avg Comments</p>
+                              <p className="text-sm font-semibold text-white tabular-nums">{c.avg_comments != null ? c.avg_comments.toLocaleString("pt-BR") : "—"}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1 flex items-center">Potencial<InfoTooltip text={`Alto: ${POTENTIAL_INFO.alto.description}. Médio: ${POTENTIAL_INFO["médio"].description}. Baixo: ${POTENTIAL_INFO.baixo.description}.`} /></p>
+                              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full inline-block ${potColor}`}>{potInfo.label}</span>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1">Sentimento</p>
+                              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full inline-block ${sc.text} ${sc.bg}`}>{sc.label}</span>
+                            </div>
+                          </div>
+
+                          {/* Temas + Marcas citadas side by side */}
+                          <div className="grid grid-cols-2 gap-4 mb-3">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1.5">Temas</p>
+                              {c.themes_covered.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {c.themes_covered.slice(0, 6).map((t) => (
+                                    <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-white/[0.03] text-white/50 border border-white/10">{t}</span>
                                   ))}
                                 </div>
+                              ) : (
+                                <p className="text-[11px] text-white/30">—</p>
                               )}
-                              {c.brands_mentioned.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mb-1">
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1.5">Marcas citadas</p>
+                              {c.brands_mentioned.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
                                   {c.brands_mentioned.map((b, i) => (
-                                    <span key={i} title={`Citou ${b.brand} (${b.company_name})`} className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.brand_owner === "main" ? "text-[#ca98ff] bg-[#ca98ff]/10" : "text-white/60 bg-white/[0.06]"}`}>
+                                    <span key={i} title={`Citou ${b.brand} (${b.company_name})`} className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${b.brand_owner === "main" ? "text-[#ca98ff] bg-[#ca98ff]/10" : "text-white/60 bg-white/[0.06]"}`}>
                                       {b.brand}
                                       <span className="opacity-60 ml-1">{b.brand_owner === "main" ? "· própria" : `· ${b.company_name}`}</span>
                                     </span>
                                   ))}
                                 </div>
+                              ) : (
+                                <p className="text-[11px] text-white/30">Não citou marcas — só temas de mercado.</p>
                               )}
-                              {c.brands_mentioned.length === 0 && (
-                                <p className="text-[10px] text-white/30">Não citou marcas — só temas de mercado.</p>
-                              )}
-                              <div className="flex items-center justify-between mt-2">
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${sc.text} ${sc.bg}`}>Sentimento: {sc.label}</span>
-                                {mentions.length > 0 && (
-                                  <span className="text-[10px] text-[#ca98ff]">{isExpanded ? "Esconder menções ▴" : `Ver ${mentions.length} menções ▾`}</span>
-                                )}
-                              </div>
                             </div>
-                            {isExpanded && mentions.length > 0 && (
-                              <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-                                {mentions.slice(0, 6).map((m, i) => {
-                                  const ms = m.sentiment ? SENTIMENT_COLORS[m.sentiment] : null;
-                                  return (
-                                    <div key={i} className="text-xs text-white/60 space-y-1">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        {m.date && <span className="text-[10px] text-white/30 tabular-nums">{m.date}</span>}
-                                        {m.brand && (
-                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${m.brand_owner === "main" ? "text-[#ca98ff] bg-[#ca98ff]/10" : "text-white/60 bg-white/[0.06]"}`}>{m.brand}</span>
-                                        )}
-                                        {ms && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${ms.text} ${ms.bg}`}>{ms.label}</span>}
-                                      </div>
-                                      <p className="text-[11px] text-white/55 leading-relaxed">{m.text}</p>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
                           </div>
-                        );
-                      })}
+
+                          {/* Mentions toggle */}
+                          {mentions.length > 0 && (
+                            <div className="flex items-center justify-end">
+                              <button onClick={() => setExpandedInfluencer(isExpanded ? null : key)} className="text-[11px] text-[#ca98ff] hover:text-[#dbb8ff] transition-colors">
+                                {isExpanded ? "Esconder menções ▴" : `Ver ${mentions.length} menções ▾`}
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Expanded mentions */}
+                          {isExpanded && mentions.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-white/10 space-y-3">
+                              <p className="text-[10px] uppercase tracking-wider text-white/30">Menções</p>
+                              {mentions.slice(0, 6).map((m, i) => {
+                                const ms = m.sentiment ? SENTIMENT_COLORS[m.sentiment] : null;
+                                return (
+                                  <div key={i} className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4">
+                                    <div className="flex items-center justify-between gap-2 mb-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        {m.date && <span className="text-[11px] text-white/30 tabular-nums">{m.date}</span>}
+                                        {m.brand && (
+                                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${m.brand_owner === "main" ? "text-[#ca98ff] bg-[#ca98ff]/10" : "text-white/60 bg-white/[0.06]"}`}>{m.brand}</span>
+                                        )}
+                                        {ms && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${ms.text} ${ms.bg}`}>{ms.label}</span>}
+                                      </div>
+                                      {m.post_url && (
+                                        <a href={m.post_url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[11px] text-[#ca98ff] hover:text-[#dbb8ff] transition-colors">ver post ↗</a>
+                                      )}
+                                    </div>
+                                    <p className="text-sm text-white/60 leading-relaxed">{highlightKeywords(cleanSnippetText(m.text), mentionKeywords)}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Archived influencers */}
+                  {archivedInfluencerCards.length > 0 && (
+                    <div className="mt-4">
+                      <button
+                        onClick={() => setShowArchivedInfluencers((v) => !v)}
+                        className="text-[11px] text-white/30 hover:text-white/50 transition-colors"
+                      >
+                        {showArchivedInfluencers ? `Esconder arquivados (${archivedInfluencerCards.length}) ▴` : `Ver arquivados (${archivedInfluencerCards.length}) ▾`}
+                      </button>
+                      {showArchivedInfluencers && (
+                        <div className="mt-3 space-y-2">
+                          {archivedInfluencerCards.map((c) => {
+                            const key = c.linkedin_url || c.name;
+                            const isRestoring = archivingInfluencer === key;
+                            return (
+                              <div key={key} className="flex items-center justify-between gap-3 bg-white/[0.01] border border-white/[0.06] rounded-lg px-4 py-3 opacity-60">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {c.profile_photo ? (
+                                    <img src={c.profile_photo} alt={c.name} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/30 text-xs font-bold shrink-0">
+                                      {c.name.charAt(0)}
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-white/60 truncate">{c.name}</p>
+                                    <p className="text-[10px] text-white/30 truncate">{c.role}{c.company ? ` · ${c.company}` : ""}</p>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={async () => {
+                                    setArchivingInfluencer(key);
+                                    try {
+                                      const res = await fetch("/api/sol/archive-influencer", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ reportId, influencerKey: key, archive: false }),
+                                      });
+                                      if (res.ok) await loadReport();
+                                    } catch { /* ignore */ }
+                                    finally { setArchivingInfluencer(null); }
+                                  }}
+                                  disabled={isRestoring}
+                                  className="shrink-0 text-[10px] text-[#ca98ff]/60 hover:text-[#ca98ff] transition-colors disabled:opacity-50"
+                                >
+                                  {isRestoring ? "..." : "Desarquivar"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  </>
-                );
-              })()}
+                  )}
+
+                  {/* Blur CTA — more influencers */}
+                  <div className="relative mt-4 overflow-hidden rounded-xl">
+                    <div className="blur-sm pointer-events-none select-none space-y-3">
+                      <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5">
+                        <div className="flex items-start gap-3 mb-3">
+                          <div className="w-12 h-12 rounded-full bg-white/10 shrink-0" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-3 w-40 bg-white/10 rounded" />
+                            <div className="h-2 w-56 bg-white/[0.06] rounded" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-4 gap-4">
+                          <div className="space-y-1"><div className="h-2 w-16 bg-white/[0.06] rounded" /><div className="h-3 w-12 bg-white/10 rounded" /></div>
+                          <div className="space-y-1"><div className="h-2 w-10 bg-white/[0.06] rounded" /><div className="h-3 w-6 bg-white/10 rounded" /></div>
+                          <div className="space-y-1"><div className="h-2 w-14 bg-white/[0.06] rounded" /><div className="h-3 w-10 bg-white/10 rounded" /></div>
+                          <div className="space-y-1"><div className="h-2 w-16 bg-white/[0.06] rounded" /><div className="h-3 w-12 bg-white/10 rounded" /></div>
+                        </div>
+                      </div>
+                      <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5">
+                        <div className="flex items-start gap-3">
+                          <div className="w-12 h-12 rounded-full bg-white/10 shrink-0" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-3 w-36 bg-white/10 rounded" />
+                            <div className="h-2 w-48 bg-white/[0.06] rounded" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-[#0e0e0e] via-[#0e0e0e]/60 to-transparent">
+                      <div className="text-center">
+                        <p className="text-sm text-white/70 mb-3">Encontre mais influenciadores no seu mercado</p>
+                        <Link href="/casting" className="inline-block rounded-lg bg-[#ca98ff]/20 border border-[#ca98ff]/30 px-4 py-2 text-sm font-semibold text-[#ca98ff] hover:bg-[#ca98ff]/30 transition-colors">Ir para Influencers B2B →</Link>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

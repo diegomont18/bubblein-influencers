@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { fetchLinkedInCompany, searchGoogleApify } from "./apify";
-import { logApiCost, API_COSTS } from "./api-costs";
+import { fetchLinkedInCompany } from "./apify";
+import { searchGoogle } from "./serper";
 
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -38,8 +38,8 @@ function mapCountToRange(count: number): string {
  */
 export async function resolveCompanySizes(
   companyNames: string[],
-  userId?: string,
-  searchId?: string,
+  _userId?: string,
+  _searchId?: string,
 ): Promise<Map<string, CachedCompany>> {
   const result = new Map<string, CachedCompany>();
   if (companyNames.length === 0) return result;
@@ -99,16 +99,10 @@ export async function resolveCompanySizes(
 
         // If direct slug fails, try SERP to find the real slug
         if (!companyResult.data || companyResult.status !== 200) {
-          const serpResult = await searchGoogleApify(
+          const serpResult = await searchGoogle(
             `site:linkedin.com/company "${name}"`,
             { results: 3 }
           );
-          logApiCost({
-            userId, source: "leads", searchId,
-            provider: "apify", operation: "companySizeSerp",
-            estimatedCost: API_COSTS.apify.searchGoogleApify,
-            metadata: { company: name },
-          });
 
           const realSlug = serpResult.results
             .map((r) => r.link.match(/\/company\/([^/?#]+)/)?.[1] ?? "")

@@ -39,6 +39,15 @@ interface ApifyUsageState {
   billing_cycle_end: string | null;
   checked_at: string;
   pct: number;
+  account_id?: number;
+  account_label?: string;
+}
+
+interface ApifyAccount {
+  id: number;
+  label: string;
+  env_key: string;
+  enabled: boolean;
 }
 
 function formatCost(cost: number): string {
@@ -59,8 +68,8 @@ function formatDate(dateStr: string): string {
   } catch { return "—"; }
 }
 
-const PROVIDERS = ["apify", "openrouter"];
-const SOURCES = ["casting", "leads", "enrichment"];
+const PROVIDERS = ["apify", "serper", "openrouter"];
+const SOURCES = ["casting", "leads", "enrichment", "sol"];
 
 export default function ApiCostsPage() {
   const [mainTab, setMainTab] = useState<"costs" | "budget">("costs");
@@ -81,7 +90,35 @@ export default function ApiCostsPage() {
   const [groupedDetails, setGroupedDetails] = useState<Record<string, CostRow[]>>({});
 
   const [apifyUsage, setApifyUsage] = useState<ApifyUsageState | null>(null);
+  const [apifyUsageAll, setApifyUsageAll] = useState<ApifyUsageState[]>([]);
   const [apifyRefreshing, setApifyRefreshing] = useState(false);
+  const [apifyAccounts, setApifyAccounts] = useState<ApifyAccount[]>([]);
+  const [togglingAccount, setTogglingAccount] = useState<number | null>(null);
+
+  const fetchApifyAccounts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dashboard/apify-accounts");
+      if (res.ok) {
+        const data = await res.json();
+        setApifyAccounts(data.accounts ?? []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggleAccount = useCallback(async (id: number, enabled: boolean) => {
+    setTogglingAccount(id);
+    try {
+      const res = await fetch("/api/dashboard/apify-accounts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, enabled }),
+      });
+      if (res.ok) {
+        setApifyAccounts((prev) => prev.map((a) => a.id === id ? { ...a, enabled } : a));
+      }
+    } catch { /* ignore */ }
+    finally { setTogglingAccount(null); }
+  }, []);
 
   const fetchApifyUsage = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) setApifyRefreshing(true);
@@ -93,12 +130,13 @@ export default function ApiCostsPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.state) setApifyUsage(data.state);
+        if (data.states) setApifyUsageAll(data.states);
       }
     } catch { /* ignore */ }
     finally { setApifyRefreshing(false); }
   }, []);
 
-  useEffect(() => { fetchApifyUsage(false); }, [fetchApifyUsage]);
+  useEffect(() => { fetchApifyUsage(false); fetchApifyAccounts(); }, [fetchApifyUsage, fetchApifyAccounts]);
 
   const limit = 50;
 
@@ -149,6 +187,7 @@ export default function ApiCostsPage() {
 
   const providerColor: Record<string, string> = {
     apify: "bg-blue-100 text-blue-800",
+    serper: "bg-green-100 text-green-800",
     openrouter: "bg-purple-100 text-purple-800",
   };
 
@@ -156,6 +195,7 @@ export default function ApiCostsPage() {
     casting: "bg-purple-100 text-purple-700",
     leads: "bg-green-100 text-green-700",
     enrichment: "bg-yellow-100 text-yellow-700",
+    sol: "bg-blue-100 text-blue-700",
   };
 
   return (
@@ -182,8 +222,81 @@ export default function ApiCostsPage() {
       </div>
 
       {mainTab === "costs" && (<>
-      {/* Apify billing-cycle usage */}
-      {apifyUsage && (() => {
+      {/* Apify accounts toggles */}
+      {apifyAccounts.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-gray-900">Contas Apify</p>
+            <button
+              onClick={() => fetchApifyUsage(true)}
+              disabled={apifyRefreshing}
+              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {apifyRefreshing ? "Atualizando…" : "Atualizar uso"}
+            </button>
+          </div>
+          <div className="space-y-3">
+            {apifyAccounts.map((account) => {
+              const usage = apifyUsageAll.find((u) => u.account_id === account.id);
+              const pct = usage?.pct ?? 0;
+              const usd = usage?.monthly_usage_usd ?? 0;
+              const max = usage?.max_monthly_usage_usd ?? 0;
+              const barColor =
+                pct >= 95 ? "bg-red-600"
+                : pct >= 85 ? "bg-orange-500"
+                : pct >= 70 ? "bg-yellow-500"
+                : "bg-green-500";
+              const textColor =
+                pct >= 95 ? "text-red-700"
+                : pct >= 85 ? "text-orange-700"
+                : pct >= 70 ? "text-yellow-700"
+                : "text-green-700";
+              const fmtDate = (iso: string | null) =>
+                iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "—";
+              return (
+                <div key={account.id} className={`rounded-lg border p-4 ${account.enabled ? "border-green-200 bg-green-50/30" : "border-gray-200 bg-gray-50"}`}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-1">
+                        <span className="text-sm font-medium text-gray-900">{account.label}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${account.enabled ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"}`}>
+                          {account.enabled ? "ATIVA" : "DESATIVADA"}
+                        </span>
+                        {account.enabled && pct >= 95 && <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">SEM CREDITOS</span>}
+                      </div>
+                      {usage && (
+                        <div className="mt-1">
+                          <div className="flex items-baseline gap-2 text-sm">
+                            <span className={`font-semibold ${textColor}`}>${usd.toFixed(2)}</span>
+                            <span className="text-gray-400">/ ${max.toFixed(2)}</span>
+                            <span className={`text-xs font-semibold ${textColor}`}>({pct.toFixed(1)}%)</span>
+                          </div>
+                          <div className="mt-1.5 h-1.5 w-full rounded-full bg-gray-200 overflow-hidden">
+                            <div className={`h-full ${barColor} transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                          </div>
+                          <p className="mt-1 text-[10px] text-gray-400">
+                            Ciclo: {fmtDate(usage.billing_cycle_start)} – {fmtDate(usage.billing_cycle_end)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => toggleAccount(account.id, !account.enabled)}
+                      disabled={togglingAccount === account.id}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out disabled:opacity-50 ${account.enabled ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${account.enabled ? "translate-x-5" : "translate-x-0"}`} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Apify billing-cycle usage (legacy single-account fallback) */}
+      {apifyAccounts.length === 0 && apifyUsage && (() => {
         const pct = apifyUsage.pct ?? 0;
         const usd = apifyUsage.monthly_usage_usd ?? 0;
         const max = apifyUsage.max_monthly_usage_usd ?? 0;

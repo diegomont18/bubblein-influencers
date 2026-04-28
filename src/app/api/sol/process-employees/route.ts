@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { fetchLinkedInProfileApify, fetchProfilePosts } from "@/lib/apify";
+import { fetchLinkedInProfileCached, fetchProfilePostsCached } from "@/lib/apify";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
 import { computePostsPerMonth } from "@/lib/find-employees";
@@ -47,6 +47,8 @@ export async function POST(request: Request) {
     const employees = (optionsRow.employee_profiles ?? []) as EmployeeProfile[];
     const enriched: EmployeeProfile[] = [];
 
+    const solCostCtx = { userId: user.id, source: "sol" as const };
+
     for (const emp of employees) {
       const isPending = !emp.headline && !emp.profilePicUrl;
       if (!isPending) {
@@ -56,28 +58,18 @@ export async function POST(request: Request) {
 
       console.log(`[process-employees] Enriching ${emp.slug}`);
       try {
-        const result = await fetchLinkedInProfileApify(emp.slug);
-
-        logApiCost({
-          userId: user.id,
-          source: "sol",
-          provider: "apify",
-          operation: "fetchLinkedInProfileApify",
-          estimatedCost: API_COSTS.apify.fetchLinkedInProfileApify,
-          metadata: { slug: emp.slug },
-        });
+        const result = await fetchLinkedInProfileCached(emp.slug, solCostCtx);
 
         if (result.status === 200 && result.data) {
           const d = result.data;
-          const empPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${emp.slug}/`, 5);
-
+          const empPosts = await fetchProfilePostsCached(`https://www.linkedin.com/in/${emp.slug}/`, 5);
           logApiCost({
             userId: user.id,
             source: "sol",
             provider: "apify",
             operation: "fetchProfilePosts",
             estimatedCost: API_COSTS.apify.fetchProfilePosts,
-            metadata: { slug: emp.slug, postsReturned: empPosts.length },
+            metadata: { slug: emp.slug, context: "process-employees" },
           });
 
           enriched.push({

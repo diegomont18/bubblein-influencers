@@ -1,4 +1,76 @@
-import { logApiCost, API_COSTS } from "./api-costs";
+import { createClient } from "@supabase/supabase-js";
+import { logApiCost, API_COSTS, CostCtx } from "./api-costs";
+
+// ---------------------------------------------------------------------------
+// Multi-account Apify token rotation
+// ---------------------------------------------------------------------------
+
+interface ApifyAccount {
+  env_key: string;
+  enabled: boolean;
+}
+
+let _accountsCache: ApifyAccount[] | null = null;
+let _accountsCachedAt = 0;
+const ACCOUNTS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
+let _tokenIndex = 0;
+
+async function loadEnabledAccounts(): Promise<ApifyAccount[]> {
+  if (_accountsCache && Date.now() - _accountsCachedAt < ACCOUNTS_CACHE_TTL_MS) {
+    return _accountsCache;
+  }
+
+  try {
+    const service = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    const { data } = await service
+      .from("apify_accounts")
+      .select("env_key, enabled")
+      .eq("enabled", true)
+      .order("id");
+
+    _accountsCache = (data as ApifyAccount[] | null) ?? [];
+    _accountsCachedAt = Date.now();
+    return _accountsCache;
+  } catch (err) {
+    console.error("[apify] Failed to load accounts from DB, falling back to env:", err);
+    // Fallback: use env vars directly
+    const tokens: ApifyAccount[] = [];
+    if (process.env.APIFY_API_TOKEN) tokens.push({ env_key: "APIFY_API_TOKEN", enabled: true });
+    if (process.env.APIFY_API_TOKEN_2) tokens.push({ env_key: "APIFY_API_TOKEN_2", enabled: true });
+    return tokens;
+  }
+}
+
+export function invalidateApifyAccountsCache(): void {
+  _accountsCache = null;
+  _accountsCachedAt = 0;
+}
+
+/**
+ * Get an Apify API token using round-robin across enabled accounts.
+ * Pass excludeTokens to skip accounts that already returned 403.
+ * Returns "" if no enabled accounts have tokens set.
+ */
+export async function getApifyToken(excludeTokens?: string[]): Promise<string> {
+  const accounts = await loadEnabledAccounts();
+  const tokens = accounts
+    .map((a) => process.env[a.env_key])
+    .filter(Boolean) as string[];
+
+  const available = excludeTokens
+    ? tokens.filter((t) => !excludeTokens.includes(t))
+    : tokens;
+
+  if (available.length === 0) return "";
+  if (available.length === 1) return available[0];
+
+  const token = available[_tokenIndex % available.length];
+  _tokenIndex++;
+  return token;
+}
 
 export interface ApifyLinkedInProfileResult {
   status: number;
@@ -27,13 +99,13 @@ export async function searchLinkedInProfiles(params: {
   location?: string;
   maxResults?: number;
 }): Promise<Array<Record<string, unknown>>> {
-  const token = process.env.APIFY_API_TOKEN;
+  const triedTokens: string[] = [];
+  let token = await getApifyToken();
   if (!token) {
-    console.error("[apify] APIFY_API_TOKEN is not set");
+    console.error("[apify] No enabled Apify account available");
     return [];
   }
 
-  const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-search/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const body: Record<string, unknown> = {
     title: params.title,
     rows: params.maxResults ?? 50,
@@ -46,6 +118,7 @@ export async function searchLinkedInProfiles(params: {
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-search/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -69,6 +142,18 @@ export async function searchLinkedInProfiles(params: {
 
       const text = await res.text();
       console.error(`[apify] Profile search error status=${status} body=${text.slice(0, 500)}`);
+
+      if (status === 403) {
+        triedTokens.push(token);
+        const nextToken = await getApifyToken(triedTokens);
+        if (nextToken) {
+          console.log(`[apify] 403 on account, trying next account…`);
+          token = nextToken;
+          continue;
+        }
+        console.error(`[apify] All accounts exhausted (403 on all)`);
+        return [];
+      }
 
       if ((status === 429 || status >= 500) && attempt < MAX_RETRIES) {
         const delay = (attempt + 1) * 3000;
@@ -97,13 +182,13 @@ export async function fetchProfilePosts(
   targetUrl: string,
   maxPosts = 3
 ): Promise<Array<Record<string, unknown>>> {
-  const token = process.env.APIFY_API_TOKEN;
+  const triedTokens: string[] = [];
+  let token = await getApifyToken();
   if (!token) {
-    console.error("[apify] APIFY_API_TOKEN is not set");
+    console.error("[apify] No enabled Apify account available");
     return [];
   }
 
-  const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const body = {
     includeQuotePosts: true,
     includeReposts: false,
@@ -119,6 +204,7 @@ export async function fetchProfilePosts(
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -142,6 +228,18 @@ export async function fetchProfilePosts(
 
       const text = await res.text();
       console.error(`[apify] Error status=${status} body=${text.slice(0, 500)}`);
+
+      if (status === 403) {
+        triedTokens.push(token);
+        const nextToken = await getApifyToken(triedTokens);
+        if (nextToken) {
+          console.log(`[apify] 403 on account, trying next account…`);
+          token = nextToken;
+          continue;
+        }
+        console.error(`[apify] All accounts exhausted (403 on all)`);
+        return [];
+      }
 
       if ((status === 429 || status >= 500) && attempt < MAX_RETRIES) {
         const delay = (attempt + 1) * 3000;
@@ -176,13 +274,13 @@ export async function fetchProfilePostsBatch(
   const result = new Map<string, Array<Record<string, unknown>>>();
   if (targetUrls.length === 0) return result;
 
-  const token = process.env.APIFY_API_TOKEN;
+  const triedTokens: string[] = [];
+  let token = await getApifyToken();
   if (!token) {
-    console.error("[apify] APIFY_API_TOKEN is not set");
+    console.error("[apify] No enabled Apify account available");
     return result;
   }
 
-  const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const body = {
     includeQuotePosts: true,
     includeReposts: false,
@@ -207,6 +305,7 @@ export async function fetchProfilePostsBatch(
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -245,6 +344,18 @@ export async function fetchProfilePostsBatch(
       const text = await res.text();
       console.error(`[apify] Batch posts error status=${status} body=${text.slice(0, 500)}`);
 
+      if (status === 403) {
+        triedTokens.push(token);
+        const nextToken = await getApifyToken(triedTokens);
+        if (nextToken) {
+          console.log(`[apify] 403 on account, trying next account…`);
+          token = nextToken;
+          continue;
+        }
+        console.error(`[apify] All accounts exhausted (403 on all)`);
+        return result;
+      }
+
       if ((status === 429 || status >= 500) && attempt < MAX_RETRIES) {
         const delay = (attempt + 1) * 3000;
         console.log(`[apify] Retrying batch in ${delay}ms…`);
@@ -278,13 +389,13 @@ export async function searchLinkedInPosts(params: {
   datePosted?: string; // "past-24h", "past-week", "past-month", "past-year"
   contentLanguage?: string; // "pt", "en", "es", "fr"
 }): Promise<Array<Record<string, unknown>>> {
-  const token = process.env.APIFY_API_TOKEN;
+  const triedTokens: string[] = [];
+  let token = await getApifyToken();
   if (!token) {
-    console.error("[apify] APIFY_API_TOKEN is not set");
+    console.error("[apify] No enabled Apify account available");
     return [];
   }
 
-  const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-post-search/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const body: Record<string, unknown> = {
     searchQueries: params.searchQueries,
     rows: params.maxResults ?? 100,
@@ -300,6 +411,7 @@ export async function searchLinkedInPosts(params: {
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const url = `https://api.apify.com/v2/acts/harvestapi~linkedin-post-search/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -315,7 +427,6 @@ export async function searchLinkedInPosts(params: {
         const data = await res.json();
         if (Array.isArray(data)) {
           console.log(`[apify] Post search returned ${data.length} result(s)`);
-          // Log first post's keys for field discovery
           if (data.length > 0) {
             console.log(`[apify] Post search sample keys: ${JSON.stringify(Object.keys(data[0]))}`);
             console.log(`[apify] Post search sample data: ${JSON.stringify(data[0]).slice(0, 1500)}`);
@@ -328,6 +439,18 @@ export async function searchLinkedInPosts(params: {
 
       const text = await res.text();
       console.error(`[apify] Post search error status=${status} body=${text.slice(0, 500)}`);
+
+      if (status === 403) {
+        triedTokens.push(token);
+        const nextToken = await getApifyToken(triedTokens);
+        if (nextToken) {
+          console.log(`[apify] 403 on account, trying next account…`);
+          token = nextToken;
+          continue;
+        }
+        console.error(`[apify] All accounts exhausted (403 on all)`);
+        return [];
+      }
 
       if ((status === 429 || status >= 500) && attempt < MAX_RETRIES) {
         const delay = (attempt + 1) * 3000;
@@ -394,9 +517,9 @@ export async function fetchPostEngagers(
   maxComments = 100,
   costCtx?: FetchEngagersCostCtx
 ): Promise<{ reactions: Array<Record<string, unknown>>; comments: Array<Record<string, unknown>> }> {
-  const token = process.env.APIFY_API_TOKEN;
+  const token = await getApifyToken();  // token for URL resolution only
   if (!token) {
-    console.error("[apify] APIFY_API_TOKEN is not set");
+    console.error("[apify] No enabled Apify account available");
     return { reactions: [], comments: [] };
   }
 
@@ -474,14 +597,15 @@ async function fetchPostEngagersSupreme(
   resolvedPostUrl: string,
   costCtx?: FetchEngagersCostCtx
 ): Promise<{ reactions: Array<Record<string, unknown>>; comments: Array<Record<string, unknown>> }> {
-  const token = process.env.APIFY_API_TOKEN!;
+  const triedTokens: string[] = [];
+  let token = await getApifyToken();
   console.log(`[apify] fetchPostEngagersSupreme: calling supreme_coder with urls=[${resolvedPostUrl.slice(0, 120)}]`);
 
-  const url = `https://api.apify.com/v2/acts/supreme_coder~linkedin-post/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const body = { urls: [resolvedPostUrl] };
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const url = `https://api.apify.com/v2/acts/supreme_coder~linkedin-post/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -568,12 +692,25 @@ async function fetchPostEngagersSupreme(
         };
       }
 
+      const text = await res.text().catch(() => "");
+      console.error(`[apify] fetchPostEngagersSupreme: status=${res.status} body=${text.slice(0, 300)}`);
+
+      if (res.status === 403) {
+        triedTokens.push(token);
+        const nextToken = await getApifyToken(triedTokens);
+        if (nextToken) {
+          console.log(`[apify] 403 on account, trying next account…`);
+          token = nextToken;
+          continue;
+        }
+        console.error(`[apify] All accounts exhausted (403 on all)`);
+        return { reactions: [], comments: [] };
+      }
+
       if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
         await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
         continue;
       }
-      const text = await res.text().catch(() => "");
-      console.error(`[apify] fetchPostEngagersSupreme: status=${res.status} body=${text.slice(0, 300)}`);
       return { reactions: [], comments: [] };
     } catch (err) {
       console.error(`[apify] fetchPostEngagersSupreme exception: ${err instanceof Error ? err.message : err}`);
@@ -595,10 +732,9 @@ async function fetchPostEngagersHarvestLegacy(
   maxComments: number,
   costCtx?: FetchEngagersCostCtx
 ): Promise<{ reactions: Array<Record<string, unknown>>; comments: Array<Record<string, unknown>> }> {
-  const token = process.env.APIFY_API_TOKEN!;
+  const triedTokens: string[] = [];
+  let token = await getApifyToken();
   console.log(`[apify] fetchPostEngagersHarvestLegacy: calling with targetUrls=[${resolvedPostUrl}]`);
-
-  const apifyUrl = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const body = {
     targetUrls: [resolvedPostUrl],
     maxPosts: 1,
@@ -612,6 +748,7 @@ async function fetchPostEngagersHarvestLegacy(
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const apifyUrl = `https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
     try {
       const res = await fetch(apifyUrl, {
         method: "POST",
@@ -658,11 +795,24 @@ async function fetchPostEngagersHarvestLegacy(
         return { reactions, comments };
       }
 
+      console.error(`[apify] fetchPostEngagersHarvestLegacy: Apify error status=${res.status}`);
+
+      if (res.status === 403) {
+        triedTokens.push(token);
+        const nextToken = await getApifyToken(triedTokens);
+        if (nextToken) {
+          console.log(`[apify] 403 on account, trying next account…`);
+          token = nextToken;
+          continue;
+        }
+        console.error(`[apify] All accounts exhausted (403 on all)`);
+        return { reactions: [], comments: [] };
+      }
+
       if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
         await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
         continue;
       }
-      console.error(`[apify] fetchPostEngagersHarvestLegacy: Apify error status=${res.status}`);
       return { reactions: [], comments: [] };
     } catch (err) {
       console.error(`[apify] fetchPostEngagersHarvestLegacy exception: ${err instanceof Error ? err.message : err}`);
@@ -677,26 +827,22 @@ async function fetchPostEngagersHarvestLegacy(
 // Helpers for building Apify URLs
 // ---------------------------------------------------------------------------
 
-function apifyActorUrl(actor: string): string {
-  const token = process.env.APIFY_API_TOKEN;
-  if (!token) return "";
-  return `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
-}
-
 async function apifyPostJson(
   actor: string,
   body: unknown,
   timeoutMs: number,
   logPrefix: string
 ): Promise<{ status: number; data: unknown }> {
-  const url = apifyActorUrl(actor);
-  if (!url) {
-    console.error(`[apify] APIFY_API_TOKEN is not set (${logPrefix})`);
+  const triedTokens: string[] = [];
+  let token = await getApifyToken();
+  if (!token) {
+    console.error(`[apify] No enabled Apify account available (${logPrefix})`);
     return { status: 500, data: null };
   }
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const url = `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -711,6 +857,19 @@ async function apifyPostJson(
       }
       const text = await res.text();
       console.error(`[apify] ${logPrefix} error status=${status} body=${text.slice(0, 400)}`);
+
+      if (status === 403) {
+        triedTokens.push(token);
+        const nextToken = await getApifyToken(triedTokens);
+        if (nextToken) {
+          console.log(`[apify] 403 on account, trying next account… (${logPrefix})`);
+          token = nextToken;
+          continue;
+        }
+        console.error(`[apify] All accounts exhausted (403 on all) (${logPrefix})`);
+        return { status, data: null };
+      }
+
       if ((status === 429 || status >= 500) && attempt < MAX_RETRIES) {
         await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
         continue;
@@ -810,7 +969,8 @@ function normalizeHarvestProfile(raw: Record<string, unknown>): Record<string, u
 }
 
 export async function fetchLinkedInProfileApify(
-  slugOrUrl: string
+  slugOrUrl: string,
+  costCtx?: CostCtx,
 ): Promise<ApifyLinkedInProfileResult> {
   // Accept both a bare slug (public or ACoAA...) and a full LinkedIn URL.
   // Full URLs preserve case, which matters: ACoAA... base64 IDs are
@@ -835,7 +995,9 @@ export async function fetchLinkedInProfileApify(
   );
 
   logApiCost({
-    source: "enrichment",
+    userId: costCtx?.userId,
+    source: costCtx?.source ?? "enrichment",
+    searchId: costCtx?.searchId,
     provider: "apify",
     operation: "fetchLinkedInProfileApify",
     estimatedCost: API_COSTS.apify.fetchLinkedInProfileApify,
@@ -870,6 +1032,159 @@ export async function fetchLinkedInProfileApify(
 
   const normalized = normalizeHarvestProfile(first);
   return { status: 200, data: normalized };
+}
+
+// ---------------------------------------------------------------------------
+// Cached wrappers — eternal cache in Supabase (no TTL)
+// ---------------------------------------------------------------------------
+
+function getServiceClientForCache() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
+
+function extractSlugFromUrl(slugOrUrl: string): string {
+  const isUrl = /^https?:\/\//i.test(slugOrUrl);
+  if (isUrl) {
+    const m = slugOrUrl.match(/linkedin\.com\/in\/([^/?#]+)/i);
+    return m ? m[1].replace(/\/+$/, "") : slugOrUrl;
+  }
+  return slugOrUrl.replace(/^\/+|\/+$/g, "");
+}
+
+/**
+ * Cached version of fetchLinkedInProfileApify.
+ * Checks the `profiles` table first — if `last_enriched_at` is set and
+ * `raw_data` exists, returns cached data without calling Apify (eternal cache).
+ */
+export async function fetchLinkedInProfileCached(
+  slugOrUrl: string,
+  costCtx?: CostCtx,
+): Promise<ApifyLinkedInProfileResult> {
+  const slug = extractSlugFromUrl(slugOrUrl);
+  const profileUrl = `https://www.linkedin.com/in/${slug}/`;
+
+  try {
+    const service = getServiceClientForCache();
+    const { data: row } = await service
+      .from("profiles")
+      .select("raw_data, last_enriched_at")
+      .eq("url", profileUrl)
+      .single();
+
+    if (row?.last_enriched_at && row?.raw_data) {
+      console.log(`[apify-cache] profile HIT slug=${slug}`);
+      return { status: 200, data: row.raw_data as Record<string, unknown> };
+    }
+  } catch {
+    // Cache miss or DB error — proceed to fetch
+  }
+
+  console.log(`[apify-cache] profile MISS slug=${slug}`);
+  const result = await fetchLinkedInProfileApify(slugOrUrl, costCtx);
+
+  // Cache successful result
+  if (result.status === 200 && result.data) {
+    try {
+      const service = getServiceClientForCache();
+      await service
+        .from("profiles")
+        .upsert(
+          {
+            url: profileUrl,
+            raw_data: result.data,
+            last_enriched_at: new Date().toISOString(),
+          },
+          { onConflict: "url" }
+        );
+    } catch (err) {
+      console.error(`[apify-cache] Failed to cache profile ${slug}:`, err);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Cached version of fetchProfilePosts.
+ * Checks `profiles.posts_fetched_at` — if set, returns posts from
+ * `sol_posts` table. Otherwise fetches from Apify and stores.
+ */
+export async function fetchProfilePostsCached(
+  targetUrl: string,
+  maxPosts = 3
+): Promise<Array<Record<string, unknown>>> {
+  const slug = extractSlugFromUrl(targetUrl);
+  const profileUrl = `https://www.linkedin.com/in/${slug}/`;
+
+  try {
+    const service = getServiceClientForCache();
+
+    // Check if posts were already fetched for this profile
+    const { data: profile } = await service
+      .from("profiles")
+      .select("id, posts_fetched_at")
+      .eq("url", profileUrl)
+      .single();
+
+    if (profile?.posts_fetched_at) {
+      // Return cached posts from posts_cache
+      const { data: posts } = await service
+        .from("posts_cache")
+        .select("raw_data")
+        .eq("profile_url", profileUrl)
+        .order("published_at", { ascending: false })
+        .limit(maxPosts);
+
+      if (posts && posts.length > 0) {
+        console.log(`[apify-cache] posts HIT slug=${slug} count=${posts.length}`);
+        return posts.map((p) => (p.raw_data ?? {}) as Record<string, unknown>);
+      }
+    }
+  } catch {
+    // Cache miss or DB error — proceed to fetch
+  }
+
+  console.log(`[apify-cache] posts MISS slug=${slug}`);
+  const results = await fetchProfilePosts(targetUrl, maxPosts);
+
+  // Cache the results
+  if (results.length > 0) {
+    try {
+      const service = getServiceClientForCache();
+
+      for (const post of results) {
+        const postUrl = String(post.postUrl ?? post.url ?? post.post_url ?? "");
+        if (!postUrl) continue;
+
+        const publishedAt = post.publishedAt ?? post.published_at ?? post.postedAt ?? null;
+
+        await service
+          .from("posts_cache")
+          .upsert(
+            {
+              profile_url: profileUrl,
+              post_url: postUrl,
+              raw_data: post,
+              published_at: publishedAt ? new Date(String(publishedAt)).toISOString() : null,
+            },
+            { onConflict: "post_url" }
+          );
+      }
+
+      // Mark posts as fetched on the profile
+      await service
+        .from("profiles")
+        .update({ posts_fetched_at: new Date().toISOString() })
+        .eq("url", profileUrl);
+    } catch (err) {
+      console.error(`[apify-cache] Failed to cache posts for ${slug}:`, err);
+    }
+  }
+
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -1076,7 +1391,8 @@ export interface CompanyInfo {
 }
 
 export async function fetchLinkedInCompany(
-  companySlug: string
+  companySlug: string,
+  costCtx?: CostCtx,
 ): Promise<{ status: number; data: CompanyInfo | null; error?: string }> {
   const companyUrl = `https://www.linkedin.com/company/${companySlug.replace(/^\/+|\/+$/g, "")}/`;
   console.log(`[apify] fetchLinkedInCompany slug="${companySlug}"`);
@@ -1089,7 +1405,9 @@ export async function fetchLinkedInCompany(
   );
 
   logApiCost({
-    source: "leads",
+    userId: costCtx?.userId,
+    source: costCtx?.source ?? "leads",
+    searchId: costCtx?.searchId,
     provider: "apify",
     operation: "fetchLinkedInCompany",
     estimatedCost: API_COSTS.apify.fetchLinkedInCompany,

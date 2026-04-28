@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { fetchLinkedInCompany, searchGoogleApify } from "@/lib/apify";
-import { logApiCost, API_COSTS } from "@/lib/api-costs";
+import { fetchLinkedInCompany } from "@/lib/apify";
+import { searchGoogle } from "@/lib/serper";
 import { notifyError } from "@/lib/error-notifier";
 
 export const dynamic = "force-dynamic";
@@ -61,13 +61,12 @@ export async function POST(request: Request) {
 
     const candidateSlugs: string[] = [];
 
+    const solCostCtx = { userId: user.id, source: "sol" as const };
+
     try {
       const serpResults = await Promise.all(
-        serpQueries.map((q) => searchGoogleApify(q, { results: 10, country: country || undefined }).catch(() => ({ results: [] })))
+        serpQueries.map((q) => searchGoogle(q, { results: 10, country: country || undefined }, solCostCtx).catch(() => ({ results: [] })))
       );
-      serpQueries.forEach(() => {
-        logApiCost({ userId: user.id, source: "sol", provider: "apify", operation: "searchGoogleApify", estimatedCost: API_COSTS.apify.searchGoogleApify, metadata: { context: "discover-competitors" } });
-      });
 
       for (const sr of serpResults) {
         for (const r of sr.results) {
@@ -86,8 +85,7 @@ export async function POST(request: Request) {
     const competitors = await Promise.all(
       candidateSlugs.slice(0, 8).map(async (cSlug) => {
         try {
-          const cr = await fetchLinkedInCompany(cSlug);
-          logApiCost({ userId: user.id, source: "sol", provider: "apify", operation: "fetchLinkedInCompany", estimatedCost: API_COSTS.apify.fetchLinkedInCompany, metadata: { slug: cSlug } });
+          const cr = await fetchLinkedInCompany(cSlug, solCostCtx);
           return {
             name: cr.data?.name || cSlug.replace(/-/g, " "),
             logoUrl: cr.data?.profilePicUrl || "",

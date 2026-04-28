@@ -35,7 +35,7 @@ export async function GET(
   // Fetch options for context (company info, competitors)
   const { data: options } = await service
     .from("lg_options")
-    .select("competitors, employee_profiles, ai_response, market_context")
+    .select("competitors, employee_profiles, ai_response, market_context, proprietary_brands")
     .eq("profile_id", report.profile_id)
     .single();
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { fetchLinkedInProfileApify } from "@/lib/apify";
+import { fetchLinkedInProfileCached } from "@/lib/apify";
 import { resolveCompanySizes } from "@/lib/company-cache";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
 
       try {
         console.log(`[leads-enrich] Fetching profile for ${slug} (no company)`);
-        const result = await fetchLinkedInProfileApify(slug);
+        const result = await fetchLinkedInProfileCached(slug);
         const profile = result?.data;
         if (profile) {
           // Extract company from various field names (harvestapi format varies)

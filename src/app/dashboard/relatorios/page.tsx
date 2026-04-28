@@ -67,12 +67,22 @@ export default function RelatoriosPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   async function handleDelete(type: string, id: string) {
-    const res = await fetch("/api/dashboard/relatorios", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, id }),
-    });
-    if (res.ok) fetchData();
+    console.log(`[relatorios-page] handleDelete called with type=${type} id=${id}`);
+    try {
+      const res = await fetch("/api/dashboard/relatorios", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, id }),
+      });
+      if (res.ok) {
+        fetchData();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Erro ao deletar: ${err.error ?? res.statusText}`);
+      }
+    } catch (err) {
+      alert(`Erro ao deletar: ${err instanceof Error ? err.message : "erro desconhecido"}`);
+    }
   }
 
   if (loading) {
@@ -134,7 +144,7 @@ export default function RelatoriosPage() {
                       <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Pendente</span>
                     )}
                   </td>
-                  <td className="py-3"><DeleteButton onDelete={() => handleDelete("mapeamento", m.id)} label={m.name} /></td>
+                  <td className="py-3"><DeleteButton onDelete={() => handleDelete("mapeamento", m.id)} label={`MAPEAMENTO "${m.name}" (e todos os relatórios associados)`} /></td>
                 </tr>
               ))}
               {mapeamentos.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-gray-400">Nenhum mapeamento encontrado.</td></tr>}
@@ -169,7 +179,7 @@ export default function RelatoriosPage() {
                     <td className="py-3 pr-4 text-gray-500 capitalize">{period}</td>
                     <td className="py-3 pr-4"><StatusBadge status={r.status} /></td>
                     <td className="py-3 pr-4 text-center text-gray-500">{r.posts_count}</td>
-                    <td className="py-3"><DeleteButton onDelete={() => handleDelete("relatorio", r.id)} label={`${r.profile_name} — ${period}`} /></td>
+                    <td className="py-3"><DeleteButton onDelete={() => handleDelete("relatorio", r.id)} label={`RELATÓRIO "${r.profile_name} — ${period}" (mapeamento será mantido)`} /></td>
                   </tr>
                 );
               })}

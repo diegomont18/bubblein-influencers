@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { fetchProfilePosts, fetchLinkedInProfileApify, fetchLinkedInCompany } from "@/lib/apify";
+import { fetchProfilePosts, fetchLinkedInProfileCached, fetchLinkedInCompany } from "@/lib/apify";
 import { analyzeProfileForLeads, analyzeCompanyForShareOfLinkedin, extractBrands } from "@/lib/ai";
 import { scrapeWebsite } from "@/lib/firecrawl";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
     rawCompanyNames.push(slug.replace(/-/g, " "));
   } else if (personSlugMatch) {
     try {
-      const profileResult = await fetchLinkedInProfileApify(slug);
+      const profileResult = await fetchLinkedInProfileCached(slug);
       if (profileResult.status === 200 && profileResult.data) {
         const data = profileResult.data as Record<string, unknown>;
         // Current company (normalizeHarvestProfile flattens this to `company`)
@@ -317,6 +317,8 @@ export async function POST(request: Request) {
         postsPerMonth: e.postsPerMonth,
       }));
 
+      const aiIncomplete = !aiResult || !enrichedThemes;
+
       const optionsPayload = {
         profile_id: profile.id,
         market_context: enrichedThemes,
@@ -329,6 +331,7 @@ export async function POST(request: Request) {
         departments: [],
         company_sizes: [],
         ai_response: { ...aiResult, companyInfo, employeeCount: allEmployees.length, competitor_employees: competitorEmployees, inactive_competitor_employees: inactiveCompetitorEmployees, inactive_employees: inactiveEmployees, company_brands: mainBrands, competitor_brands: competitorBrands, country },
+        ai_incomplete: aiIncomplete,
       };
 
       const { data: savedOptions, error: optError } = await service
@@ -423,6 +426,7 @@ export async function POST(request: Request) {
     departments: aiResult?.departments ?? [],
     company_sizes: aiResult?.company_sizes ?? ["51-200"],
     ai_response: aiResult,
+    ai_incomplete: !aiResult,
   };
 
   const { data: savedOptions } = await service
