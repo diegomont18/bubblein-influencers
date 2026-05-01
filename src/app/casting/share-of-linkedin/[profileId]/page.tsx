@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import CompetitorEmployees from "./competitor-employees";
 import PostsFreqBadge from "./posts-freq-badge";
+import { formatPostsPerMonth } from "@/lib/format-posts-frequency";
+import { ShareButton } from "@/components/share/share-button";
+import type { AccessRole } from "@/lib/resource-access";
 
 const COMPANY_SIZES = ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001+"];
 const ITEMS_PER_PAGE = 10;
@@ -136,11 +139,15 @@ interface AnalyzedProfile {
 export default function LeadsGenerationOptionsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const profileId = params.profileId as string;
 
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [accessRole, setAccessRole] = useState<AccessRole | null>(null);
+  const [resourceOwner, setResourceOwner] = useState<{ id: string; email: string; name: string | null } | null>(null);
   const [options, setOptions] = useState<Options | null>(null);
   const [loading, setLoading] = useState(true);
+  const [navigating, setNavigating] = useState(false);
   const [reprocessingAi, setReprocessingAi] = useState(false);
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -172,7 +179,8 @@ export default function LeadsGenerationOptionsPage() {
   const isCompanyProfile = profile?.linkedin_url?.includes("/company/") ?? false;
   useEffect(() => {
     if (!loading && results.length === 0) setConfigExpanded(true);
-  }, [loading, results.length]);
+    if (searchParams.get("config") === "open") setConfigExpanded(true);
+  }, [loading, results.length, searchParams]);
 
   // Profile history for dropdown
   const [profileHistory, setProfileHistory] = useState<AnalyzedProfile[]>([]);
@@ -209,6 +217,8 @@ export default function LeadsGenerationOptionsPage() {
       if (optRes.ok) {
         const data = await optRes.json();
         setProfile(data.profile);
+        setAccessRole(data.accessRole ?? "owner");
+        setResourceOwner(data.owner ?? null);
         setOptions(data.options ? {
           market_context: data.options.market_context ?? "",
           job_titles: data.options.job_titles ?? [],
@@ -270,7 +280,20 @@ export default function LeadsGenerationOptionsPage() {
     finally { setLoading(false); }
   }, [profileId]);
 
+  const initialLoadDone = useRef(false);
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Auto-redirect to latest complete report on initial load
+  useEffect(() => {
+    if (loading || initialLoadDone.current) return;
+    initialLoadDone.current = true;
+    if (!isCompanyProfile) return;
+    const latestComplete = solReports.find((r) => r.status === "complete");
+    if (latestComplete) {
+      setNavigating(true);
+      router.replace(`/casting/share-of-linkedin/${profileId}/report/${latestComplete.id}`);
+    }
+  }, [loading, isCompanyProfile, solReports, profileId, router]);
 
   // SOL polling effect
   useEffect(() => {
@@ -688,10 +711,15 @@ export default function LeadsGenerationOptionsPage() {
     a.click();
   }
 
-  if (loading) {
+  // Prevent the full profile page from flashing before the auto-redirect
+  // useEffect fires. This computes the same condition synchronously during
+  // render so we never show profile content when we're about to redirect.
+  const willAutoRedirect = !loading && !initialLoadDone.current && isCompanyProfile && solReports.some((r) => r.status === "complete");
+
+  if (loading || navigating || willAutoRedirect) {
     return (
       <div className="flex items-center justify-center py-20">
-        <span className="text-[#adaaaa] animate-pulse">Carregando...</span>
+        <span className="text-[#adaaaa] animate-pulse">{navigating || willAutoRedirect ? "Carregando relatório..." : "Carregando..."}</span>
       </div>
     );
   }
@@ -742,6 +770,26 @@ export default function LeadsGenerationOptionsPage() {
             <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-[#ca98ff] hover:text-[#e197fc] transition-colors" title="Ver perfil no LinkedIn">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
             </a>
+          )}
+          {accessRole && accessRole !== "owner" && (
+            <span className="text-[10px] uppercase tracking-wider bg-[#ca98ff]/15 text-[#ca98ff] px-2 py-0.5 rounded-full font-medium">
+              {accessRole === "editor" ? "Editor" : "Visualizador"}
+              {resourceOwner && (
+                <span className="ml-1 text-white/40 normal-case">
+                  · de {resourceOwner.name ?? resourceOwner.email}
+                </span>
+              )}
+            </span>
+          )}
+          {profile && accessRole && (
+            <ShareButton
+              resourceType="lg_profile"
+              resourceId={profile.id}
+              resourceName={profile.name || "Perfil"}
+              accessRole={accessRole}
+              variant="compact"
+              className="!border-[#ca98ff]/30 !text-[#ca98ff] hover:!bg-[#ca98ff]/10 ml-auto"
+            />
           )}
         </div>
       </header>
@@ -989,7 +1037,7 @@ export default function LeadsGenerationOptionsPage() {
                               <p className="text-xs text-white/50 font-medium truncate">{emp.name}</p>
                               {emp.headline && <p className="text-[9px] text-white/25 truncate">{emp.headline}</p>}
                             </div>
-                            <span className="text-[9px] text-white/20 shrink-0">{emp.postsPerMonth ?? 0}/mês</span>
+                            <span className="text-[9px] text-white/20 shrink-0">{formatPostsPerMonth(emp.postsPerMonth) ?? "—"}</span>
                             <button
                               onClick={() => autoSave({ ...options, employee_profiles: [...(options.employee_profiles ?? []), emp] })}
                               className="text-[9px] font-bold px-2 py-1 rounded-lg bg-[#ca98ff]/10 text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors shrink-0"
@@ -1174,7 +1222,7 @@ export default function LeadsGenerationOptionsPage() {
                                   <p className="text-[10px] text-white/40 font-medium truncate">{emp.name}</p>
                                   {emp.headline && <p className="text-[9px] text-white/20 truncate">{emp.headline}</p>}
                                 </div>
-                                <span className="text-[8px] text-white/15 shrink-0">{emp.postsPerMonth ?? 0}/mês</span>
+                                <span className="text-[8px] text-white/15 shrink-0">{formatPostsPerMonth(emp.postsPerMonth) ?? "—"}</span>
                                 <button
                                   onClick={() => {
                                     const ce = {...((options.ai_response as Record<string,unknown>)?.competitor_employees as Record<string,unknown>) ?? {}, [nm]: [...compEmps, emp]};
@@ -1386,7 +1434,7 @@ export default function LeadsGenerationOptionsPage() {
               )}
               {solReportStatus === "complete" && currentReportId && (
                 <button
-                  onClick={() => router.push(`/casting/share-of-linkedin/${profileId}/report/${currentReportId}`)}
+                  onClick={() => { setNavigating(true); router.push(`/casting/share-of-linkedin/${profileId}/report/${currentReportId}`); }}
                   className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#a2f31f] to-[#7bc41f] text-[#0a1a00] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(162,243,31,0.3)] hover:shadow-[0_15px_40px_-5px_rgba(162,243,31,0.4)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide"
                 >
                   VER RELATÓRIO
@@ -1432,7 +1480,7 @@ export default function LeadsGenerationOptionsPage() {
                     return (
                       <button
                         key={r.id}
-                        onClick={() => router.push(`/casting/share-of-linkedin/${profileId}/report/${r.id}`)}
+                        onClick={() => { setNavigating(true); router.push(`/casting/share-of-linkedin/${profileId}/report/${r.id}`); }}
                         className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10 hover:border-[#ca98ff]/30 transition-colors group"
                       >
                         <span className="text-sm text-white/70 group-hover:text-white capitalize">{label}</span>

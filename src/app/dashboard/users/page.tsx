@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { formatBrPhone, isValidBrPhone, stripPhone } from "@/lib/phone";
 
 interface User {
   id: string;
@@ -8,6 +9,9 @@ interface User {
   role: string;
   credits: number;
   credits_total: number;
+  company_name: string | null;
+  phone: string | null;
+  sales_contact_interest: boolean | null;
   created_at: string;
   last_sign_in_at: string | null;
 }
@@ -27,7 +31,14 @@ interface DailyReport {
   period_end: string;
   report_type: string;
   data: {
-    newUsers: Array<{ email: string; created_at: string; role: string }>;
+    newUsers: Array<{
+      email: string;
+      created_at: string;
+      role: string;
+      company_name?: string | null;
+      phone?: string | null;
+      sales_contact_interest?: boolean | null;
+    }>;
     castingSearches: Array<{ user_email: string; name: string; query_theme: string; created_at: string }>;
     leadsScans: Array<{ user_email: string; total_engagers: number; matched_leads: number; created_at: string }>;
     lgProfiles: Array<{ user_email: string; name: string; linkedin_url: string; created_at: string }>;
@@ -72,6 +83,9 @@ export default function UsersPage() {
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState("user");
   const [newExtraCredits, setNewExtraCredits] = useState(0);
+  const [newCompanyName, setNewCompanyName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newSalesInterest, setNewSalesInterest] = useState(true);
   const [creating, setCreating] = useState(false);
 
   const [mainTab, setMainTab] = useState<"users" | "reports">("users");
@@ -123,6 +137,13 @@ export default function UsersPage() {
     setCreating(true);
     setError(null);
 
+    const phoneDigits = newPhone ? stripPhone(newPhone) : "";
+    if (phoneDigits && !isValidBrPhone(phoneDigits)) {
+      setError("Celular inválido. Informe DDD + número (10 ou 11 dígitos).");
+      setCreating(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/users", {
         method: "POST",
@@ -132,6 +153,9 @@ export default function UsersPage() {
           password: newPassword,
           role: newRole,
           extraCredits: newExtraCredits,
+          companyName: newCompanyName.trim() || undefined,
+          phone: phoneDigits || undefined,
+          salesContactInterest: newSalesInterest,
         }),
       });
       const data = await res.json();
@@ -143,6 +167,9 @@ export default function UsersPage() {
       setNewPassword("");
       setNewRole("user");
       setNewExtraCredits(0);
+      setNewCompanyName("");
+      setNewPhone("");
+      setNewSalesInterest(true);
       setShowCreate(false);
       fetchUsers();
       fetchPendingCredits();
@@ -358,57 +385,91 @@ export default function UsersPage() {
           <h3 className="text-sm font-medium text-gray-900 mb-3">
             Create New User
           </h3>
-          <form onSubmit={handleCreate} className="flex items-end gap-3">
-            <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1">Email</label>
-              <input
-                type="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                required
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+          <form onSubmit={handleCreate} className="space-y-3">
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  required
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Role</label>
+                <select
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value)}
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Extra Credits</label>
+                <input
+                  type="number"
+                  value={newExtraCredits}
+                  onChange={(e) => setNewExtraCredits(Number(e.target.value))}
+                  min={0}
+                  placeholder="0"
+                  className="w-24 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
             </div>
-            <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1">Password</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                minLength={6}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Role</label>
-              <select
-                value={newRole}
-                onChange={(e) => setNewRole(e.target.value)}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Empresa <span className="text-gray-400">(opcional)</span></label>
+                <input
+                  type="text"
+                  value={newCompanyName}
+                  onChange={(e) => setNewCompanyName(e.target.value)}
+                  placeholder="Nome da empresa"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Celular <span className="text-gray-400">(opcional)</span></label>
+                <input
+                  type="tel"
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(formatBrPhone(e.target.value))}
+                  placeholder="(11) 91234-5678"
+                  inputMode="numeric"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <label className="flex items-center gap-2 pb-2 text-xs text-gray-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={newSalesInterest}
+                  onChange={(e) => setNewSalesInterest(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                Interesse comercial
+              </label>
+              <button
+                type="submit"
+                disabled={creating}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
+                {creating ? "Creating..." : "Create"}
+              </button>
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Extra Credits</label>
-              <input
-                type="number"
-                value={newExtraCredits}
-                onChange={(e) => setNewExtraCredits(Number(e.target.value))}
-                min={0}
-                placeholder="0"
-                className="w-24 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={creating}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {creating ? "Creating..." : "Create"}
-            </button>
           </form>
         </div>
       )}
@@ -418,6 +479,9 @@ export default function UsersPage() {
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
               <th className="text-left px-4 py-3 font-medium text-gray-700">Email</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-700">Empresa</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-700">Celular</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-700">Lead</th>
               <th className="text-left px-4 py-3 font-medium text-gray-700">Role</th>
               <th className="text-left px-4 py-3 font-medium text-gray-700">Credits</th>
               <th className="text-left px-4 py-3 font-medium text-gray-700">Spent</th>
@@ -445,6 +509,21 @@ export default function UsersPage() {
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform shrink-0 text-gray-400 ${isExpanded ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
                       {user.email}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-700 text-xs">
+                    {user.company_name || <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-gray-700 text-xs whitespace-nowrap">
+                    {user.phone ? formatBrPhone(user.phone) : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {user.sales_contact_interest === true ? (
+                      <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">LEAD</span>
+                    ) : user.sales_contact_interest === false ? (
+                      <span className="text-gray-400">não</span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <select
@@ -526,7 +605,7 @@ export default function UsersPage() {
                 </tr>
                 {isExpanded && (
                   <tr>
-                    <td colSpan={8} className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                    <td colSpan={11} className="px-6 py-4 bg-gray-50 border-b border-gray-200">
                       {activityLoading === user.id ? (
                         <p className="text-xs text-gray-400">Carregando atividade...</p>
                       ) : !activity ? (
@@ -815,7 +894,20 @@ export default function UsersPage() {
                         {r.data.newUsers.length > 0 && (
                           <div>
                             <p className="text-xs font-semibold text-gray-700 mb-1">Novos usuarios</p>
-                            {r.data.newUsers.map((u) => <p key={u.email} className="text-xs text-gray-500">{u.email} ({u.role}) — {formatDate(u.created_at)}</p>)}
+                            {r.data.newUsers.map((u) => {
+                              const detail: string[] = [];
+                              if (u.company_name) detail.push(u.company_name);
+                              if (u.phone) detail.push(formatBrPhone(u.phone));
+                              const detailStr = detail.length > 0 ? ` — ${detail.join(" · ")}` : "";
+                              return (
+                                <p key={u.email} className="text-xs text-gray-500">
+                                  {u.sales_contact_interest && (
+                                    <span className="inline-block mr-1.5 rounded bg-emerald-100 text-emerald-700 px-1 py-0.5 text-[10px] font-medium">LEAD</span>
+                                  )}
+                                  {u.email} ({u.role}){detailStr} — {formatDate(u.created_at)}
+                                </p>
+                              );
+                            })}
                           </div>
                         )}
                         {r.data.castingSearches.length > 0 && (

@@ -1,6 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { ScopeFilter } from "@/components/share/scope-filter";
+import { ShareButton } from "@/components/share/share-button";
+import type { AccessRole, Scope } from "@/lib/resource-access";
+import { formatCountLabel } from "@/lib/share-format";
 
 interface Lead {
   slug: string;
@@ -96,8 +100,9 @@ export default function LeadsPage() {
   const [pageLoading, setPageLoading] = useState(true);
 
   // Past scans
-  const [pastScans, setPastScans] = useState<Array<{ id: string; created_at: string; post_urls: string[]; icp_job_titles: string[]; icp_departments: string[]; matched_leads: number; status: string; leads: Lead[]; icp_profiles?: { name: string } | null; url_profiles?: { name: string } | null }>>([]);
+  const [pastScans, setPastScans] = useState<Array<{ id: string; created_at: string; post_urls: string[]; icp_job_titles: string[]; icp_departments: string[]; matched_leads: number; status: string; leads: Lead[]; icp_profiles?: { name: string } | null; url_profiles?: { name: string } | null; accessRole?: AccessRole; owner?: { id: string; email: string; name: string | null } | null }>>([]);
   const [activeScanId, setActiveScanId] = useState<string | null>(null);
+  const [scanScope, setScanScope] = useState<Scope>("all");
 
   // Scan state
   const [scanning, setScanning] = useState(false);
@@ -173,18 +178,22 @@ export default function LeadsPage() {
 
   // --- Load past scans ---
   const loadPastScans = useCallback(async () => {
-    const res = await fetch("/api/leads/scans");
+    const res = await fetch(`/api/leads/scans?scope=${scanScope}`);
     if (!res.ok) return;
     const json = await res.json();
     const scans = json.scans ?? [];
     setPastScans(scans);
-    // If we have past scans and no active scan, load the most recent one
     if (scans.length > 0 && !activeScanId && leads.length === 0) {
       const latest = scans[0];
       setActiveScanId(latest.id);
       setLeads((latest.leads ?? []).filter((l: Lead) => l.name && l.name !== "Unknown" && l.name.length >= 2));
     }
-  }, [activeScanId, leads.length]);
+  }, [activeScanId, leads.length, scanScope]);
+
+  useEffect(() => {
+    void loadPastScans();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanScope]);
 
   // Detect if leads already have company_size data (previously enriched)
   const hasAnyEnriched = leads.some((l) => l.company_size);
@@ -977,53 +986,132 @@ export default function LeadsPage() {
       )}
 
       {/* Results */}
-      {(leads.length > 0 || pastScans.length > 0) && (
+      {(leads.length > 0 || pastScans.length > 0 || scanScope !== "all") && (
         <div ref={resultsRef} className="space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-white font-[family-name:var(--font-lexend)]">
-                Leads Encontrados
-                <span className="ml-2 text-sm font-normal text-[#adaaaa]">{filteredLeads.length}{filteredLeads.length !== leads.length ? ` de ${leads.length}` : ""} leads</span>
-                {scanning && <span className="ml-2 text-xs text-[#ca98ff] animate-pulse">(atualizando...)</span>}
-              </h2>
-              {pastScans.length > 0 && (
+          {/* Scan navigation: dropdown + scope filter (above results) */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {(() => {
+              const sharedCount = pastScans.filter((s) => s.accessRole && s.accessRole !== "owner").length;
+              const countLabel = formatCountLabel({
+                count: pastScans.length,
+                sharedCount,
+                scope: scanScope,
+                noun: "Scans",
+              });
+              return (
                 <select
                   value={activeScanId ?? ""}
                   onChange={(e) => handleSelectScan(e.target.value)}
-                  className="rounded-lg bg-[#20201f] px-3 py-1.5 text-xs text-white outline-none border border-[#333] focus:border-[#ca98ff] font-[family-name:var(--font-lexend)]"
+                  disabled={pastScans.length === 0}
+                  className="flex-1 min-w-[240px] rounded-xl bg-[#20201f] border border-transparent px-4 py-2.5 text-sm text-white outline-none focus:border-[#ca98ff]/40 font-[family-name:var(--font-lexend)] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {pastScans.map((s) => {
-                    const icpName = s.icp_profiles?.name ?? ((s.icp_job_titles ?? []).slice(0, 2).join(", ") || "Sem ICP");
-                    const urlName = s.url_profiles?.name ?? "";
-                    const date = new Date(s.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-                    return (
-                      <option key={s.id} value={s.id}>
-                        {icpName}{urlName ? ` · ${urlName}` : ""} · {date} · {s.matched_leads ?? 0} leads
-                      </option>
-                    );
-                  })}
+                  {pastScans.length === 0 ? (
+                    <option value="">{countLabel}</option>
+                  ) : (
+                    <>
+                      <option value="" disabled>{countLabel}</option>
+                      {pastScans.map((s) => {
+                        const icpName = s.icp_profiles?.name ?? ((s.icp_job_titles ?? []).slice(0, 2).join(", ") || "Sem ICP");
+                        const urlName = s.url_profiles?.name ?? "";
+                        const date = new Date(s.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+                        const sharedTag = s.accessRole && s.accessRole !== "owner" ? " · 🔗" : "";
+                        return (
+                          <option key={s.id} value={s.id}>
+                            {icpName}{urlName ? ` · ${urlName}` : ""} · {date} · {s.matched_leads ?? 0} leads{sharedTag}
+                          </option>
+                        );
+                      })}
+                    </>
+                  )}
                 </select>
-              )}
-            </div>
-            <button
-              onClick={exportCsv}
-              className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)]"
-            >
-              Exportar CSV
-            </button>
-            {isAdmin && leads.length > 0 && (
-              <button
-                onClick={() => setShowEnrichModal(true)}
-                disabled={enriching}
-                className={`rounded-full px-4 py-2 text-xs font-medium transition-colors font-[family-name:var(--font-lexend)] disabled:opacity-50 ${allEnriched ? "bg-[#20201f] text-[#adaaaa] hover:text-white hover:bg-[#262626]" : "bg-red-600 text-white hover:bg-red-700"}`}
-              >
-                {enriching ? "Processando..." : allEnriched ? "Re-enrich" : `Fazer Enrich${hasAnyEnriched ? ` (${leads.filter(l => !l.company_size).length} restantes)` : ""}`}
-              </button>
-            )}
-            {allEnriched && (
-              <span className="text-[10px] text-green-400 bg-green-400/10 px-2.5 py-1 rounded-full font-medium">Enrich completo</span>
-            )}
+              );
+            })()}
+            <ScopeFilter value={scanScope} onChange={setScanScope} />
           </div>
+
+          {/* Empty state when filtering returns no scans */}
+          {pastScans.length === 0 && scanScope === "shared" && (
+            <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-6 text-center">
+              <p className="text-sm text-white/60 mb-1">Nenhum scan compartilhado com você</p>
+              <p className="text-[11px] text-white/30">
+                Verifique com quem compartilhou se ele concluiu o procedimento.
+              </p>
+            </div>
+          )}
+          {pastScans.length === 0 && scanScope === "mine" && (
+            <p className="text-xs text-white/30 text-center py-6">
+              Você ainda não fez nenhum scan próprio.
+            </p>
+          )}
+          {pastScans.length === 0 && scanScope === "all" && (
+            <p className="text-xs text-white/30 text-center py-6">
+              Nenhum scan ainda. Cole URLs de posts acima para começar.
+            </p>
+          )}
+
+          {pastScans.length > 0 && (
+            <>
+              {/* Results header: title + count + share + actions */}
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h2 className="text-lg font-semibold text-white font-[family-name:var(--font-lexend)]">
+                    Leads Encontrados
+                    <span className="ml-2 text-sm font-normal text-[#adaaaa]">{filteredLeads.length}{filteredLeads.length !== leads.length ? ` de ${leads.length}` : ""} leads</span>
+                    {scanning && <span className="ml-2 text-xs text-[#ca98ff] animate-pulse">(atualizando...)</span>}
+                  </h2>
+                  {(() => {
+                    const activeScan = pastScans.find((s) => s.id === activeScanId);
+                    if (!activeScan?.accessRole) return null;
+                    const scanName =
+                      activeScan.icp_profiles?.name ??
+                      (activeScan.icp_job_titles ?? []).slice(0, 2).join(", ") ??
+                      "Scan";
+                    return (
+                      <>
+                        <ShareButton
+                          resourceType="leads_scan"
+                          resourceId={activeScan.id}
+                          resourceName={scanName}
+                          accessRole={activeScan.accessRole}
+                          variant="compact"
+                          className="!bg-[#20201f] !border-[#333] !text-[#adaaaa] hover:!text-white hover:!bg-[#262626]"
+                        />
+                        {activeScan.accessRole !== "owner" && (
+                          <span className="text-[10px] uppercase tracking-wider bg-[#ca98ff]/15 text-[#ca98ff] px-2 py-0.5 rounded-full font-medium">
+                            {activeScan.accessRole === "editor" ? "Editor" : "Visualizador"}
+                            {activeScan.owner && (
+                              <span className="ml-1 text-white/40 normal-case">
+                                · de {activeScan.owner.name ?? activeScan.owner.email}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={exportCsv}
+                    className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)]"
+                  >
+                    Exportar CSV
+                  </button>
+                  {isAdmin && leads.length > 0 && (
+                    <button
+                      onClick={() => setShowEnrichModal(true)}
+                      disabled={enriching}
+                      className={`rounded-full px-4 py-2 text-xs font-medium transition-colors font-[family-name:var(--font-lexend)] disabled:opacity-50 ${allEnriched ? "bg-[#20201f] text-[#adaaaa] hover:text-white hover:bg-[#262626]" : "bg-red-600 text-white hover:bg-red-700"}`}
+                    >
+                      {enriching ? "Processando..." : allEnriched ? "Re-enrich" : `Fazer Enrich${hasAnyEnriched ? ` (${leads.filter(l => !l.company_size).length} restantes)` : ""}`}
+                    </button>
+                  )}
+                  {allEnriched && (
+                    <span className="text-[10px] text-green-400 bg-green-400/10 px-2.5 py-1 rounded-full font-medium">Enrich completo</span>
+                  )}
+                </div>
+              </div>
+
 
           {/* Enrich confirmation modal */}
           {showEnrichModal && (() => {
@@ -1316,6 +1404,8 @@ export default function LeadsPage() {
               </div>
             );
           })()}
+            </>
+          )}
         </div>
       )}
     </div>

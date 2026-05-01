@@ -28,6 +28,9 @@ export const API_COSTS = {
   serper: {
     searchGoogle: 0.001,
   },
+  scrapingdog: {
+    searchGoogle: 0.001,
+  },
   openrouter: {
     classifyTopics: 0.001,
     checkRelevance: 0.001,

@@ -64,16 +64,24 @@ export async function PATCH(request: Request) {
   }
 
   const body = await request.json();
-  const { id, name } = body;
+  const { id, name, settings } = body;
 
-  if (!id || !name) {
-    return NextResponse.json({ error: "id and name are required" }, { status: 400 });
+  if (!id || (name === undefined && settings === undefined)) {
+    return NextResponse.json({ error: "id and at least one of name or settings are required" }, { status: 400 });
+  }
+
+  const update: Record<string, unknown> = {};
+  if (typeof name === "string" && name.trim()) update.name = name.trim();
+  if (settings && typeof settings === "object" && !Array.isArray(settings)) update.settings = settings;
+
+  if (Object.keys(update).length === 0) {
+    return NextResponse.json({ error: "no valid fields to update" }, { status: 400 });
   }
 
   const service = createServiceClient();
   const { error } = await service
     .from("campaigns")
-    .update({ name })
+    .update(update)
     .eq("id", id)
     .eq("user_id", user.id);
 

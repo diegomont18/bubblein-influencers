@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
+import {
+  assertCanRead,
+  respondAccessError,
+  ResourceAccessError,
+} from "@/lib/resource-access";
 
 export const dynamic = "force-dynamic";
 
@@ -22,34 +27,40 @@ export async function GET(
 
   if (!report) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Verify ownership
-  const { data: profile } = await service
-    .from("lg_profiles")
-    .select("id, name, linkedin_url")
-    .eq("id", report.profile_id)
-    .eq("user_id", user.id)
-    .single();
+  try {
+    const access = await assertCanRead(user.id, "lg_profile", report.profile_id);
 
-  if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const { data: profile } = await service
+      .from("lg_profiles")
+      .select("id, name, linkedin_url")
+      .eq("id", report.profile_id)
+      .single();
 
-  // Fetch options for context (company info, competitors)
-  const { data: options } = await service
-    .from("lg_options")
-    .select("competitors, employee_profiles, ai_response, market_context, proprietary_brands")
-    .eq("profile_id", report.profile_id)
-    .single();
+    if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Fetch all posts for this report
-  const { data: posts } = await service
-    .from("sol_posts")
-    .select("*")
-    .eq("report_id", reportId)
-    .order("posted_at", { ascending: false });
+    const { data: options } = await service
+      .from("lg_options")
+      .select("competitors, employee_profiles, ai_response, market_context, proprietary_brands")
+      .eq("profile_id", report.profile_id)
+      .single();
 
-  return NextResponse.json({
-    report,
-    profile,
-    options,
-    posts: posts ?? [],
-  });
+    const { data: posts } = await service
+      .from("sol_posts")
+      .select("*")
+      .eq("report_id", reportId)
+      .order("posted_at", { ascending: false });
+
+    return NextResponse.json({
+      report,
+      profile,
+      options,
+      posts: posts ?? [],
+      accessRole: access.role,
+    });
+  } catch (err) {
+    if (err instanceof ResourceAccessError) {
+      return respondAccessError(err);
+    }
+    throw err;
+  }
 }

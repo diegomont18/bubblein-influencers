@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { provisionTrialUser } from "@/lib/auth/provision";
+import { isValidBrPhone, stripPhone } from "@/lib/phone";
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { email, password } = body;
+  const { email, password, companyName, phone, salesContactInterest } = body;
 
   if (!email || !password) {
     return NextResponse.json(
@@ -19,9 +21,26 @@ export async function POST(request: Request) {
     );
   }
 
+  const trimmedCompany = typeof companyName === "string" ? companyName.trim() : "";
+  if (!trimmedCompany) {
+    return NextResponse.json(
+      { error: "Nome da empresa é obrigatório" },
+      { status: 400 }
+    );
+  }
+
+  const phoneDigits = stripPhone(typeof phone === "string" ? phone : "");
+  if (!isValidBrPhone(phoneDigits)) {
+    return NextResponse.json(
+      { error: "Celular inválido. Informe DDD + número (10 ou 11 dígitos)." },
+      { status: 400 }
+    );
+  }
+
+  const interestFlag = typeof salesContactInterest === "boolean" ? salesContactInterest : true;
+
   const service = createServiceClient();
 
-  // Create user via admin API to skip email verification
   const {
     data: { user },
     error,
@@ -36,29 +55,11 @@ export async function POST(request: Request) {
   }
 
   if (user) {
-    const normalizedEmail = email.toLowerCase().trim();
-
-    // Check for pre-registered extra credits
-    const { data: pending } = await service
-      .from("pending_credits")
-      .select("id, extra_credits")
-      .eq("email", normalizedEmail)
-      .eq("claimed", false);
-
-    const totalExtra = (pending ?? []).reduce((sum: number, p: { extra_credits: number }) => sum + p.extra_credits, 0);
-    const initialCredits = 5 + totalExtra;
-
-    await service
-      .from("user_roles")
-      .insert({ user_id: user.id, role: "user", credits: initialCredits, credits_total: initialCredits });
-
-    // Mark pending credits as claimed
-    if (pending && pending.length > 0) {
-      await service
-        .from("pending_credits")
-        .update({ claimed: true, claimed_at: new Date().toISOString() })
-        .in("id", pending.map((p: { id: string }) => p.id));
-    }
+    await provisionTrialUser(user.id, email, {
+      companyName: trimmedCompany,
+      phone: phoneDigits,
+      salesContactInterest: interestFlag,
+    });
   }
 
   return NextResponse.json({

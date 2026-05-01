@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { notifyError } from "@/lib/error-notifier";
+import {
+  assertCanEdit,
+  respondAccessError,
+  ResourceAccessError,
+} from "@/lib/resource-access";
 
 export const dynamic = "force-dynamic";
 
@@ -13,14 +18,18 @@ export async function POST(request: Request) {
     const { profileId } = await request.json();
     if (!profileId) return NextResponse.json({ error: "profileId required" }, { status: 400 });
 
-    const service = createServiceClient();
+    try {
+      await assertCanEdit(user.id, "lg_profile", profileId);
+    } catch (err) {
+      if (err instanceof ResourceAccessError) return respondAccessError(err);
+      throw err;
+    }
 
-    // Verify ownership
+    const service = createServiceClient();
     const { data: profile } = await service
       .from("lg_profiles")
       .select("id, linkedin_url")
       .eq("id", profileId)
-      .eq("user_id", user.id)
       .single();
     if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

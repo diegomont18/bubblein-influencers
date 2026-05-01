@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { CastingProfile } from "./casting-results";
+import { formatPostsPerMonth, postsFrequencyTextClass } from "@/lib/format-posts-frequency";
 
 const STAGES = [
   { value: "", label: "—" },
@@ -25,12 +26,23 @@ interface CastingResultsDarkProps {
 type SortKey = "name" | "followers" | "posts_per_month" | "avg_likes_per_post" | "creator_score";
 type SortDir = "asc" | "desc";
 
-function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort }: {
+function InfoBadge({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex items-center ml-0.5" onClick={(e) => e.stopPropagation()}>
+      <button type="button" onClick={() => setOpen((v) => !v)} onBlur={() => setTimeout(() => setOpen(false), 150)} className="w-3.5 h-3.5 rounded-full bg-white/10 text-white/50 hover:bg-white/20 hover:text-white flex items-center justify-center text-[9px] font-bold leading-none" aria-label="Mais informações">i</button>
+      {open && <span role="tooltip" className="absolute z-50 left-5 top-1/2 -translate-y-1/2 w-56 rounded-lg bg-[#1a1919] border border-[#ca98ff]/30 px-3 py-2 text-[11px] text-white/80 font-normal normal-case tracking-normal shadow-lg">{text}</span>}
+    </span>
+  );
+}
+
+function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort, tooltip }: {
   label: string;
   sortKey: SortKey;
   activeSortKey: SortKey | null;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
+  tooltip?: string;
 }) {
   const isActive = activeSortKey === key;
   return (
@@ -40,6 +52,7 @@ function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort }:
     >
       <span className="inline-flex items-center gap-1">
         {label}
+        {tooltip && <InfoBadge text={tooltip} />}
         {isActive ? (
           <span className="text-[#ca98ff]">{sortDir === "asc" ? "▲" : "▼"}</span>
         ) : (
@@ -79,6 +92,7 @@ export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: Casti
       }
       const getVal = (p: CastingProfile): number | null | undefined => {
         if (sortKey === "creator_score") return p.final_score ?? p.creator_score;
+        if (sortKey === "avg_likes_per_post") return (p.avg_likes_per_post ?? 0) + (p.avg_comments_per_post ?? 0) || null;
         return p[sortKey] as number | null | undefined;
       };
       const aVal = getVal(a);
@@ -107,7 +121,7 @@ export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: Casti
   }
 
   function exportCsv() {
-    const headers = ["Nome", "LinkedIn URL", "Headline", "Seguidores", "Posts/Mês", "Média Likes", "Score", "Tópicos", "Keyword", "Data", "Etapa"];
+    const headers = ["Nome", "LinkedIn URL", "Headline", "Seguidores", "Posts/Mês", "Engajamento", "Score", "Tópicos", "Keyword", "Data", "Etapa"];
     const escapeField = (val: string) => {
       if (val.includes(",") || val.includes('"') || val.includes("\n")) return '"' + val.replace(/"/g, '""') + '"';
       return val;
@@ -116,7 +130,7 @@ export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: Casti
       p.name || "", p.linkedin_url || "", p.headline || "",
       p.followers != null ? String(p.followers) : "",
       p.posts_per_month != null ? String(Math.round(p.posts_per_month)) : "",
-      p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "",
+      (() => { const eng = (p.avg_likes_per_post ?? 0) + (p.avg_comments_per_post ?? 0); return eng > 0 ? String(Math.round(eng)) : ""; })(),
       (() => { const s = p.final_score ?? p.creator_score; return s != null ? String(Math.round(s)) : ""; })(),
       (p.topics || []).join("; "),
       p.source_keyword || "",
@@ -190,9 +204,9 @@ export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: Casti
                 <SortableHeader label="Creator" sortKey="name" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Seguidores" sortKey="followers" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Posts/mês" sortKey="posts_per_month" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                {showDetails && <SortableHeader label="Média Likes" sortKey="avg_likes_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />}
+                {showDetails && <SortableHeader label="Engajamento" sortKey="avg_likes_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} tooltip="Média de reações + comentários por post." />}
                 <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Tópicos</th>
-                <SortableHeader label="Score" sortKey="creator_score" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Score" sortKey="creator_score" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} tooltip="Pontuação calculada com base na frequência de posts, engajamento médio (likes e comentários) e relevância dos temas abordados." />
                 {showDetails && <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Keyword</th>}
                 {showDetails && <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Data</th>}
                 {!readOnly && <th className="px-4 py-3 font-medium text-[#adaaaa] text-xs uppercase tracking-wider font-[family-name:var(--font-lexend)]">Etapa</th>}
@@ -257,12 +271,12 @@ export function CastingResultsDark({ profiles, highlightSlugs, readOnly }: Casti
                     <td className="px-4 py-3 text-[#adaaaa]">
                       {p.followers_range || (p.followers != null ? p.followers.toLocaleString() : "—")}
                     </td>
-                    <td className={`px-4 py-3 ${(p.posts_per_month ?? 0) < 4 ? "text-[#ff946e]" : (p.posts_per_month ?? 0) > 10 ? "text-[#a2f31f]" : "text-[#adaaaa]"}`}>
-                      {p.posts_per_month != null ? ((p.posts_per_month) < 4 ? "1–4" : (p.posts_per_month) <= 10 ? "4–10" : "10+") : "—"}
+                    <td className={`px-4 py-3 ${postsFrequencyTextClass(p.posts_per_month)}`}>
+                      {formatPostsPerMonth(p.posts_per_month) ?? "—"}
                     </td>
                     {showDetails && (
                       <td className="px-4 py-3 text-[#adaaaa]">
-                        {p.avg_likes_per_post != null ? String(Math.round(p.avg_likes_per_post)) : "—"}
+                        {(() => { const eng = (p.avg_likes_per_post ?? 0) + (p.avg_comments_per_post ?? 0); return eng > 0 ? String(Math.round(eng)) : "—"; })()}
                       </td>
                     )}
                     <td className="px-4 py-3">

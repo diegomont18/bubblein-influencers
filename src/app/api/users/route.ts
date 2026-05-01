@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkAdmin } from "@/lib/auth/check-admin";
 import { createServiceClient } from "@/lib/supabase/server";
+import { isValidBrPhone, stripPhone } from "@/lib/phone";
 
 export async function GET() {
   const { isAdmin } = await checkAdmin();
@@ -20,7 +21,20 @@ export async function GET() {
 
   // Fetch roles for all users
   const { data: roles } = await service.from("user_roles").select("*");
-  const roleMap = new Map(roles?.map((r) => [r.user_id, { role: r.role, credits: r.credits, credits_total: r.credits_total }]) ?? []);
+  const roleMap = new Map(
+    roles?.map((r) => [
+      r.user_id,
+      {
+        role: r.role,
+        credits: r.credits,
+        credits_total: r.credits_total,
+        company_name: r.company_name ?? null,
+        phone: r.phone ?? null,
+        sales_contact_interest:
+          typeof r.sales_contact_interest === "boolean" ? r.sales_contact_interest : null,
+      },
+    ]) ?? []
+  );
 
   const result = users.map((u) => {
     const info = roleMap.get(u.id);
@@ -30,6 +44,9 @@ export async function GET() {
       role: info?.role ?? "user",
       credits: info?.credits ?? 3,
       credits_total: info?.credits_total ?? 3,
+      company_name: info?.company_name ?? null,
+      phone: info?.phone ?? null,
+      sales_contact_interest: info?.sales_contact_interest ?? null,
       created_at: u.created_at,
       last_sign_in_at: u.last_sign_in_at ?? null,
     };
@@ -45,7 +62,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { email, password, role, extraCredits } = body;
+  const { email, password, role, extraCredits, companyName, phone, salesContactInterest } = body;
 
   if (!email || !password) {
     return NextResponse.json(
@@ -57,6 +74,18 @@ export async function POST(request: Request) {
   if (role && !["admin", "user"].includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
+
+  const trimmedCompany = typeof companyName === "string" ? companyName.trim() : "";
+  const phoneRaw = typeof phone === "string" ? phone : "";
+  const phoneDigits = phoneRaw ? stripPhone(phoneRaw) : "";
+  if (phoneDigits && !isValidBrPhone(phoneDigits)) {
+    return NextResponse.json(
+      { error: "Celular inválido. Informe DDD + número (10 ou 11 dígitos)." },
+      { status: 400 }
+    );
+  }
+  const interestFlag =
+    typeof salesContactInterest === "boolean" ? salesContactInterest : true;
 
   const service = createServiceClient();
   const {
@@ -89,7 +118,15 @@ export async function POST(request: Request) {
 
     await service
       .from("user_roles")
-      .insert({ user_id: user.id, role: userRole, credits: userCredits, credits_total: userCredits === -1 ? 0 : userCredits });
+      .insert({
+        user_id: user.id,
+        role: userRole,
+        credits: userCredits,
+        credits_total: userCredits === -1 ? 0 : userCredits,
+        company_name: trimmedCompany || null,
+        phone: phoneDigits || null,
+        sales_contact_interest: interestFlag,
+      });
 
     // Claim pending credits
     if (pending && pending.length > 0) {

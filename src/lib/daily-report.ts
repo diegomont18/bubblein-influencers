@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
+import { formatBrPhone } from "@/lib/phone";
 
 const REPORT_RECIPIENTS = ["diego@aihubstudio.com", "eva.campos@vecsy.co"];
 
@@ -23,7 +24,14 @@ function fmtDateShort(iso: string): string {
 }
 
 export interface ReportData {
-  newUsers: Array<{ email: string; created_at: string; role: string }>;
+  newUsers: Array<{
+    email: string;
+    created_at: string;
+    role: string;
+    company_name?: string | null;
+    phone?: string | null;
+    sales_contact_interest?: boolean | null;
+  }>;
   castingSearches: Array<{ user_email: string; name: string; query_theme: string; created_at: string }>;
   leadsScans: Array<{ user_email: string; total_engagers: number; matched_leads: number; created_at: string }>;
   lgProfiles: Array<{ user_email: string; name: string; linkedin_url: string; created_at: string }>;
@@ -46,8 +54,22 @@ export async function collectDailyReport(periodStart: Date, periodEnd: Date): Pr
   const newUsers: ReportData["newUsers"] = [];
   for (const u of authUsers ?? []) {
     if (new Date(u.created_at) >= periodStart && new Date(u.created_at) < periodEnd) {
-      const { data: roleData } = await service.from("user_roles").select("role").eq("user_id", u.id).single();
-      newUsers.push({ email: u.email ?? "unknown", created_at: u.created_at, role: roleData?.role ?? "user" });
+      const { data: roleData } = await service
+        .from("user_roles")
+        .select("role, company_name, phone, sales_contact_interest")
+        .eq("user_id", u.id)
+        .single();
+      newUsers.push({
+        email: u.email ?? "unknown",
+        created_at: u.created_at,
+        role: (roleData?.role as string) ?? "user",
+        company_name: (roleData?.company_name as string | null) ?? null,
+        phone: (roleData?.phone as string | null) ?? null,
+        sales_contact_interest:
+          typeof roleData?.sales_contact_interest === "boolean"
+            ? (roleData.sales_contact_interest as boolean)
+            : null,
+      });
     }
   }
 
@@ -159,7 +181,14 @@ export async function sendDailyReportEmail(periodStart: Date, periodEnd: Date, d
     .join(" | ");
 
   const newUserLines = data.newUsers.length > 0
-    ? data.newUsers.map((u) => `  - ${u.email} (${u.role}) — ${fmtDateShort(u.created_at)}`).join("\n")
+    ? data.newUsers.map((u) => {
+        const prefix = u.sales_contact_interest ? "[LEAD] " : "       ";
+        const parts: string[] = [];
+        if (u.company_name) parts.push(u.company_name);
+        if (u.phone) parts.push(formatBrPhone(u.phone));
+        const detail = parts.length > 0 ? ` — ${parts.join(" · ")}` : "";
+        return `  - ${prefix}${u.email} (${u.role})${detail} — ${fmtDateShort(u.created_at)}`;
+      }).join("\n")
     : "  Nenhum novo usuario";
 
   const castingLines = data.castingSearches.length > 0

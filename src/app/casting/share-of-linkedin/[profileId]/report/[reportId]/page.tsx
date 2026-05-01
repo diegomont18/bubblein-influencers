@@ -3,6 +3,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { ShareButton } from "@/components/share/share-button";
+import { formatPostsPerMonth } from "@/lib/format-posts-frequency";
+import type { AccessRole } from "@/lib/resource-access";
 
 // Brand = purple, competitors = gray
 let _mainCompanyName = "";
@@ -136,8 +139,6 @@ interface InfluencerCard {
   profile_photo?: string;
   slug?: string;
   posts_per_month?: number;
-  avg_likes?: number | null;
-  avg_comments?: number | null;
 }
 
 interface InfluencerMentionRow {
@@ -198,6 +199,7 @@ interface ReportData {
     ai_response?: Record<string, unknown>;
   };
   posts: SolPost[];
+  accessRole?: AccessRole;
 }
 
 const TABS: Array<{ id: string; label: string; disabled?: boolean }> = [
@@ -442,13 +444,32 @@ export default function ReportPage() {
   return (
     <div className="min-h-screen bg-[#131313] text-white">
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        <Link href={`/casting/share-of-linkedin/${profileId}`} className="text-xs text-[#adaaaa] hover:text-[#ca98ff] transition-colors">← Voltar ao mapeamento</Link>
-
-        <div>
-          <h1 className="text-2xl font-extrabold text-white font-[family-name:var(--font-lexend)]">
-            Relatório Share of <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">LinkedIn</span>
-          </h1>
-          <p className="text-sm text-white/40 mt-1 capitalize">{data.profile.name} — {periodLabel}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-extrabold text-white font-[family-name:var(--font-lexend)]">
+              Relatório Share of <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">LinkedIn</span>
+            </h1>
+            <p className="text-sm text-white/40 mt-1 capitalize">{data.profile.name} — {periodLabel}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/casting/share-of-linkedin/${profileId}?config=open`}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-white/5 hover:border-white/20 transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Configurações
+            </Link>
+            {data.accessRole && data.profile && (
+              <ShareButton
+                resourceType="lg_profile"
+                resourceId={profileId}
+                resourceName={data.profile.name || "Perfil"}
+                accessRole={data.accessRole as AccessRole}
+                variant="compact"
+                className="!border-[#ca98ff]/30 !text-[#ca98ff] hover:!bg-[#ca98ff]/10"
+              />
+            )}
+          </div>
         </div>
 
         {/* Tabs */}
@@ -1343,22 +1364,18 @@ export default function ReportPage() {
                           </div>
 
                           {/* Metrics grid with headers */}
-                          <div className="grid grid-cols-3 md:grid-cols-6 gap-4 mb-4">
+                          <div className="grid grid-cols-3 md:grid-cols-5 gap-4 mb-4">
                             <div>
                               <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1">Seguidores</p>
                               <p className="text-sm font-semibold text-white tabular-nums">{c.followers > 0 ? c.followers.toLocaleString("pt-BR") : "—"}</p>
                             </div>
                             <div>
                               <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1 flex items-center">Posts/mês<InfoTooltip text="Frequência estimada de publicações por mês no LinkedIn." /></p>
-                              <p className="text-sm font-semibold text-white tabular-nums">{c.posts_per_month != null ? c.posts_per_month : c.posts_about}</p>
+                              <p className="text-sm font-semibold text-white tabular-nums">{formatPostsPerMonth(c.posts_per_month ?? c.posts_about) ?? "—"}</p>
                             </div>
                             <div>
-                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1">Avg Likes</p>
-                              <p className="text-sm font-semibold text-white tabular-nums">{c.avg_likes != null ? c.avg_likes.toLocaleString("pt-BR") : "—"}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1">Avg Comments</p>
-                              <p className="text-sm font-semibold text-white tabular-nums">{c.avg_comments != null ? c.avg_comments.toLocaleString("pt-BR") : "—"}</p>
+                              <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1 flex items-center">Engajamento /post<InfoTooltip text="Média de reações + comentários por post." /></p>
+                              <p className="text-sm font-semibold text-white tabular-nums">{c.avg_engagement > 0 ? c.avg_engagement.toLocaleString("pt-BR") : "—"}</p>
                             </div>
                             <div>
                               <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1 flex items-center">Potencial<InfoTooltip text={`Alto: ${POTENTIAL_INFO.alto.description}. Médio: ${POTENTIAL_INFO["médio"].description}. Baixo: ${POTENTIAL_INFO.baixo.description}.`} /></p>

@@ -77,12 +77,23 @@ interface CastingResultsProps {
 type SortKey = "name" | "followers" | "posts_per_month" | "avg_likes_per_post" | "avg_comments_per_post" | "median_likes_per_post" | "median_comments_per_post" | "creator_score" | "topic_match" | "focus";
 type SortDir = "asc" | "desc";
 
-function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort }: {
+function InfoBadge({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex items-center ml-0.5" onClick={(e) => e.stopPropagation()}>
+      <button type="button" onClick={() => setOpen((v) => !v)} onBlur={() => setTimeout(() => setOpen(false), 150)} className="w-3.5 h-3.5 rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300 hover:text-gray-700 flex items-center justify-center text-[9px] font-bold leading-none" aria-label="Mais informações">i</button>
+      {open && <span role="tooltip" className="absolute z-50 left-5 top-1/2 -translate-y-1/2 w-56 rounded-lg bg-gray-900 px-3 py-2 text-[11px] text-white font-normal normal-case tracking-normal shadow-lg">{text}</span>}
+    </span>
+  );
+}
+
+function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort, tooltip }: {
   label: string;
   sortKey: SortKey;
   activeSortKey: SortKey | null;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
+  tooltip?: string;
 }) {
   const isActive = activeSortKey === key;
   return (
@@ -92,6 +103,7 @@ function SortableHeader({ label, sortKey: key, activeSortKey, sortDir, onSort }:
     >
       <span className="inline-flex items-center gap-1">
         {label}
+        {tooltip && <InfoBadge text={tooltip} />}
         {isActive ? (
           <span className="text-gray-700">{sortDir === "asc" ? "▲" : "▼"}</span>
         ) : (
@@ -253,7 +265,7 @@ export function CastingResults({ profiles, listId, onDeleteProfile, queryTheme }
       <SortableHeader label="Avg Comments" sortKey="avg_comments_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <SortableHeader label="Med Likes" sortKey="median_likes_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <SortableHeader label="Med Comments" sortKey="median_comments_per_post" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-      <SortableHeader label="Creator Score" sortKey="creator_score" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+      <SortableHeader label="Creator Score" sortKey="creator_score" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} tooltip="Pontuação calculada com base na frequência de posts, engajamento médio (likes e comentários) e relevância dos temas abordados." />
       <SortableHeader label="Match" sortKey="topic_match" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       <th className="px-4 py-3 font-medium text-gray-500">Topics</th>
       <SortableHeader label="Focus" sortKey="focus" activeSortKey={sortKey} sortDir={sortDir} onSort={handleSort} />

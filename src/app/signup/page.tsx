@@ -3,12 +3,16 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { formatBrPhone, isValidBrPhone, stripPhone } from "@/lib/phone";
 import Link from "next/link";
 
 function SignUpForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [salesContactInterest, setSalesContactInterest] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -30,14 +34,31 @@ function SignUpForm() {
       return;
     }
 
+    const trimmedCompany = companyName.trim();
+    if (!trimmedCompany) {
+      setError("Informe o nome da empresa.");
+      return;
+    }
+
+    const phoneDigits = stripPhone(phone);
+    if (!isValidBrPhone(phoneDigits)) {
+      setError("Celular inválido. Informe DDD + número (10 ou 11 dígitos).");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      // Create account via API
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          companyName: trimmedCompany,
+          phone: phoneDigits,
+          salesContactInterest,
+        }),
       });
 
       const data = await res.json();
@@ -47,7 +68,6 @@ function SignUpForm() {
         return;
       }
 
-      // Sign in immediately
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -69,7 +89,7 @@ function SignUpForm() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0e0e0e] font-[family-name:var(--font-be-vietnam-pro)]">
-      <div className="w-full max-w-md px-6">
+      <div className="w-full max-w-md px-6 py-10">
         <div className="rounded-2xl bg-[#1a1a1a] p-8 space-y-6">
           <div className="text-center">
             <img
@@ -100,6 +120,43 @@ function SignUpForm() {
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
                 placeholder="you@example.com"
+                className="w-full rounded-xl bg-[#20201f] px-4 py-3 text-sm text-white placeholder-white/30 outline-none border-b-2 border-transparent focus:border-[#ca98ff] transition-colors"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="company-name"
+                className="block text-xs font-semibold uppercase tracking-wider text-[#adaaaa] mb-2 font-[family-name:var(--font-lexend)]"
+              >
+                Nome da empresa
+              </label>
+              <input
+                id="company-name"
+                type="text"
+                required
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                autoComplete="organization"
+                placeholder="Sua empresa"
+                className="w-full rounded-xl bg-[#20201f] px-4 py-3 text-sm text-white placeholder-white/30 outline-none border-b-2 border-transparent focus:border-[#ca98ff] transition-colors"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="phone"
+                className="block text-xs font-semibold uppercase tracking-wider text-[#adaaaa] mb-2 font-[family-name:var(--font-lexend)]"
+              >
+                Celular
+              </label>
+              <input
+                id="phone"
+                type="tel"
+                required
+                value={phone}
+                onChange={(e) => setPhone(formatBrPhone(e.target.value))}
+                autoComplete="tel"
+                placeholder="(11) 91234-5678"
+                inputMode="numeric"
                 className="w-full rounded-xl bg-[#20201f] px-4 py-3 text-sm text-white placeholder-white/30 outline-none border-b-2 border-transparent focus:border-[#ca98ff] transition-colors"
               />
             </div>
@@ -139,6 +196,18 @@ function SignUpForm() {
                 className="w-full rounded-xl bg-[#20201f] px-4 py-3 text-sm text-white placeholder-white/30 outline-none border-b-2 border-transparent focus:border-[#ca98ff] transition-colors"
               />
             </div>
+
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={salesContactInterest}
+                onChange={(e) => setSalesContactInterest(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#20201f] accent-[#ca98ff]"
+              />
+              <span className="text-sm text-[#adaaaa] font-[family-name:var(--font-lexend)]">
+                Tem interesse que nossa equipe comercial entre em contato?
+              </span>
+            </label>
 
             {error && (
               <p className="text-sm text-[#ff946e]">{error}</p>

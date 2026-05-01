@@ -3,9 +3,9 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { checkAdmin } from "@/lib/auth/check-admin";
 import { searchGoogle } from "@/lib/serper";
 import { fetchLinkedInProfileCached, fetchProfilePosts } from "@/lib/apify";
-import { extractPostDate } from "@/lib/find-employees";
+import { extractPostDate, computePostsPerMonth } from "@/lib/find-employees";
 import { checkPublishLanguage } from "@/lib/ai";
-import { parseAbbreviatedNumber, computeEngagementFromPosts, calculatePostingFrequency } from "@/lib/normalize";
+import { parseAbbreviatedNumber } from "@/lib/normalize";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
 
@@ -27,8 +27,6 @@ interface InfluencerCard {
   profile_photo?: string;
   slug?: string;
   posts_per_month?: number;
-  avg_likes?: number | null;
-  avg_comments?: number | null;
 }
 
 interface InfluencerMentionRow {
@@ -122,6 +120,9 @@ function extractPostInfo(raw: Record<string, unknown>) {
     ? `https://www.linkedin.com/feed/update/${shareUrn}`
     : String(raw.linkedinUrl ?? raw.postUrl ?? raw.url ?? "");
   const textContent = String(raw.content ?? raw.text ?? raw.postText ?? "");
+  const eng = (raw.engagement && typeof raw.engagement === "object" ? raw.engagement : {}) as Record<string, unknown>;
+  const reactions = Number(eng.numLikes ?? eng.reactionCount ?? eng.likes ?? eng.reactions ?? raw.numLikes ?? 0) || 0;
+  const comments = Number(eng.numComments ?? eng.commentCount ?? eng.comments ?? raw.numComments ?? 0) || 0;
   let postedDate = extractPostDate(raw);
   if (!postedDate && raw.postedAt && typeof raw.postedAt === "object") {
     const obj = raw.postedAt as Record<string, unknown>;
@@ -134,7 +135,7 @@ function extractPostInfo(raw: Record<string, unknown>) {
       if (!isNaN(d.getTime())) postedDate = d;
     }
   }
-  return { postUrl, textContent, postedDate };
+  return { postUrl, textContent, reactions, comments, postedDate };
 }
 
 /**
@@ -177,6 +178,9 @@ export async function POST(request: Request) {
     if (!profileData) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
+
+    // Credits are charged to the profile owner; admin actor recorded in metadata.
+    const ownerId = profileData.user_id as string;
 
     // Load options
     const { data: optionsData } = await service
@@ -292,7 +296,7 @@ export async function POST(request: Request) {
           tbs: "qdr:m",
           country: country || undefined,
           language: targetLang.replace("lang_", "") || undefined,
-        }, { userId: userId!, source: "sol", searchId: reportId });
+        }, { userId: ownerId, source: "sol", searchId: reportId });
 
         for (const r of results) {
           if (candidateSlugs.size >= 20) break;
@@ -339,7 +343,7 @@ export async function POST(request: Request) {
       re: new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"),
     }));
 
-    const costCtx = { userId: userId!, source: "sol" as const, searchId: reportId };
+    const costCtx = { userId: ownerId, source: "sol" as const, searchId: reportId };
     let qualifiedCount = 0;
 
     for (const slug of Array.from(candidateSlugs)) {
@@ -374,13 +378,13 @@ export async function POST(request: Request) {
         // Language check
         const publishesInLang = await checkPublishLanguage(data, targetLang);
         logApiCost({
-          userId: userId!,
+          userId: ownerId,
           source: "sol",
           searchId: reportId,
           provider: "openrouter",
           operation: "checkPublishLanguage",
           estimatedCost: API_COSTS.openrouter.checkPublishLanguage,
-          metadata: { phase: "reprocess-influencers", slug },
+          metadata: { phase: "reprocess-influencers", slug, actorUserId: userId },
         });
         if (!publishesInLang) {
           console.log(`[sol-reprocess-influencers] ${slug}: skipped (doesn't publish in ${targetLang})`);
@@ -448,10 +452,10 @@ export async function POST(request: Request) {
         try {
           recentPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${slug}/`, 5);
           logApiCost({
-            userId: userId!, source: "sol", searchId: reportId,
+            userId: ownerId, source: "sol", searchId: reportId,
             provider: "apify", operation: "fetchProfilePosts",
             estimatedCost: API_COSTS.apify.fetchProfilePosts,
-            metadata: { phase: "reprocess-influencers", slug, postsRequested: 5 },
+            metadata: { phase: "reprocess-influencers", slug, postsRequested: 5, actorUserId: userId },
           });
           for (const rawPost of recentPosts) {
             const postInfo = extractPostInfo(rawPost);
@@ -532,9 +536,16 @@ export async function POST(request: Request) {
 
         const key = `https://www.linkedin.com/in/${slug}/`;
 
-        // Calculate engagement metrics using shared functions
-        const engMetrics = computeEngagementFromPosts(recentPosts);
-        const { score: postsPerMonth } = calculatePostingFrequency(data);
+        // Calculate engagement from real posts using extractPostInfo (reliable field extraction)
+        let totalReactions = 0, totalComments = 0, engPostCount = 0;
+        for (const rawPost of recentPosts) {
+          const pi = extractPostInfo(rawPost);
+          totalReactions += pi.reactions;
+          totalComments += pi.comments;
+          engPostCount++;
+        }
+        const avgEngagement = engPostCount > 0 ? Math.round((totalReactions + totalComments) / engPostCount) : 0;
+        const postsPerMonth = computePostsPerMonth(recentPosts);
 
         influencers.push({
           name: profileName,
@@ -545,15 +556,13 @@ export async function POST(request: Request) {
           posts_about: mentionsRows.length,
           themes_covered: Array.from(themesCoveredSet),
           brands_mentioned: brandsMentioned,
-          avg_engagement: 0,
+          avg_engagement: avgEngagement,
           frequency: 0,
           sentiment,
           potential,
           profile_photo: profilePhoto,
           slug,
           posts_per_month: postsPerMonth,
-          avg_likes: engMetrics.avgLikes,
-          avg_comments: engMetrics.avgComments,
         });
         influencerMentionsMap[key] = mentionsRows.slice(0, 10);
         qualifiedCount++;

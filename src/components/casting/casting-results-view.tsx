@@ -7,8 +7,8 @@ import { CastingProfile } from "./casting-results";
 export interface CastingResultsViewProps {
   profiles: CastingProfile[];
   campaigns: { id: string; name: string }[];
-  filterCampaignId: string | null;
-  onFilterCampaignChange: (id: string | null) => void;
+  filterCampaignId?: string | null;
+  onFilterCampaignChange?: (id: string | null) => void;
   title?: string;
   readOnly?: boolean;
 }
@@ -78,7 +78,7 @@ export function CastingResultsView({
     };
   }, [profiles]);
 
-  const showCampaignFilter = campaigns.length > 1 || filterCampaignId;
+  const showCampaignFilter = !!onFilterCampaignChange && (campaigns.length > 1 || !!filterCampaignId);
 
   return (
     <div className="space-y-4">
@@ -109,7 +109,7 @@ export function CastingResultsView({
         {showCampaignFilter && (
           <select
             value={filterCampaignId ?? ""}
-            onChange={(e) => onFilterCampaignChange(e.target.value || null)}
+            onChange={(e) => onFilterCampaignChange?.(e.target.value || null)}
             className="rounded-full bg-[#20201f] px-4 py-2 text-xs text-[#adaaaa] outline-none font-[family-name:var(--font-lexend)] border-b-2 border-transparent focus:border-[#ca98ff]"
           >
             <option value="">Todas as campanhas</option>

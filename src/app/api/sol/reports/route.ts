@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
+import {
+  assertCanRead,
+  respondAccessError,
+  ResourceAccessError,
+} from "@/lib/resource-access";
 
 export const dynamic = "force-dynamic";
 
@@ -12,23 +17,21 @@ export async function GET(request: Request) {
   const profileId = searchParams.get("profileId");
   if (!profileId) return NextResponse.json({ error: "profileId required" }, { status: 400 });
 
-  const service = createServiceClient();
+  try {
+    await assertCanRead(user.id, "lg_profile", profileId);
 
-  // Verify ownership
-  const { data: profile } = await service
-    .from("lg_profiles")
-    .select("id")
-    .eq("id", profileId)
-    .eq("user_id", user.id)
-    .single();
+    const service = createServiceClient();
+    const { data: reports } = await service
+      .from("sol_reports")
+      .select("id, status, period_start, period_end, created_at")
+      .eq("profile_id", profileId)
+      .order("period_start", { ascending: false });
 
-  if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const { data: reports } = await service
-    .from("sol_reports")
-    .select("id, status, period_start, period_end, created_at")
-    .eq("profile_id", profileId)
-    .order("period_start", { ascending: false });
-
-  return NextResponse.json({ reports: reports ?? [] });
+    return NextResponse.json({ reports: reports ?? [] });
+  } catch (err) {
+    if (err instanceof ResourceAccessError) {
+      return respondAccessError(err);
+    }
+    throw err;
+  }
 }

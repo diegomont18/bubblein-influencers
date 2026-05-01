@@ -3,6 +3,9 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { CastingResultsView } from "@/components/casting/casting-results-view";
 import { CastingProfile } from "@/components/casting/casting-results";
+import { ScopeFilter } from "@/components/share/scope-filter";
+import type { AccessRole, Scope } from "@/lib/resource-access";
+import { formatCountLabel } from "@/lib/share-format";
 
 const SEARCH_STEPS = [
   "Análise estratégica de conteúdo…",
@@ -20,9 +23,18 @@ const LANGUAGES = [
   { label: "French", value: "lang_fr", country: "fr", domain: "google.fr" },
 ];
 
+interface CampaignSettings {
+  themes?: string;
+  language?: string;
+  minFollowers?: number;
+  maxFollowers?: number;
+  resultsCount?: number;
+}
+
 interface Campaign {
   id: string;
   name: string;
+  settings?: CampaignSettings | null;
 }
 
 interface SearchTab {
@@ -32,6 +44,9 @@ interface SearchTab {
   loaded: boolean;
   profileCount: number;
   campaignId: string | null;
+  createdAt: string | null;
+  accessRole?: AccessRole;
+  owner?: { id: string; email: string; name: string | null } | null;
 }
 
 export default function HomePage() {
@@ -50,29 +65,17 @@ export default function HomePage() {
   // Campaigns
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
-  const [filterCampaignId, setFilterCampaignId] = useState<string | null>(null); // null = all
-
-  // Share management
-  const [shares, setShares] = useState<Array<{
-    id: string;
-    token: string;
-    label: string | null;
-    campaign_id: string | null;
-    campaigns: { name: string } | null;
-    views_count: number;
-    created_at: string;
-  }>>([]);
-  const [showSharePanel, setShowSharePanel] = useState(false);
-  const [shareCreating, setShareCreating] = useState(false);
-  const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
+  const [listsScope, setListsScope] = useState<Scope>("all");
 
   // Search tabs
   const [searchTabs, setSearchTabs] = useState<SearchTab[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
   // Campaign editing
   const [editingCampaignName, setEditingCampaignName] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const skipNextSettingsSaveRef = useRef(false);
   const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const tabLoadStartedRef = useRef<Set<string>>(new Set());
@@ -120,10 +123,57 @@ export default function HomePage() {
 
   useEffect(() => { loadCampaigns(); }, [loadCampaigns]);
 
+  // Load campaign settings into form fields when active campaign changes
+  useEffect(() => {
+    if (!activeCampaignId) return;
+    const camp = campaigns.find((c) => c.id === activeCampaignId);
+    const s = (camp?.settings ?? {}) as CampaignSettings;
+    skipNextSettingsSaveRef.current = true;
+    setThemes(typeof s.themes === "string" ? s.themes : "");
+    if (typeof s.language === "string") {
+      const idx = LANGUAGES.findIndex((l) => l.value === s.language);
+      setLanguageIdx(idx >= 0 ? idx : 0);
+    } else {
+      setLanguageIdx(0);
+    }
+    setMinFollowers(typeof s.minFollowers === "number" ? s.minFollowers : 2500);
+    setMaxFollowers(typeof s.maxFollowers === "number" ? s.maxFollowers : 100000);
+    setResultsCount(typeof s.resultsCount === "number" ? s.resultsCount : 3);
+  }, [activeCampaignId, campaigns]);
+
+  // Auto-save campaign settings (debounced) when filter fields change
+  useEffect(() => {
+    if (!activeCampaignId) return;
+    if (skipNextSettingsSaveRef.current) {
+      skipNextSettingsSaveRef.current = false;
+      return;
+    }
+    const handle = setTimeout(async () => {
+      const settings: CampaignSettings = {
+        themes,
+        language: LANGUAGES[languageIdx]?.value,
+        minFollowers,
+        maxFollowers,
+        resultsCount,
+      };
+      try {
+        const res = await fetch("/api/campaigns", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: activeCampaignId, settings }),
+        });
+        if (res.ok) {
+          setCampaigns((prev) => prev.map((c) => c.id === activeCampaignId ? { ...c, settings } : c));
+        }
+      } catch { /* silent */ }
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [themes, languageIdx, minFollowers, maxFollowers, resultsCount, activeCampaignId]);
+
   // Load past searches from DB
   const loadPastSearches = useCallback(async () => {
     try {
-      const res = await fetch("/api/casting/lists");
+      const res = await fetch(`/api/casting/lists?scope=${listsScope}`);
       if (!res.ok) return;
       const json = await res.json();
       const lists = (json.data ?? []) as Array<{
@@ -132,6 +182,9 @@ export default function HomePage() {
         filters_applied: Record<string, unknown> | null;
         casting_list_profiles: [{ count: number }];
         campaign_id: string | null;
+        created_at: string | null;
+        accessRole?: AccessRole;
+        owner?: { id: string; email: string; name: string | null } | null;
       }>;
 
       const contentLists = lists.filter(
@@ -149,14 +202,19 @@ export default function HomePage() {
             loaded: existing?.loaded ?? false,
             profileCount: l.casting_list_profiles?.[0]?.count ?? 0,
             campaignId: l.campaign_id ?? null,
+            createdAt: l.created_at ?? null,
+            accessRole: l.accessRole ?? "owner",
+            owner: l.owner ?? null,
           };
         });
         return [...dbTabs, ...inProgress];
       });
     } catch { /* ignore */ }
-  }, []);
+  }, [listsScope]);
 
   useEffect(() => { loadPastSearches(); }, [loadPastSearches]);
+
+  useEffect(() => { setSelectedCampaignId(null); }, [listsScope]);
 
   async function loadTabProfiles(tabId: string) {
     if (tabLoadStartedRef.current.has(tabId)) return;
@@ -219,66 +277,17 @@ export default function HomePage() {
     }
   }, [searchTabs]);
 
-  // Filtered tabs by campaign
-  const filteredTabs = useMemo(() => {
-    if (!filterCampaignId) return searchTabs;
-    return searchTabs.filter((t) => t.campaignId === filterCampaignId);
-  }, [searchTabs, filterCampaignId]);
-
   const allProfiles = useMemo(() => {
-    return filteredTabs.filter((t) => t.loaded).flatMap((t) => t.profiles);
-  }, [filteredTabs]);
-
-  // Load shares
-  const loadShares = useCallback(async () => {
-    try {
-      const res = await fetch("/api/shares");
-      if (!res.ok) return;
-      const json = await res.json();
-      setShares(json.shares ?? []);
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => { loadShares(); }, [loadShares]);
-
-  async function handleCreateShare(campaignId: string | null) {
-    setShareCreating(true);
-    try {
-      const campaignName = campaignId
-        ? campaigns.find((c) => c.id === campaignId)?.name ?? "Campanha"
-        : "Todas as campanhas";
-      const res = await fetch("/api/shares", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignId, label: campaignName }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setShares((prev) => [json.share, ...prev]);
-      }
-    } catch { /* ignore */ }
-    setShareCreating(false);
-  }
-
-  async function handleRevokeShare(id: string) {
-    try {
-      const res = await fetch("/api/shares", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      if (res.ok) {
-        setShares((prev) => prev.filter((s) => s.id !== id));
-      }
-    } catch { /* ignore */ }
-  }
-
-  function copyShareUrl(id: string, token: string) {
-    const url = `${window.location.origin}/s/${token}`;
-    navigator.clipboard.writeText(url);
-    setCopiedShareId(id);
-    setTimeout(() => setCopiedShareId(null), 2000);
-  }
+    if (selectedCampaignId === "__none__") {
+      return searchTabs.filter((t) => t.loaded && !t.campaignId).flatMap((t) => t.profiles);
+    }
+    if (selectedCampaignId) {
+      return searchTabs
+        .filter((t) => t.loaded && t.campaignId === selectedCampaignId)
+        .flatMap((t) => t.profiles);
+    }
+    return searchTabs.filter((t) => t.loaded).flatMap((t) => t.profiles);
+  }, [searchTabs, selectedCampaignId]);
 
   async function handleSearch() {
     if (userCredits <= 0) { setError("Sem créditos. Compre mais para continuar buscando."); return; }
@@ -294,9 +303,9 @@ export default function HomePage() {
     }, 8000);
 
     const tempId = `temp-${Date.now()}`;
-    const newTab: SearchTab = { id: tempId, name: "Buscando...", profiles: [], loaded: true, profileCount: 0, campaignId: activeCampaignId };
+    const newTab: SearchTab = { id: tempId, name: "Buscando...", profiles: [], loaded: true, profileCount: 0, campaignId: activeCampaignId, createdAt: new Date().toISOString() };
     setSearchTabs((prev) => [...prev, newTab]);
-    setFilterCampaignId(activeCampaignId);
+    setSelectedCampaignId(activeCampaignId);
 
     const lang = LANGUAGES[languageIdx];
     const controller = new AbortController();
@@ -645,7 +654,7 @@ export default function HomePage() {
       )}
 
       {/* Results */}
-      {(searchTabs.length > 0 || searching) && (
+      {(searchTabs.length > 0 || searching || listsScope !== "all") && (
         <div ref={resultsRef} className="space-y-4">
           {searching && (
             <div className="rounded-2xl bg-[#131313] p-6 space-y-4">
@@ -676,100 +685,129 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Share button + results table — always visible, even during search */}
-          <>
-            {!searching && (
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setShowSharePanel((v) => !v)}
-                  className="rounded-full bg-[#20201f] px-4 py-2 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)] flex items-center gap-2"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-                    <polyline points="16 6 12 2 8 6"/>
-                    <line x1="12" y1="2" x2="12" y2="15"/>
-                  </svg>
-                  Compartilhar
-                </button>
-              </div>
-            )}
+          {/* Campaign selector */}
+          {!searching && (() => {
+            const concreteTabs = searchTabs.filter((t) => !t.id.startsWith("temp-"));
+            const sharedCount = concreteTabs.filter((t) => t.accessRole && t.accessRole !== "owner").length;
+            const countLabel = formatCountLabel({
+              count: concreteTabs.length,
+              sharedCount,
+              scope: listsScope,
+              noun: "Buscas",
+              feminine: true,
+            });
 
-              {/* Share management panel */}
-              {showSharePanel && (
-                <div className="rounded-2xl bg-[#131313] border border-[#262626] p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-white font-[family-name:var(--font-lexend)]">Compartilhamento</h3>
-                    <button onClick={() => setShowSharePanel(false)} className="text-[#adaaaa] hover:text-white text-lg leading-none">&times;</button>
+            const tabsByCampaign = new Map<string, SearchTab[]>();
+            const orphanTabs: SearchTab[] = [];
+            for (const tab of concreteTabs) {
+              if (!tab.campaignId) {
+                orphanTabs.push(tab);
+                continue;
+              }
+              const list = tabsByCampaign.get(tab.campaignId);
+              if (list) list.push(tab);
+              else tabsByCampaign.set(tab.campaignId, [tab]);
+            }
+
+            const tsOf = (iso: string | null) => (iso ? new Date(iso).getTime() : 0);
+            const formatDate = (iso: string | null) =>
+              iso
+                ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+                : "";
+
+            type Row = { value: string; label: string; lastUpdate: number };
+            const rows: Row[] = [];
+
+            for (const [cid, tabs] of Array.from(tabsByCampaign.entries())) {
+              const name = campaigns.find((c) => c.id === cid)?.name ?? "Campanha";
+              const totalCreators = tabs.reduce((sum: number, t: SearchTab) => sum + t.profileCount, 0);
+              const lastUpdate = tabs.reduce((max: number, t: SearchTab) => Math.max(max, tsOf(t.createdAt)), 0);
+              const dateStr = formatDate(lastUpdate ? new Date(lastUpdate).toISOString() : null);
+              const datePart = dateStr ? ` · ${dateStr}` : "";
+              const buscasLabel = tabs.length === 1 ? "busca" : "buscas";
+              const creatorsLabel = totalCreators === 1 ? "creator" : "creators";
+              rows.push({
+                value: `campaign:${cid}`,
+                label: `${name} · ${tabs.length} ${buscasLabel} · ${totalCreators} ${creatorsLabel}${datePart}`,
+                lastUpdate,
+              });
+            }
+
+            if (orphanTabs.length > 0) {
+              const totalCreators = orphanTabs.reduce((sum, t) => sum + t.profileCount, 0);
+              const lastUpdate = orphanTabs.reduce((max, t) => Math.max(max, tsOf(t.createdAt)), 0);
+              const dateStr = formatDate(lastUpdate ? new Date(lastUpdate).toISOString() : null);
+              const datePart = dateStr ? ` · ${dateStr}` : "";
+              const buscasLabel = orphanTabs.length === 1 ? "busca" : "buscas";
+              const creatorsLabel = totalCreators === 1 ? "creator" : "creators";
+              rows.push({
+                value: "campaign:__none__",
+                label: `Sem campanha · ${orphanTabs.length} ${buscasLabel} · ${totalCreators} ${creatorsLabel}${datePart}`,
+                lastUpdate,
+              });
+            }
+
+            rows.sort((a, b) => b.lastUpdate - a.lastUpdate);
+
+            const dropdownValue = selectedCampaignId ? `campaign:${selectedCampaignId}` : "";
+            const onDropdownChange = (raw: string) => {
+              if (!raw) setSelectedCampaignId(null);
+              else if (raw.startsWith("campaign:")) setSelectedCampaignId(raw.slice("campaign:".length));
+            };
+
+            if (concreteTabs.length === 0) {
+              return (
+                <div className="rounded-2xl bg-[#131313] border border-[#262626] p-4">
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <span className="text-xs font-black tracking-[0.2em] text-white/30 uppercase font-[family-name:var(--font-lexend)]">
+                      {countLabel}
+                    </span>
+                    <ScopeFilter value={listsScope} onChange={setListsScope} />
                   </div>
-
-                  {/* Create share */}
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-xs text-[#adaaaa] font-[family-name:var(--font-lexend)]">Criar link para:</span>
-                    <button
-                      onClick={() => handleCreateShare(null)}
-                      disabled={shareCreating}
-                      className="rounded-full bg-[#ca98ff]/10 px-3 py-1.5 text-xs font-medium text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors font-[family-name:var(--font-lexend)] disabled:opacity-50"
-                    >
-                      Todas as campanhas
-                    </button>
-                    {campaigns.map((c) => (
-                      <button
-                        key={c.id}
-                        onClick={() => handleCreateShare(c.id)}
-                        disabled={shareCreating}
-                        className="rounded-full bg-[#20201f] px-3 py-1.5 text-xs font-medium text-[#adaaaa] hover:text-white hover:bg-[#262626] transition-colors font-[family-name:var(--font-lexend)] disabled:opacity-50"
-                      >
-                        {c.name}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Active shares */}
-                  {shares.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="text-[10px] uppercase tracking-wider text-[#adaaaa] font-[family-name:var(--font-lexend)]">Links ativos</div>
-                      {shares.map((s) => (
-                        <div key={s.id} className="flex items-center gap-3 rounded-xl bg-[#1a1a1a] px-4 py-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm text-white truncate">{s.label || (s.campaigns?.name ?? "Todas as campanhas")}</div>
-                            <div className="flex items-center gap-3 mt-1 text-[10px] text-[#adaaaa]">
-                              <span>{new Date(s.created_at).toLocaleDateString("pt-BR")}</span>
-                              <span>·</span>
-                              <span>{s.views_count} {s.views_count === 1 ? "visualização" : "visualizações"}</span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => copyShareUrl(s.id, s.token)}
-                            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors font-[family-name:var(--font-lexend)] whitespace-nowrap ${
-                              copiedShareId === s.id
-                                ? "bg-[#a2f31f]/10 text-[#a2f31f]"
-                                : "bg-[#ca98ff]/10 text-[#ca98ff] hover:bg-[#ca98ff]/20"
-                            }`}
-                          >
-                            {copiedShareId === s.id ? "Link copiado!" : "Copiar link"}
-                          </button>
-                          <button
-                            onClick={() => handleRevokeShare(s.id)}
-                            className="rounded-full bg-[#ff946e]/10 px-3 py-1.5 text-xs font-medium text-[#ff946e] hover:bg-[#ff946e]/20 transition-colors font-[family-name:var(--font-lexend)] whitespace-nowrap"
-                          >
-                            Revogar
-                          </button>
-                        </div>
-                      ))}
+                  {listsScope === "shared" ? (
+                    <div className="text-center py-6">
+                      <p className="text-sm text-white/60 mb-1">Nenhuma busca compartilhada com você</p>
+                      <p className="text-[11px] text-white/30">
+                        Verifique com quem compartilhou se ele concluiu o procedimento.
+                      </p>
                     </div>
+                  ) : (
+                    <p className="text-xs text-white/30 text-center py-6">
+                      Você ainda não criou nenhuma busca.
+                    </p>
                   )}
                 </div>
-              )}
+              );
+            }
 
-            {allProfiles.length > 0 && (
-              <CastingResultsView
-                profiles={allProfiles}
-                campaigns={campaigns}
-                filterCampaignId={filterCampaignId}
-                onFilterCampaignChange={setFilterCampaignId}
-              />
-            )}
-          </>
+            return (
+              <div className="rounded-2xl bg-[#131313] border border-[#262626] p-4 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select
+                    value={dropdownValue}
+                    onChange={(e) => onDropdownChange(e.target.value)}
+                    className="flex-1 min-w-[240px] rounded-xl bg-[#20201f] border border-transparent px-4 py-2.5 text-sm text-white outline-none focus:border-[#ca98ff]/40 font-[family-name:var(--font-lexend)]"
+                  >
+                    <option value="">{countLabel} — todas as campanhas</option>
+                    {rows.map((row) => (
+                      <option key={row.value} value={row.value}>
+                        {row.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <ScopeFilter value={listsScope} onChange={setListsScope} />
+                </div>
+              </div>
+            );
+          })()}
+
+          {allProfiles.length > 0 && (
+            <CastingResultsView
+              profiles={allProfiles}
+              campaigns={campaigns}
+            />
+          )}
         </div>
       )}
     </div>

@@ -3,9 +3,9 @@ import { fetchProfilePosts, fetchPostEngagers, searchLinkedInPosts, fetchLinkedI
 import { searchGoogle } from "@/lib/serper";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
-import { extractPostDate } from "@/lib/find-employees";
+import { extractPostDate, computePostsPerMonth } from "@/lib/find-employees";
 import { classifyPost, classifySentiment, generateSolRecommendations, checkPublishLanguage } from "@/lib/ai";
-import { parseAbbreviatedNumber, computeEngagementFromPosts, calculatePostingFrequency } from "@/lib/normalize";
+import { parseAbbreviatedNumber } from "@/lib/normalize";
 
 export const maxDuration = 600;
 
@@ -742,8 +742,6 @@ export async function POST(request: Request) {
       profile_photo?: string;
       slug?: string;
       posts_per_month?: number;
-      avg_likes?: number | null;
-      avg_comments?: number | null;
     }
     interface InfluencerMentionRow {
       date: string;
@@ -1077,9 +1075,16 @@ export async function POST(request: Request) {
 
             const key = `https://www.linkedin.com/in/${slug}/`;
 
-            // Calculate engagement metrics using shared functions from normalize
-            const engMetrics = computeEngagementFromPosts(recentPosts);
-            const { score: postsPerMonth } = calculatePostingFrequency(data);
+            // Calculate engagement from real posts using extractPostInfo
+            let totalReactions = 0, totalComments = 0, engPostCount = 0;
+            for (const rawPost of recentPosts) {
+              const pi = extractPostInfo(rawPost);
+              totalReactions += pi.reactions;
+              totalComments += pi.comments;
+              engPostCount++;
+            }
+            const avgEngagement = engPostCount > 0 ? Math.round((totalReactions + totalComments) / engPostCount) : 0;
+            const postsPerMonth = computePostsPerMonth(recentPosts);
 
             influencers.push({
               name: profileName,
@@ -1090,15 +1095,13 @@ export async function POST(request: Request) {
               posts_about: mentionsRows.length,
               themes_covered: Array.from(themesCoveredSet),
               brands_mentioned: brandsMentioned,
-              avg_engagement: 0,
+              avg_engagement: avgEngagement,
               frequency: 0,
               sentiment,
               potential,
               profile_photo: profilePhoto,
               slug,
               posts_per_month: postsPerMonth,
-              avg_likes: engMetrics.avgLikes,
-              avg_comments: engMetrics.avgComments,
             });
             influencerMentionsMap[key] = mentionsRows.slice(0, 10);
             qualifiedCount++;

@@ -4,6 +4,11 @@ import { fetchLinkedInProfileCached, fetchProfilePostsCached } from "@/lib/apify
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
 import { computePostsPerMonth } from "@/lib/find-employees";
+import {
+  assertCanEdit,
+  respondAccessError,
+  ResourceAccessError,
+} from "@/lib/resource-access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -22,18 +27,24 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  let ownerId = user.id;
   try {
     const { profileId } = await request.json();
     if (!profileId) return NextResponse.json({ error: "profileId required" }, { status: 400 });
 
-    const service = createServiceClient();
+    try {
+      const access = await assertCanEdit(user.id, "lg_profile", profileId);
+      ownerId = access.ownerId;
+    } catch (err) {
+      if (err instanceof ResourceAccessError) return respondAccessError(err);
+      throw err;
+    }
 
-    // Verify ownership
+    const service = createServiceClient();
     const { data: profile } = await service
       .from("lg_profiles")
       .select("id")
       .eq("id", profileId)
-      .eq("user_id", user.id)
       .single();
     if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -47,7 +58,7 @@ export async function POST(request: Request) {
     const employees = (optionsRow.employee_profiles ?? []) as EmployeeProfile[];
     const enriched: EmployeeProfile[] = [];
 
-    const solCostCtx = { userId: user.id, source: "sol" as const };
+    const solCostCtx = { userId: ownerId, source: "sol" as const };
 
     for (const emp of employees) {
       const isPending = !emp.headline && !emp.profilePicUrl;
@@ -64,12 +75,12 @@ export async function POST(request: Request) {
           const d = result.data;
           const empPosts = await fetchProfilePostsCached(`https://www.linkedin.com/in/${emp.slug}/`, 5);
           logApiCost({
-            userId: user.id,
+            userId: ownerId,
             source: "sol",
             provider: "apify",
             operation: "fetchProfilePosts",
             estimatedCost: API_COSTS.apify.fetchProfilePosts,
-            metadata: { slug: emp.slug, context: "process-employees" },
+            metadata: { slug: emp.slug, context: "process-employees", actorUserId: user.id },
           });
 
           enriched.push({

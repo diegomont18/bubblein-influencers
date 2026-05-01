@@ -5,6 +5,11 @@ import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
 import { findActiveEmployees, computePostsPerMonth, EmpCandidate } from "@/lib/find-employees";
 import { extractBrands } from "@/lib/ai";
+import {
+  assertCanEdit,
+  respondAccessError,
+  ResourceAccessError,
+} from "@/lib/resource-access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -23,20 +28,26 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  let ownerId = user.id;
   try {
     const { profileId, competitorIndex, slug } = await request.json();
     if (!profileId || competitorIndex === undefined || !slug) {
       return NextResponse.json({ error: "profileId, competitorIndex, slug required" }, { status: 400 });
     }
 
-    const service = createServiceClient();
+    try {
+      const access = await assertCanEdit(user.id, "lg_profile", profileId);
+      ownerId = access.ownerId;
+    } catch (err) {
+      if (err instanceof ResourceAccessError) return respondAccessError(err);
+      throw err;
+    }
 
-    // Verify ownership
+    const service = createServiceClient();
     const { data: profile } = await service
       .from("lg_profiles")
       .select("id")
       .eq("id", profileId)
-      .eq("user_id", user.id)
       .single();
     if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -62,7 +73,7 @@ export async function POST(request: Request) {
     let postsPerMonth = currentComp.postsPerMonth as number | undefined;
     let employeeCount = Number(currentComp.employeeCount ?? 0);
 
-    const solCostCtx = { userId: user.id, source: "sol" as const };
+    const solCostCtx = { userId: ownerId, source: "sol" as const };
 
     // 1. Fetch company info only if not already processed
     if (!companyAlreadyProcessed) {
@@ -79,12 +90,12 @@ export async function POST(request: Request) {
       const posts = await fetchProfilePosts(companyUrl, 5);
 
       logApiCost({
-        userId: user.id,
+        userId: ownerId,
         source: "sol",
         provider: "apify",
         operation: "fetchProfilePosts",
         estimatedCost: API_COSTS.apify.fetchProfilePosts,
-        metadata: { slug, postsReturned: posts.length },
+        metadata: { slug, postsReturned: posts.length, actorUserId: user.id },
       });
 
       postsPerMonth = computePostsPerMonth(posts);
@@ -115,12 +126,12 @@ export async function POST(request: Request) {
       console.log(`[process-competitor] Extracting brands for ${realName}`);
       const compBrands = await extractBrands(realName, "", "");
       logApiCost({
-        userId: user.id,
+        userId: ownerId,
         source: "sol",
         provider: "openrouter",
         operation: "extractBrands",
         estimatedCost: API_COSTS.openrouter.extractBrands,
-        metadata: { companyName: realName },
+        metadata: { companyName: realName, actorUserId: user.id },
       });
       if (compBrands.length > 0) {
         compBrandsMap[realName] = compBrands;
@@ -141,7 +152,7 @@ export async function POST(request: Request) {
     if (needsEmployeeSearch) {
       // Search for executives via SERP + profile validation
       console.log(`[process-competitor] Searching executives for ${realName} (slug: ${slug})`);
-      const { active: found, inactive: inactiveFound } = await findActiveEmployees(slug, realName, user.id, profileId, 12, true, country, solCostCtx);
+      const { active: found, inactive: inactiveFound } = await findActiveEmployees(slug, realName, ownerId, profileId, 12, true, country, solCostCtx);
       const toEmpData = (e: EmpCandidate): EmployeeData => ({
         name: e.name, slug: e.slug, headline: e.headline,
         linkedinUrl: e.linkedinUrl, profilePicUrl: e.profilePicUrl, postsPerMonth: e.postsPerMonth,
@@ -170,12 +181,12 @@ export async function POST(request: Request) {
             const d = result.data;
             const empPosts = await fetchProfilePostsCached(`https://www.linkedin.com/in/${emp.slug}/`, 5);
             logApiCost({
-              userId: user.id,
+              userId: ownerId,
               source: "sol",
               provider: "apify",
               operation: "fetchProfilePosts",
               estimatedCost: API_COSTS.apify.fetchProfilePosts,
-              metadata: { slug: emp.slug, context: "competitor-employee-enrichment" },
+              metadata: { slug: emp.slug, context: "competitor-employee-enrichment", actorUserId: user.id },
             });
 
             finalEmps.push({

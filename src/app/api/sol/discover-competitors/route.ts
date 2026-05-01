@@ -3,6 +3,11 @@ import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { fetchLinkedInCompany } from "@/lib/apify";
 import { searchGoogle } from "@/lib/serper";
 import { notifyError } from "@/lib/error-notifier";
+import {
+  assertCanEdit,
+  respondAccessError,
+  ResourceAccessError,
+} from "@/lib/resource-access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -12,18 +17,24 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  let ownerId = user.id;
   try {
     const { profileId } = await request.json();
     if (!profileId) return NextResponse.json({ error: "profileId required" }, { status: 400 });
 
-    const service = createServiceClient();
+    try {
+      const access = await assertCanEdit(user.id, "lg_profile", profileId);
+      ownerId = access.ownerId;
+    } catch (err) {
+      if (err instanceof ResourceAccessError) return respondAccessError(err);
+      throw err;
+    }
 
-    // Verify ownership + get profile data
+    const service = createServiceClient();
     const { data: profile } = await service
       .from("lg_profiles")
       .select("id, name, linkedin_url")
       .eq("id", profileId)
-      .eq("user_id", user.id)
       .single();
     if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -61,7 +72,7 @@ export async function POST(request: Request) {
 
     const candidateSlugs: string[] = [];
 
-    const solCostCtx = { userId: user.id, source: "sol" as const };
+    const solCostCtx = { userId: ownerId, source: "sol" as const };
 
     try {
       const serpResults = await Promise.all(

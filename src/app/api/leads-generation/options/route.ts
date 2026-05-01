@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
+import {
+  assertCanEdit,
+  assertCanRead,
+  getUserBasic,
+  respondAccessError,
+  ResourceAccessError,
+} from "@/lib/resource-access";
 
 export const dynamic = "force-dynamic";
 
@@ -12,22 +19,24 @@ export async function GET(request: Request) {
   const profileId = searchParams.get("profileId");
   if (!profileId) return NextResponse.json({ error: "profileId required" }, { status: 400 });
 
+  let access;
+  try {
+    access = await assertCanRead(user.id, "lg_profile", profileId);
+  } catch (err) {
+    if (err instanceof ResourceAccessError) return respondAccessError(err);
+    throw err;
+  }
+
   const service = createServiceClient();
-
-  // Verify ownership
-  const { data: profile } = await service.from("lg_profiles").select("id").eq("id", profileId).eq("user_id", user.id).single();
-  if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
   const { data: options } = await service.from("lg_options").select("*").eq("profile_id", profileId).single();
   const { data: profileData } = await service.from("lg_profiles").select("*").eq("id", profileId).single();
 
-  // Count influencers from ALL casting_lists for this profile
   let influencerCount = 0;
   try {
     const { data: castingLists } = await service
       .from("casting_lists")
       .select("id")
-      .eq("created_by", user.id)
+      .eq("created_by", access.ownerId)
       .filter("filters_applied->>lgProfileId", "eq", profileId);
 
     if (castingLists && castingLists.length > 0) {
@@ -40,7 +49,15 @@ export async function GET(request: Request) {
     }
   } catch { /* ignore */ }
 
-  return NextResponse.json({ options, profile: profileData, influencerCount });
+  const owner = access.role === "owner" ? null : await getUserBasic(access.ownerId);
+
+  return NextResponse.json({
+    options,
+    profile: profileData,
+    influencerCount,
+    accessRole: access.role,
+    owner,
+  });
 }
 
 export async function PATCH(request: Request) {
@@ -54,11 +71,14 @@ export async function PATCH(request: Request) {
     proprietary_brands, company_posts_per_month, ai_response } = body;
   if (!profileId) return NextResponse.json({ error: "profileId required" }, { status: 400 });
 
-  const service = createServiceClient();
+  try {
+    await assertCanEdit(user.id, "lg_profile", profileId);
+  } catch (err) {
+    if (err instanceof ResourceAccessError) return respondAccessError(err);
+    throw err;
+  }
 
-  // Verify ownership
-  const { data: profile } = await service.from("lg_profiles").select("id").eq("id", profileId).eq("user_id", user.id).single();
-  if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const service = createServiceClient();
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (market_context !== undefined) update.market_context = market_context;

@@ -61,18 +61,17 @@ async function setCachedSerp(
         cached_at: new Date().toISOString(),
       });
   } catch (err) {
-    console.error("[serper-cache] Failed to cache:", err);
+    console.error("[serp-cache] Failed to cache:", err);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Serper.dev Google Search
+// ScrapingDog Google Search
 // ---------------------------------------------------------------------------
 
 /**
- * Search Google via Serper.dev API. Same interface as searchGoogleApify()
- * for drop-in replacement. Falls back to Apify if SERPER_API_KEY is not set.
- * Uses eternal SERP cache in Supabase.
+ * Search Google via ScrapingDog API. Falls back to Apify if
+ * SCRAPINGDOG_API_KEY is not set. Uses eternal SERP cache in Supabase.
  */
 export async function searchGoogle(
   query: string,
@@ -82,13 +81,13 @@ export async function searchGoogle(
   // Check cache first (eternal — no TTL)
   const cached = await getCachedSerp(query, options);
   if (cached) {
-    console.log(`[serper-cache] HIT query="${query.slice(0, 60)}" results=${cached.length}`);
+    console.log(`[serp-cache] HIT query="${query.slice(0, 60)}" results=${cached.length}`);
     return { results: cached };
   }
 
-  const apiKey = process.env.SERPER_API_KEY;
+  const apiKey = process.env.SCRAPINGDOG_API_KEY;
   if (!apiKey) {
-    console.warn("[serper] SERPER_API_KEY not set, falling back to Apify");
+    console.warn("[scrapingdog] SCRAPINGDOG_API_KEY not set, falling back to Apify");
     const result = await searchGoogleApify(query, options);
     if (result.results.length > 0) {
       setCachedSerp(query, options, result.results);
@@ -99,25 +98,22 @@ export async function searchGoogle(
   const num = Math.min(options?.results ?? 10, 40);
   const page = options?.page ?? 0;
 
-  console.log(`[serper] searchGoogle query="${query.slice(0, 80)}" page=${page} num=${num}`);
+  console.log(`[scrapingdog] searchGoogle query="${query.slice(0, 80)}" page=${page} num=${num}`);
 
-  const body: Record<string, unknown> = { q: query, num };
-  if (options?.country) body.gl = options.country;
-  if (options?.language) body.hl = options.language;
-  if (options?.tbs) body.tbs = options.tbs;
-  // Serper uses 1-based page numbers
-  if (page > 0) body.page = page + 1;
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    query,
+    results: String(num),
+  });
+  if (options?.country) params.set("country", options.country);
+  if (options?.language) params.set("language", options.language);
+  if (options?.tbs) params.set("tbs", options.tbs);
+  if (page > 0) params.set("page", String(page));
 
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch("https://google.serper.dev/search", {
-        method: "POST",
-        headers: {
-          "X-API-KEY": apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
+      const res = await fetch(`https://api.scrapingdog.com/google?${params}`, {
         signal: AbortSignal.timeout(30_000),
       });
 
@@ -125,7 +121,7 @@ export async function searchGoogle(
 
       if (status === 200) {
         const data = await res.json();
-        const organic = Array.isArray(data.organic) ? data.organic : [];
+        const organic = Array.isArray(data.organic_results) ? data.organic_results : [];
 
         const results: ApifyGoogleSearchResult[] = organic.map(
           (r: Record<string, unknown>) => ({
@@ -139,13 +135,13 @@ export async function searchGoogle(
           userId: costCtx?.userId,
           source: costCtx?.source ?? "casting",
           searchId: costCtx?.searchId,
-          provider: "serper",
+          provider: "scrapingdog",
           operation: "searchGoogle",
-          estimatedCost: API_COSTS.serper.searchGoogle,
+          estimatedCost: API_COSTS.scrapingdog.searchGoogle,
           metadata: { query: query.slice(0, 200), page, resultsCount: results.length },
         });
 
-        console.log(`[serper] Got ${results.length} result(s)`);
+        console.log(`[scrapingdog] Got ${results.length} result(s)`);
 
         // Cache the results (fire-and-forget)
         if (results.length > 0) {
@@ -156,24 +152,24 @@ export async function searchGoogle(
       }
 
       const text = await res.text();
-      console.error(`[serper] Error status=${status} body=${text.slice(0, 400)}`);
+      console.error(`[scrapingdog] Error status=${status} body=${text.slice(0, 400)}`);
 
       if ((status === 400 || status === 429 || status >= 500) && attempt < MAX_RETRIES) {
         const delay = (attempt + 1) * 3000;
-        console.log(`[serper] Retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES + 1})…`);
+        console.log(`[scrapingdog] Retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES + 1})…`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
 
-      console.error(`[serper] FAILED after ${attempt + 1} attempts (status=${status}): "${query.slice(0, 80)}"`);
-      notifyError("serper-search-failed", new Error(`Serper ${status}: ${text.slice(0, 200)}`), { query: query.slice(0, 200) });
+      console.error(`[scrapingdog] FAILED after ${attempt + 1} attempts (status=${status}): "${query.slice(0, 80)}"`);
+      notifyError("scrapingdog-search-failed", new Error(`ScrapingDog ${status}: ${text.slice(0, 200)}`), { query: query.slice(0, 200) });
       return { results: [] };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      console.error(`[serper] Exception: ${message}`);
+      console.error(`[scrapingdog] Exception: ${message}`);
       if (attempt < MAX_RETRIES) {
         const delay = (attempt + 1) * 3000;
-        console.log(`[serper] Retrying after exception in ${delay}ms…`);
+        console.log(`[scrapingdog] Retrying after exception in ${delay}ms…`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }

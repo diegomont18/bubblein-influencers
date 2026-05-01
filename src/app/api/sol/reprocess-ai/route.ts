@@ -3,6 +3,11 @@ import { createServerClient, createServiceClient } from "@/lib/supabase/server";
 import { classifyPost, generateSolRecommendations } from "@/lib/ai";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
+import {
+  assertCanEdit,
+  respondAccessError,
+  ResourceAccessError,
+} from "@/lib/resource-access";
 
 /**
  * POST /api/sol/reprocess-ai
@@ -21,6 +26,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "reportId required" }, { status: 400 });
   }
 
+  let ownerId = user.id;
   try {
     // Load report
     const { data: report } = await service
@@ -31,6 +37,14 @@ export async function POST(request: Request) {
 
     if (!report) {
       return NextResponse.json({ error: "Report not found" }, { status: 404 });
+    }
+
+    try {
+      const access = await assertCanEdit(user.id, "lg_profile", report.profile_id);
+      ownerId = access.ownerId;
+    } catch (err) {
+      if (err instanceof ResourceAccessError) return respondAccessError(err);
+      throw err;
     }
 
     // Load options for market context
@@ -57,12 +71,12 @@ export async function POST(request: Request) {
         if (!post.text_content) continue;
         const result = await classifyPost(post.text_content, marketContext);
         logApiCost({
-          userId: user.id,
+          userId: ownerId,
           source: "sol",
           provider: "openrouter",
           operation: "classifyPost",
           estimatedCost: API_COSTS.openrouter.classifyPost,
-          metadata: { postId: post.id, context: "reprocess-ai" },
+          metadata: { postId: post.id, context: "reprocess-ai", actorUserId: user.id },
         });
         if (result.theme !== "outros") {
           await service.from("sol_posts").update({
@@ -112,12 +126,12 @@ export async function POST(request: Request) {
       });
 
       logApiCost({
-        userId: user.id,
+        userId: ownerId,
         source: "sol",
         provider: "openrouter",
         operation: "generateSolRecommendations",
         estimatedCost: API_COSTS.openrouter.generateSolRecommendations,
-        metadata: { reportId, context: "reprocess-ai" },
+        metadata: { reportId, context: "reprocess-ai", actorUserId: user.id },
       });
 
       const aiIncomplete = aiOutput.recommendations.length === 0 && aiOutput.insights.positives.length === 0;
