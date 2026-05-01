@@ -167,7 +167,7 @@ export default function LeadsGenerationOptionsPage() {
   const [filterPostUrl, setFilterPostUrl] = useState("all");
   const [filterRoleLevel, setFilterRoleLevel] = useState("all");
   const [searchText, setSearchText] = useState("");
-  const [showPostDetails, setShowPostDetails] = useState(false);
+
   // Config form collapse: collapsed by default once leads exist; clicking
   // "+ Adicionar mais leads" expands it. The effect only force-opens the
   // form AFTER the initial data fetch has finished and there are still
@@ -288,12 +288,13 @@ export default function LeadsGenerationOptionsPage() {
     if (loading || initialLoadDone.current) return;
     initialLoadDone.current = true;
     if (!isCompanyProfile) return;
+    if (searchParams.get("config") === "open") return;
     const latestComplete = solReports.find((r) => r.status === "complete");
     if (latestComplete) {
       setNavigating(true);
       router.replace(`/casting/share-of-linkedin/${profileId}/report/${latestComplete.id}`);
     }
-  }, [loading, isCompanyProfile, solReports, profileId, router]);
+  }, [loading, isCompanyProfile, solReports, profileId, router, searchParams]);
 
   // SOL polling effect
   useEffect(() => {
@@ -622,42 +623,6 @@ export default function LeadsGenerationOptionsPage() {
     return withScore.map((x) => x.r);
   }, [results, filterPostUrl, filterRoleLevel, searchText, sortMode, totalPossibleInteractions]);
 
-  // RER calculation
-  const rer = useMemo(() => {
-    const total = filteredResults.length;
-    const decisors = filteredResults.filter((r) => r.role_level === "decisor").length;
-    return total > 0 ? Math.round((decisors / total) * 100) : 0;
-  }, [filteredResults]);
-
-  // Per-post RER
-  const postRerMap = useMemo(() => {
-    const map = new Map<string, { total: number; decisors: number; rer: number }>();
-    for (const r of results) {
-      for (const url of r.source_post_urls ?? []) {
-        const s = map.get(url) || { total: 0, decisors: 0, rer: 0 };
-        s.total++;
-        if (r.role_level === "decisor") s.decisors++;
-        map.set(url, s);
-      }
-    }
-    Array.from(map.entries()).forEach(([url, s]) => {
-      s.rer = s.total > 0 ? Math.round((s.decisors / s.total) * 100) : 0;
-      map.set(url, s);
-    });
-    return map;
-  }, [results]);
-
-  const topPost = useMemo((): { url: string; rer: number; text: string } | null => {
-    let bestUrl = "";
-    let bestRer = -1;
-    Array.from(postRerMap.entries()).forEach(([url, s]) => {
-      if (s.rer > bestRer) { bestUrl = url; bestRer = s.rer; }
-    });
-    if (!bestUrl) return null;
-    const post = posts.find((p) => p.post_url === bestUrl);
-    return { url: bestUrl, rer: bestRer, text: post?.text_content?.slice(0, 30) ?? shortPostLabel(bestUrl) };
-  }, [postRerMap, posts]);
-
   // Pagination
   const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
   const paginatedResults = filteredResults.slice((resultsPage - 1) * ITEMS_PER_PAGE, resultsPage * ITEMS_PER_PAGE);
@@ -714,7 +679,7 @@ export default function LeadsGenerationOptionsPage() {
   // Prevent the full profile page from flashing before the auto-redirect
   // useEffect fires. This computes the same condition synchronously during
   // render so we never show profile content when we're about to redirect.
-  const willAutoRedirect = !loading && !initialLoadDone.current && isCompanyProfile && solReports.some((r) => r.status === "complete");
+  const willAutoRedirect = !loading && !initialLoadDone.current && isCompanyProfile && solReports.some((r) => r.status === "complete") && searchParams.get("config") !== "open";
 
   if (loading || navigating || willAutoRedirect) {
     return (
@@ -738,7 +703,11 @@ export default function LeadsGenerationOptionsPage() {
   return (
     <div className="space-y-8">
       {/* Top bar */}
-      <Link href="/casting/share-of-linkedin" className="text-xs text-[#adaaaa] hover:text-[#ca98ff] transition-colors">← Nova análise</Link>
+      {searchParams.get("config") === "open" && solReports.find((r) => r.status === "complete") ? (
+        <Link href={`/casting/share-of-linkedin/${profileId}/report/${solReports.find((r) => r.status === "complete")!.id}`} className="text-xs text-[#adaaaa] hover:text-[#ca98ff] transition-colors">← Voltar ao relatório</Link>
+      ) : (
+        <Link href="/casting/share-of-linkedin" className="text-xs text-[#adaaaa] hover:text-[#ca98ff] transition-colors">← Nova análise</Link>
+      )}
 
       {/* Header with profile dropdown */}
       <header>
@@ -1748,103 +1717,29 @@ export default function LeadsGenerationOptionsPage() {
       {/* Leads Results section — person profiles only */}
       {!isCompanyProfile && profile && results.length > 0 && (
         <section className="space-y-6 pt-4">
-          {/* Top bar: post filter + RER card */}
-          <div className="grid grid-cols-12 gap-6">
-            <div className="col-span-12 lg:col-span-7 space-y-3">
-              <label className="text-[0.65rem] font-black tracking-[0.2em] text-white/30 uppercase block">Filtrar por Post</label>
-              <select value={filterPostUrl} onChange={(e) => { setFilterPostUrl(e.target.value); setResultsPage(1); }} className="w-full max-w-md bg-[#1a1919] border border-white/5 rounded-xl px-4 py-3 text-sm font-medium text-[#adaaaa] outline-none focus:ring-2 focus:ring-[#ca98ff]">
-                <option value="all">Todos os Posts ({uniquePostUrls.length})</option>
-                {uniquePostUrls.map((url) => {
-                  const post = posts.find((p) => p.post_url === url);
-                  const textPreview = post?.text_content?.slice(0, 15) ?? shortPostLabel(url);
-                  const pRer = postRerMap.get(url);
-                  return <option key={url} value={url}>{textPreview}... — RER (Revenue Engagement Rate) {pRer?.rer ?? 0}%</option>;
-                })}
-              </select>
-              {filterPostUrl !== "all" && (
-                <div>
-                  <a href={filterPostUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-[#ca98ff] hover:text-[#e197fc] transition-colors">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
-                    Ver post no LinkedIn
-                  </a>
-                </div>
-              )}
-            </div>
-            {/* RER Card */}
-            <div className="col-span-12 lg:col-span-5">
-              <div className="bg-[#ca98ff]/10 border border-[#ca98ff]/20 rounded-xl p-6 relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-4 opacity-10">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="1.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>
-                </div>
-                <div className="relative z-10">
-                  <span className="text-[0.65rem] font-bold tracking-[0.1em] text-[#ca98ff] uppercase block mb-1">
-                    Top Post — RER (Revenue Engagement Rate)
-                    <InfoTooltip text="RER (Revenue Engagement Rate) = % de engajadores classificados como decisores sobre o total de engajadores do post. Quanto maior, mais o post atraiu decisores de compra — forte indicador de potencial de conversão." />
-                  </span>
-                  {topPost ? (
-                    <>
-                      <h3 className="text-5xl font-black text-[#ca98ff] font-[family-name:var(--font-lexend)]">{topPost.rer}%</h3>
-                      <p className="text-xs text-white/60 mt-1 truncate max-w-[250px]">{topPost.text}...</p>
-                    </>
-                  ) : (
-                    <h3 className="text-5xl font-black text-[#ca98ff] font-[family-name:var(--font-lexend)]">{rer}%</h3>
-                  )}
-                  <p className="text-[10px] text-[#adaaaa] mt-3">Média RER (Revenue Engagement Rate): <span className="text-white/60 font-bold">{rer}%</span> · Decisor / Total Engagement</p>
-                  <button
-                    onClick={() => setShowPostDetails(true)}
-                    className="mt-3 text-xs text-[#ca98ff] hover:text-[#e197fc] font-semibold transition-colors"
-                  >
-                    Ver detalhes →
-                  </button>
-                </div>
+          {/* Top bar: post filter */}
+          <div className="space-y-3">
+            <label className="text-[0.65rem] font-black tracking-[0.2em] text-white/30 uppercase block">Filtrar por Post</label>
+            <select value={filterPostUrl} onChange={(e) => { setFilterPostUrl(e.target.value); setResultsPage(1); }} className="w-full max-w-md bg-[#1a1919] border border-white/5 rounded-xl px-4 py-3 text-sm font-medium text-[#adaaaa] outline-none focus:ring-2 focus:ring-[#ca98ff]">
+              <option value="all">Todos os Posts ({uniquePostUrls.length})</option>
+              {uniquePostUrls.map((url) => {
+                const post = posts.find((p) => p.post_url === url);
+                const textPreview = post?.text_content?.slice(0, 15) ?? shortPostLabel(url);
+                return <option key={url} value={url}>{textPreview}...</option>;
+              })}
+            </select>
+            {filterPostUrl !== "all" && (
+              <div>
+                <a href={filterPostUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-[#ca98ff] hover:text-[#e197fc] transition-colors">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  Ver post no LinkedIn
+                </a>
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Post details view */}
-          {showPostDetails && (
-            <div className="space-y-4">
-              <button
-                onClick={() => setShowPostDetails(false)}
-                className="text-xs text-[#adaaaa] hover:text-[#ca98ff] transition-colors font-[family-name:var(--font-lexend)]"
-              >
-                ← Voltar para leads
-              </button>
-              <h2 className="text-xl font-extrabold text-white font-[family-name:var(--font-lexend)]">Posts por RER (Revenue Engagement Rate)</h2>
-              <div className="space-y-3">
-                {Array.from(postRerMap.entries())
-                  .sort((a, b) => b[1].rer - a[1].rer)
-                  .map(([url, stats]) => {
-                    const post = posts.find((p) => p.post_url === url);
-                    const textPreview = post?.text_content?.slice(0, 40) ?? shortPostLabel(url);
-                    const rerColor = stats.rer >= 50 ? "text-[#a2f31f]" : stats.rer >= 25 ? "text-[#ca98ff]" : "text-[#adaaaa]";
-                    const rerBg = stats.rer >= 50 ? "bg-[#a2f31f]/10 border-[#a2f31f]/20" : stats.rer >= 25 ? "bg-[#ca98ff]/10 border-[#ca98ff]/20" : "bg-white/[0.03] border-white/[0.08]";
-                    return (
-                      <button
-                        key={url}
-                        onClick={() => { setFilterPostUrl(url); setResultsPage(1); setShowPostDetails(false); }}
-                        className={`w-full ${rerBg} border rounded-xl p-5 text-left hover:opacity-90 transition-all`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className={`text-3xl font-black font-[family-name:var(--font-lexend)] ${rerColor}`}>{stats.rer}%</span>
-                          <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#ca98ff] hover:text-[#e197fc] transition-colors">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
-                          </a>
-                        </div>
-                        <p className="text-sm text-white/80 mb-3">{textPreview}{textPreview.length >= 40 ? "..." : ""}</p>
-                        <div className="flex gap-2 text-[10px]">
-                          <span className="rounded-full bg-[#ca98ff]/10 text-[#ca98ff] px-2 py-0.5">{stats.decisors} decisor</span>
-                          <span className="rounded-full bg-white/5 text-[#adaaaa] px-2 py-0.5">{stats.total} total</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
           {/* Table header */}
-          {!showPostDetails && (<>
+          <>
           <div className="flex justify-between items-end flex-wrap gap-3">
             <div>
               <h2 className="text-2xl font-extrabold text-white font-[family-name:var(--font-lexend)]">Lista de Leads ({filteredResults.length})</h2>
@@ -2026,7 +1921,7 @@ export default function LeadsGenerationOptionsPage() {
           <p className="text-center text-xs text-[#adaaaa]">
             Exibindo {filteredResults.length} de {results.length} leads identificados
           </p>
-          </>)}
+          </>
         </section>
       )}
 

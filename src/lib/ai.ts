@@ -802,12 +802,10 @@ interface SolRecBundle {
       brand_owner: "main" | "competitor";
       posts_count: number;
       engagement_total: number;
-      rer_avg: number;
       sol_score: number;
-      decisores_estimated: number;
       top_themes: string[];
       content_composition: Record<string, number>;
-      top_posts: Array<{ summary: string; rer: number | null; engagement: number; author: string }>;
+      top_posts: Array<{ summary: string; engagement: number; author: string }>;
     }
   >;
   sov_totals: Record<string, { brand_owner: "main" | "competitor"; positivo: number; neutro: number; negativo: number }>;
@@ -818,6 +816,14 @@ interface SolRecBundle {
     posts_about: number;
     sentiment: string;
     brands_mentioned: Array<{ brand: string; brand_owner: "main" | "competitor" }>;
+  }>;
+  collaborators?: Array<{
+    name: string;
+    slug: string;
+    headline: string;
+    posts: number;
+    engagement: number;
+    main_category: string;
   }>;
 }
 
@@ -831,6 +837,21 @@ export interface SolRecommendation {
   details: string;
 }
 
+export interface SolSuggestedPost {
+  id: number;
+  title: string;
+  topics: string[];
+  suggested_executives: Array<{
+    name: string;
+    slug: string;
+    headline: string;
+    reason: string;
+  }>;
+  expected_outcome: string;
+  justification: string;
+  confidence: number;
+}
+
 export interface SolRecommendationsOutput {
   insights: {
     positives: Array<{ title: string; description: string }>;
@@ -838,6 +859,7 @@ export interface SolRecommendationsOutput {
   };
   recommendations: SolRecommendation[];
   movements: Array<{ company: string; text: string }>;
+  suggested_posts?: SolSuggestedPost[];
 }
 
 export async function generateSolRecommendations(
@@ -878,8 +900,18 @@ Regras:
   - CONTEÚDO: nova pauta a publicar
   - OFENSIVA: atacar pauta de concorrente
   - CONSOLIDACAO: aumentar liderança em pauta já vencida
-  - RELACIONAMENTO: ativar influenciadores externos
-- Use os dados quantitativos do bundle nas justificativas (% de SOL, RER, contagens)`;
+  - RELACIONAMENTO: ativar influenciadores externos para amplificação de conteúdo e PR
+- Use os dados quantitativos do bundle nas justificativas (% de SOL, engajamento, contagens)
+- ESCOPO OBRIGATÓRIO: Todas as recomendações, insights e movimentos devem ser EXCLUSIVAMENTE sobre:
+  1. Relações Públicas (PR) — posicionamento de porta-vozes, media training, gestão de crise, eventos, press releases
+  2. Marketing — campanhas, posicionamento de marca, awareness, lead generation via conteúdo
+  3. Conteúdo — pautas editoriais, formatos, frequência, calendário editorial, storytelling, tom de voz
+- NUNCA recomende:
+  - Monitoramento de concorrentes ou tracking de share of voice (a plataforma já faz isso automaticamente)
+  - Decisões de negócio genéricas (abertura de escritórios, expansão geográfica, contratações, reestruturação)
+  - Estratégias de produto, vendas ou operações que não sejam de conteúdo/marketing/PR
+  - Ações que requerem ferramentas externas de analytics ou monitoramento
+- Foque em ações PRÁTICAS e IMEDIATAS que a equipe de comunicação/marketing pode executar no LinkedIn`;
 
   try {
     const content = await callOpenRouter({
@@ -938,5 +970,106 @@ Regras:
   } catch (err) {
     console.error(`[ai] generateSolRecommendations exception: ${err instanceof Error ? err.message : err}`);
     return fallback;
+  }
+}
+
+export async function generateSolSuggestedPosts(
+  bundle: SolRecBundle,
+  analyses: SolRecommendationsOutput,
+): Promise<SolSuggestedPost[]> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[ai] OPENROUTER_API_KEY is not set — skipping SOL suggested posts");
+    return [];
+  }
+
+  const systemPrompt = `Você é um estrategista de conteúdo para LinkedIn. Recebe métricas competitivas de uma empresa, menções externas, influenciadores, lista de executivos/colaboradores, e as análises estratégicas já geradas (insights, recomendações, movimentos competitivos).
+
+Com base em TODOS esses dados, gere exatamente 10 sugestões de posts para o LinkedIn, ordenados por grau de confiança (maior primeiro).
+
+Responda APENAS com JSON válido (sem markdown), no formato exato:
+{
+  "suggested_posts": [
+    {
+      "id": 1,
+      "title": "Tema / título do post",
+      "topics": ["Tópico 1", "Tópico 2", "Tópico 3"],
+      "suggested_executives": [{"name":"...","slug":"...","headline":"...","reason":"Por que esta pessoa deve publicar"}],
+      "expected_outcome": "Expectativa de resultado",
+      "justification": "Justificativa baseada nos dados",
+      "confidence": 85
+    }
+  ]
+}
+
+Regras:
+- Tudo em português
+- Exatamente 10 posts sugeridos, ordenados por confidence (maior primeiro)
+- Cada post DEVE referenciar executivos reais da lista de colaboradores fornecida — use o name, slug e headline exatos
+- "topics": 3 a 5 bullet points concisos e acionáveis que o executivo pode usar como roteiro do post
+- "suggested_executives": 1 a 3 executivos por post, escolhidos com base no cargo, histórico de conteúdo e adequação ao tema. O campo "reason" deve explicar por que essa pessoa é ideal para esse post
+- "expected_outcome": resultado esperado — mencionar faixa de engajamento estimada (baseado na média do executivo e do tema), impacto estratégico (ex: "fortalece SOL em tema X", "responde a movimento do concorrente Y"), e público-alvo
+- "justification": embasamento com dados concretos do bundle — citar números específicos (% de SOL, engajamento médio, gaps competitivos, temas sub-explorados, insights e recomendações das análises)
+- "confidence": 0-100, baseado na força dos dados e alinhamento estratégico. Quanto mais dados suportam a sugestão, maior a confiança
+- Os posts devem cobrir um mix de: responder a temas de concorrentes, amplificar temas fortes, preencher lacunas de conteúdo, reagir a movimentos competitivos e alavancar tendências identificadas
+- ESCOPO: apenas conteúdo de Relações Públicas, Marketing e Conteúdo para LinkedIn
+- NUNCA sugira posts sobre monitoramento de concorrentes ou funcionalidades da plataforma`;
+
+  try {
+    const userContent = JSON.stringify({
+      dados_do_periodo: bundle,
+      analises_estrategicas: analyses,
+    }, null, 2);
+
+    const content = await callOpenRouter({
+      models: ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001"],
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.3,
+      max_tokens: 4000,
+      label: "generateSolSuggestedPosts",
+    });
+    if (!content) return [];
+
+    const cleaned = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleaned) as { suggested_posts?: unknown[] };
+    const rawPosts = Array.isArray(parsed.suggested_posts) ? parsed.suggested_posts : [];
+
+    const collabSlugs = new Set((bundle.collaborators ?? []).map((c) => c.slug));
+
+    const suggestedPosts: SolSuggestedPost[] = (rawPosts as Array<Record<string, unknown>>).map((p, i) => {
+      const rawExecs = Array.isArray(p.suggested_executives) ? p.suggested_executives : [];
+      const executives = (rawExecs as Array<Record<string, unknown>>)
+        .filter((e) => typeof e.slug === "string" && collabSlugs.has(e.slug as string))
+        .map((e) => ({
+          name: String(e.name ?? ""),
+          slug: String(e.slug ?? ""),
+          headline: String(e.headline ?? ""),
+          reason: String(e.reason ?? ""),
+        }));
+
+      const confidence = typeof p.confidence === "number"
+        ? Math.max(0, Math.min(100, Math.round(p.confidence)))
+        : 50;
+
+      return {
+        id: typeof p.id === "number" ? p.id : i + 1,
+        title: String(p.title ?? ""),
+        topics: Array.isArray(p.topics) ? (p.topics as unknown[]).map((t) => String(t)) : [],
+        suggested_executives: executives,
+        expected_outcome: String(p.expected_outcome ?? ""),
+        justification: String(p.justification ?? ""),
+        confidence,
+      };
+    });
+
+    suggestedPosts.sort((a, b) => b.confidence - a.confidence);
+    console.log(`[ai] generateSolSuggestedPosts: ${suggestedPosts.length} posts generated`);
+    return suggestedPosts;
+  } catch (err) {
+    console.error(`[ai] generateSolSuggestedPosts exception: ${err instanceof Error ? err.message : err}`);
+    return [];
   }
 }

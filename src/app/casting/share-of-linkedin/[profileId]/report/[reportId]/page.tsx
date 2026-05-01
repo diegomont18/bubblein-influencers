@@ -80,8 +80,6 @@ interface SolPost {
 interface CompanyMetrics {
   posts_count: number;
   engagement_total: number;
-  rer_avg: number;
-  decisores_estimated: number;
   top_themes: string[];
   content_composition: Record<string, number>;
   sol_score: number;
@@ -93,9 +91,7 @@ interface CollabMetrics {
   headline: string;
   posts: number;
   engagement: number;
-  rer_avg: number;
   main_category: string;
-  adherence: string;
 }
 
 interface SovTotals {
@@ -160,6 +156,21 @@ interface RecommendationItem {
   details: string;
 }
 
+interface SuggestedPostItem {
+  id: number;
+  title: string;
+  topics: string[];
+  suggested_executives: Array<{
+    name: string;
+    slug: string;
+    headline: string;
+    reason: string;
+  }>;
+  expected_outcome: string;
+  justification: string;
+  confidence: number;
+}
+
 interface RecommendationsPayload {
   insights?: {
     positives: Array<{ title: string; description: string }>;
@@ -167,6 +178,7 @@ interface RecommendationsPayload {
   };
   recommendations?: RecommendationItem[];
   movements?: Array<{ company: string; text: string }>;
+  suggested_posts?: SuggestedPostItem[];
 }
 
 interface RawDataPayload {
@@ -197,6 +209,7 @@ interface ReportData {
     proprietary_brands?: string[];
     competitors?: Array<{ name?: string; selected?: boolean; url?: string }>;
     ai_response?: Record<string, unknown>;
+    employee_profiles?: Array<{ name: string; slug: string; headline?: string; archived?: boolean }>;
   };
   posts: SolPost[];
   accessRole?: AccessRole;
@@ -267,14 +280,18 @@ export default function ReportPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [contentTypeFilter, setContentTypeFilter] = useState("all");
   const [searchText, setSearchText] = useState("");
-  const [sortBy, setSortBy] = useState<"date" | "engagement" | "rer">("date");
+  const [sortBy, setSortBy] = useState<"date" | "engagement">("date");
   const [page, setPage] = useState(1);
   const [expandedPost, setExpandedPost] = useState<string | null>(null);
   const [showVagas, setShowVagas] = useState(false);
+  const [postsMode, setPostsMode] = useState<"sugeridos" | "mapeados">("sugeridos");
+  const [expandedSuggestedPost, setExpandedSuggestedPost] = useState<Record<number, Set<string>>>({});
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
 
   // Conteudo tab
   const [collabCompany, setCollabCompany] = useState<string>("");
-  const [chartMode, setChartMode] = useState<"sol" | "engagement" | "posts" | "sov">("sol");
+  const [chartMode, setChartMode] = useState<"sol" | "sov" | "ranking">("sol");
+  const [conteudoMode, setConteudoMode] = useState<"conteudo" | "engagement" | "posts">("conteudo");
 
   // Expand company posts in sections
   const [expandedSolCompany, setExpandedSolCompany] = useState<string | null>(null);
@@ -290,6 +307,7 @@ export default function ReportPage() {
   const [expandedInfluencer, setExpandedInfluencer] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [reprocessingInfluencers, setReprocessingInfluencers] = useState(false);
+  const [reprocessingReport, setReprocessingReport] = useState(false);
   const [showArchivedInfluencers, setShowArchivedInfluencers] = useState(false);
   const [archivingInfluencer, setArchivingInfluencer] = useState<string | null>(null);
   const [termsExpanded, setTermsExpanded] = useState(false);
@@ -338,6 +356,11 @@ export default function ReportPage() {
   }, [activeInfluencerCards, influencerFilter]);
   const archivedInfluencerCards = useMemo(() => allInfluencerCards.filter((c) => archivedSet.has(c.linkedin_url || c.name)), [allInfluencerCards, archivedSet]);
   const influencerMentionsByKey = data?.report?.raw_data?.influencer_mentions ?? {};
+
+  const maxRawSol = useMemo(() => {
+    if (!metrics) return 1;
+    return Math.max(...Object.values(metrics.companies).map(c => c.posts_count * c.engagement_total), 1);
+  }, [metrics]);
 
   // All monitored keywords (themes + all brands) for mention highlighting
   const allMonitoredKeywords = useMemo(() => {
@@ -398,7 +421,6 @@ export default function ReportPage() {
 
     filtered = [...filtered].sort((a, b) => {
       if (sortBy === "engagement") return (b.reactions + b.comments) - (a.reactions + a.comments);
-      if (sortBy === "rer") return (b.rer_estimate ?? 0) - (a.rer_estimate ?? 0);
       return new Date(b.posted_at ?? 0).getTime() - new Date(a.posted_at ?? 0).getTime();
     });
     return filtered;
@@ -449,7 +471,12 @@ export default function ReportPage() {
             <h1 className="text-2xl font-extrabold text-white font-[family-name:var(--font-lexend)]">
               Relatório Share of <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">LinkedIn</span>
             </h1>
-            <p className="text-sm text-white/40 mt-1 capitalize">{data.profile.name} — {periodLabel}</p>
+            <p className="text-sm text-white/40 mt-1 capitalize">
+              {data.profile.name} — {periodLabel}
+              <button onClick={() => setDetailsExpanded((v) => !v)} className="ml-2 text-[#ca98ff]/60 hover:text-[#ca98ff] transition-colors text-xs normal-case">
+                {detailsExpanded ? "fechar detalhes" : "detalhes"}
+              </button>
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Link
@@ -472,6 +499,90 @@ export default function ReportPage() {
           </div>
         </div>
 
+        {/* Details breakdown */}
+        {detailsExpanded && (() => {
+          // Count posts per profile_slug
+          const postCountBySlug = new Map<string, number>();
+          const postCountByCompany = new Map<string, number>();
+          const companyOfficialCount = new Map<string, number>();
+          for (const p of data.posts) {
+            postCountBySlug.set(p.profile_slug, (postCountBySlug.get(p.profile_slug) ?? 0) + 1);
+            postCountByCompany.set(p.company_name, (postCountByCompany.get(p.company_name) ?? 0) + 1);
+            if (p.source_type === "company") companyOfficialCount.set(p.company_name, (companyOfficialCount.get(p.company_name) ?? 0) + 1);
+          }
+
+          // Build company list with all configured employees
+          const mainEmployees = (data.options?.employee_profiles ?? []).filter((e) => !e.archived);
+          const competitorEmployees = ((data.options?.ai_response?.competitor_employees ?? {}) as Record<string, Array<{ name: string; slug: string; archived?: boolean }>>);
+          const selectedCompetitors = (data.options?.competitors ?? []).filter((c) => c.selected && c.name);
+
+          type CompanyDetail = { name: string; isMain: boolean; totalPosts: number; officialPosts: number; employees: Array<{ name: string; slug: string; count: number }> };
+          const companiesList: CompanyDetail[] = [];
+
+          // Main company
+          const mainTotal = postCountByCompany.get(profileCompanyName) ?? 0;
+          companiesList.push({
+            name: profileCompanyName,
+            isMain: true,
+            totalPosts: mainTotal,
+            officialPosts: companyOfficialCount.get(profileCompanyName) ?? 0,
+            employees: mainEmployees.map((e) => ({ name: e.name, slug: e.slug, count: postCountBySlug.get(e.slug) ?? 0 })),
+          });
+
+          // Competitors
+          for (const comp of selectedCompetitors) {
+            const compName = comp.name!;
+            const compEmps = (competitorEmployees[compName] ?? []).filter((e) => !e.archived);
+            companiesList.push({
+              name: compName,
+              isMain: false,
+              totalPosts: postCountByCompany.get(compName) ?? 0,
+              officialPosts: companyOfficialCount.get(compName) ?? 0,
+              employees: compEmps.map((e) => ({ name: e.name, slug: e.slug, count: postCountBySlug.get(e.slug) ?? 0 })),
+            });
+          }
+
+          companiesList.sort((a, b) => {
+            if (a.isMain && !b.isMain) return -1;
+            if (!a.isMain && b.isMain) return 1;
+            return b.totalPosts - a.totalPosts;
+          });
+
+          return (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-white/70">
+                  Total: <span className="text-white font-bold">{data.posts.length}</span> posts analisados
+                </p>
+                <button onClick={() => setDetailsExpanded(false)} className="text-[10px] text-white/30 hover:text-white/60 transition-colors">fechar</button>
+              </div>
+              <div className="space-y-3">
+                {companiesList.map((comp) => {
+                  let idx = 0;
+                  const sortedEmps = [...comp.employees].sort((a, b) => b.count - a.count);
+                  return (
+                    <div key={comp.name}>
+                      <p className={`text-xs font-bold mb-1.5 ${comp.isMain ? "text-[#ca98ff]" : "text-white/60"}`}>
+                        {comp.name} <span className="font-normal text-white/30">({comp.totalPosts} posts)</span>
+                      </p>
+                      <div className="ml-4 space-y-0.5">
+                        <p className="text-[11px] text-white/50">
+                          <span className="text-white/30 w-5 inline-block">{++idx}.</span> {comp.name} <span className="text-white/30">(perfil oficial)</span> — <span className="text-white/70 font-medium">{comp.officialPosts}</span> posts
+                        </p>
+                        {sortedEmps.map((emp) => (
+                          <p key={emp.slug} className={`text-[11px] ${emp.count > 0 ? "text-white/50" : "text-white/25"}`}>
+                            <span className="text-white/30 w-5 inline-block">{++idx}.</span> {emp.name} — <span className={`font-medium ${emp.count > 0 ? "text-white/70" : "text-white/25"}`}>{emp.count}</span> posts
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Tabs */}
         <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5 w-fit">
           {TABS.map((tab) => (
@@ -486,19 +597,41 @@ export default function ReportPage() {
         {/* ============================================================ */}
         {activeTab === "analise" && metrics && (
           <div className="space-y-6">
+            {isAdmin && (
+              <div className="flex justify-end">
+                <button
+                  onClick={async () => {
+                    setReprocessingReport(true);
+                    try {
+                      const res = await fetch("/api/sol/reprocess", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ reportId }),
+                      });
+                      if (res.ok) await loadReport();
+                    } catch { /* ignore */ }
+                    finally { setReprocessingReport(false); }
+                  }}
+                  disabled={reprocessingReport}
+                  className="shrink-0 rounded-lg bg-red-500/20 border border-red-500/30 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+                >
+                  {reprocessingReport ? "Reprocessando..." : "Reprocessar (admin)"}
+                </button>
+              </div>
+            )}
             {/* SOL Chart */}
             <div className="rounded-2xl border border-white/10 p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)]">
-                    {chartMode === "sov" ? "Share of Voice" : "Share of LinkedIn"}
-                    <InfoTooltip text={chartMode === "sov" ? "Share of Voice = posts externos no LinkedIn que citam as marcas próprias de cada empresa, classificados por sentimento (positivo, neutro, negativo)." : "Estimativa baseada em amostragem de 10-20 engajadores por post. O SOL combina volume de posts, engajamento e taxa de decisores (RER) para medir presença competitiva."} />
+                    {chartMode === "ranking" ? "Ranking Competitivo" : chartMode === "sov" ? "Share of Voice" : "Share of LinkedIn"}
+                    <InfoTooltip text={chartMode === "ranking" ? "Ranking das empresas por score SOL, combinando volume de posts e engajamento." : chartMode === "sov" ? "Share of Voice = posts externos no LinkedIn que citam as marcas próprias de cada empresa, classificados por sentimento (positivo, neutro, negativo)." : "O SOL combina volume de posts e engajamento para medir presença competitiva no LinkedIn."} />
                   </h3>
                 </div>
                 <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5">
-                  {(["sol", "engagement", "posts", ...(sovTotals ? (["sov"] as const) : [])] as const).map((m) => (
-                    <button key={m} onClick={() => setChartMode(m)} className={`px-3 py-1 rounded-full text-[10px] font-medium transition-colors ${chartMode === m ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "text-white/40 hover:text-white/60"}`}>
-                      {m === "sol" ? "SOL" : m === "engagement" ? "Engajamento" : m === "posts" ? "Posts" : "SOV"}
+                  {(["sol", ...(sovTotals ? (["sov"] as const) : []), "ranking"] as const).map((m) => (
+                    <button key={m} onClick={() => setChartMode(m as "sol" | "sov" | "ranking")} className={`px-3 py-1 rounded-full text-[10px] font-medium transition-colors ${chartMode === m ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "text-white/40 hover:text-white/60"}`}>
+                      {m === "sol" ? "SOL" : m === "sov" ? "SOV" : "Ranking"}
                     </button>
                   ))}
                 </div>
@@ -563,83 +696,18 @@ export default function ReportPage() {
                         </div>
                       );
                     })}
+                  <div className="flex items-center gap-4 mt-4 pt-3 border-t border-white/[0.06]">
+                    <span className="text-[10px] text-white/30 uppercase tracking-wider font-medium">Legenda:</span>
+                    {(["positivo", "neutro", "negativo"] as const).map((s) => (
+                      <span key={s} className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SENTIMENT_COLORS[s].bar }} />
+                        <span className={`text-[10px] ${SENTIMENT_COLORS[s].text}`}>{SENTIMENT_COLORS[s].label}</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {Object.entries(metrics.companies)
-                    .sort((a, b) => {
-                      if (chartMode === "sol") return b[1].sol_score - a[1].sol_score;
-                      if (chartMode === "engagement") return b[1].engagement_total - a[1].engagement_total;
-                      return b[1].posts_count - a[1].posts_count;
-                    })
-                    .map(([name, cm]) => {
-                      const value = chartMode === "sol" ? cm.sol_score : chartMode === "engagement" ? cm.engagement_total : cm.posts_count;
-                      const maxValue = Math.max(...Object.values(metrics.companies).map((c) => chartMode === "sol" ? c.sol_score : chartMode === "engagement" ? c.engagement_total : c.posts_count), 1);
-                      const pct = Math.round((value / maxValue) * 100);
-                      const isMain = name.toLowerCase() === profileCompanyName.toLowerCase();
-                      const barColor = getCompanyBarColor(name);
-                      const isSolExpanded = expandedSolCompany === name;
-                      const companyPosts = isSolExpanded ? data.posts.filter((p) => p.company_name === name && p.content_type !== "vagas") : [];
-                      return (
-                        <div key={name}>
-                          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setExpandedSolCompany(isSolExpanded ? null : name)}>
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform shrink-0 text-white/30 ${isSolExpanded ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
-                            <span className={`text-xs w-32 truncate text-right ${isMain ? "text-[#ca98ff] font-bold" : "text-white/60"} group-hover:text-white/80`}>{name}</span>
-                            <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(pct, 3)}%`, backgroundColor: barColor }} />
-                            </div>
-                            <span className="text-xs font-bold text-white/80 w-12 text-right tabular-nums">
-                              {chartMode === "sol" ? value.toFixed(1) : value.toLocaleString("pt-BR")}
-                            </span>
-                            {!isMain && mainMetrics && (() => {
-                              const mv = chartMode === "sol" ? mainMetrics.sol_score : chartMode === "engagement" ? mainMetrics.engagement_total : mainMetrics.posts_count;
-                              const d = formatDelta(value, mv);
-                              return d ? <span className={`text-[10px] font-bold shrink-0 w-14 text-right ${d.color}`}>{d.text}</span> : <span className="w-14 shrink-0" />;
-                            })()}
-                          </div>
-                          {isSolExpanded && (
-                            <div className="ml-12 mt-2 mb-1 space-y-1">
-                              {/* SOL breakdown */}
-                              <div className="flex flex-wrap items-center gap-2 text-[10px] text-white/40 px-3 py-2 bg-white/[0.02] rounded-lg border border-white/[0.04] mb-1">
-                                <span className="font-medium text-white/50">SOL =</span>
-                                <span className="text-white/70 font-bold">{cm.posts_count}</span><span>posts</span>
-                                <span>×</span>
-                                <span className="text-white/70 font-bold">{cm.rer_avg}%</span><span>RER</span>
-                                <span>×</span>
-                                <span className="text-white/70 font-bold">{cm.engagement_total.toLocaleString("pt-BR")}</span><span>engaj.</span>
-                                <span>=</span>
-                                <span className="text-white/90 font-black">{cm.sol_score.toFixed(1)}</span>
-                              </div>
-                              {companyPosts.slice(0, 10).map((p) => {
-                                const eng = p.reactions + p.comments;
-                                return (
-                                  <a key={p.id} href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
-                                    <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
-                                    <span className="text-white/40 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
-                                    {p.rer_estimate != null && (
-                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${p.rer_estimate >= 30 ? "text-[#a2f31f] bg-[#a2f31f]/10" : p.rer_estimate >= 15 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10"}`}>
-                                        RER {p.rer_estimate}%
-                                      </span>
-                                    )}
-                                    {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
-                                  </a>
-                                );
-                              })}
-                              {companyPosts.length > 10 && <p className="text-[10px] text-white/30 pl-3">+{companyPosts.length - 10} posts</p>}
-                              <button onClick={() => { setActiveTab("posts"); setCompanyFilter(name); window.scrollTo(0, 0); }} className="text-[10px] text-[#ca98ff] hover:underline pl-3 mt-1">Ver todos os posts de {name} →</button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-
-            {/* Ranking table */}
-            <div className="rounded-2xl border border-white/10 p-6">
-              <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Ranking Competitivo</h3>
-              <div className="overflow-x-auto">
+              ) : chartMode === "ranking" ? (
+                <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm min-w-[600px]">
                   <thead>
                     <tr className="border-b border-white/10">
@@ -647,8 +715,6 @@ export default function ReportPage() {
                       <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Empresa</th>
                       <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Posts</th>
                       <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Engaj.</th>
-                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">RER</th>
-                      <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Decisores</th>
                       <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Top Temas</th>
                     </tr>
                   </thead>
@@ -657,7 +723,6 @@ export default function ReportPage() {
                       .sort((a, b) => b[1].sol_score - a[1].sol_score)
                       .map(([name, cm], idx) => {
                         const isMain = name.toLowerCase() === profileCompanyName.toLowerCase();
-                        const rerColor = cm.rer_avg >= 30 ? "text-[#a2f31f] bg-[#a2f31f]/10" : cm.rer_avg >= 15 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10";
                         const isRankExpanded = expandedRankingCompany === name;
                         const rankPosts = isRankExpanded ? data.posts.filter((p) => p.company_name === name && p.content_type !== "vagas") : [];
                         return (
@@ -678,31 +743,19 @@ export default function ReportPage() {
                                 <div>{cm.engagement_total.toLocaleString("pt-BR")}</div>
                                 {!isMain && mainMetrics && (() => { const d = formatDelta(cm.engagement_total, mainMetrics.engagement_total); return d ? <div className={`text-[9px] ${d.color}`}>{d.text}</div> : null; })()}
                               </td>
-                              <td className="py-3 text-center">
-                                <div><span className={`${rerColor} text-xs font-bold px-2 py-0.5 rounded-full`}>{cm.rer_avg}%</span></div>
-                                {!isMain && mainMetrics && (() => { const d = formatDelta(cm.rer_avg, mainMetrics.rer_avg); return d ? <div className={`text-[9px] ${d.color}`}>{d.text}</div> : null; })()}
-                              </td>
-                              <td className="py-3 text-center text-white/60">
-                                <div>{cm.decisores_estimated}</div>
-                                {!isMain && mainMetrics && (() => { const d = formatDelta(cm.decisores_estimated, mainMetrics.decisores_estimated); return d ? <div className={`text-[9px] ${d.color}`}>{d.text}</div> : null; })()}
-                              </td>
                               <td className="py-3 text-white/50 text-xs">{cm.top_themes.join(", ")}</td>
                             </tr>
                             {isRankExpanded && rankPosts.length > 0 && (
                               <tr>
-                                <td colSpan={7} className="p-0">
+                                <td colSpan={5} className="p-0">
                                   <div className="px-6 py-3 bg-white/[0.01] space-y-1">
                                     {rankPosts.slice(0, 10).map((p) => {
                                       const eng = p.reactions + p.comments;
                                       return (
                                         <a key={p.id} href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
                                           <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
+                                          {p.posted_at && <span className="text-[10px] text-white/30 shrink-0">{new Date(p.posted_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>}
                                           <span className="text-white/40 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
-                                          {p.rer_estimate != null && (
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${p.rer_estimate >= 30 ? "text-[#a2f31f] bg-[#a2f31f]/10" : p.rer_estimate >= 15 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10"}`}>
-                                              RER {p.rer_estimate}%
-                                            </span>
-                                          )}
                                           {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
                                         </a>
                                       );
@@ -718,7 +771,72 @@ export default function ReportPage() {
                       })}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {Object.entries(metrics.companies)
+                    .sort((a, b) => b[1].sol_score - a[1].sol_score)
+                    .map(([name, cm]) => {
+                      const value = cm.sol_score;
+                      const maxValue = Math.max(...Object.values(metrics.companies).map((c) => c.sol_score), 1);
+                      const pct = Math.round((value / maxValue) * 100);
+                      const isMain = name.toLowerCase() === profileCompanyName.toLowerCase();
+                      const barColor = getCompanyBarColor(name);
+                      const isSolExpanded = expandedSolCompany === name;
+                      const companyPosts = isSolExpanded ? data.posts.filter((p) => p.company_name === name && p.content_type !== "vagas") : [];
+                      return (
+                        <div key={name}>
+                          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setExpandedSolCompany(isSolExpanded ? null : name)}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform shrink-0 text-white/30 ${isSolExpanded ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
+                            <span className={`text-xs w-32 truncate text-right ${isMain ? "text-[#ca98ff] font-bold" : "text-white/60"} group-hover:text-white/80`}>{name}</span>
+                            <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(pct, 3)}%`, backgroundColor: barColor }} />
+                            </div>
+                            <span className="text-xs font-bold text-white/80 w-12 text-right tabular-nums">
+                              {value.toFixed(1)}
+                            </span>
+                            {!isMain && mainMetrics && (() => {
+                              const mv = mainMetrics.sol_score;
+                              const d = formatDelta(value, mv);
+                              return d ? <span className={`text-[10px] font-bold shrink-0 w-14 text-right ${d.color}`}>{d.text}</span> : <span className="w-14 shrink-0" />;
+                            })()}
+                          </div>
+                          {isSolExpanded && (
+                            <div className="ml-12 mt-2 mb-1 space-y-1">
+                              {/* SOL breakdown */}
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-white/40 px-3 py-2 bg-white/[0.02] rounded-lg border border-white/[0.04] mb-1">
+                                <span className="font-medium text-white/50">SOL =</span>
+                                <span className="text-white/50">(</span>
+                                <span className="text-white/70 font-bold">{cm.posts_count}</span><span>posts</span>
+                                <span>×</span>
+                                <span className="text-white/70 font-bold">{cm.engagement_total.toLocaleString("pt-BR")}</span><span>engaj.</span>
+                                <span className="text-white/50">)</span>
+                                <span>÷</span>
+                                <span className="text-white/70 font-bold">{maxRawSol.toLocaleString("pt-BR")}</span><span>máx.</span>
+                                <span>× 10</span>
+                                <span>=</span>
+                                <span className="text-white/90 font-black">{cm.sol_score.toFixed(1)}</span>
+                              </div>
+                              {companyPosts.slice(0, 10).map((p) => {
+                                const eng = p.reactions + p.comments;
+                                return (
+                                  <a key={p.id} href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
+                                    <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
+                                    {p.posted_at && <span className="text-[10px] text-white/30 shrink-0">{new Date(p.posted_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>}
+                                    <span className="text-white/40 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
+                                    {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
+                                  </a>
+                                );
+                              })}
+                              {companyPosts.length > 10 && <p className="text-[10px] text-white/30 pl-3">+{companyPosts.length - 10} posts</p>}
+                              <button onClick={() => { setActiveTab("posts"); setCompanyFilter(name); window.scrollTo(0, 0); }} className="text-[10px] text-[#ca98ff] hover:underline pl-3 mt-1">Ver todos os posts de {name} →</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
             {/* Insights Estratégicos */}
@@ -856,6 +974,27 @@ export default function ReportPage() {
                 </div>
               </div>
             )}
+
+            {/* RER Upgrade Banner */}
+            <div className="rounded-2xl border border-[#ca98ff]/20 bg-[#ca98ff]/[0.04] p-6">
+              <div className="flex items-start gap-4">
+                <div className="shrink-0 w-10 h-10 rounded-xl bg-[#ca98ff]/10 flex items-center justify-center">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                </div>
+                <div className="flex-1 space-y-2">
+                  <h4 className="text-sm font-bold text-[#ca98ff]">RER — Revenue Engagement Rate</h4>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    O RER mede a <strong className="text-white/70">porcentagem de decisores de compra</strong> (C-level, diretores, gerentes) entre os engajadores de cada post. Quanto maior o RER, mais o conteúdo está atraindo quem realmente toma decisões.
+                  </p>
+                  <p className="text-xs text-white/40 leading-relaxed">
+                    Com o upgrade, o RER apareceria em: <strong className="text-white/50">coluna RER no ranking competitivo</strong>, <strong className="text-white/50">badges nos posts individuais</strong>, <strong className="text-white/50">destaques de melhor/pior RER por empresa</strong>, e <strong className="text-white/50">índice de aderência dos colaboradores</strong>.
+                  </p>
+                  <span className="inline-block mt-1 rounded-lg bg-[#ca98ff]/10 border border-[#ca98ff]/20 px-3 py-1.5 text-xs font-semibold text-[#ca98ff]">
+                    Disponível com upgrade
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -884,16 +1023,58 @@ export default function ReportPage() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)]">Análise de Conteúdo por Empresa</h3>
-                  <p className="text-xs text-white/40 mt-1">Composição dos posts por categoria</p>
+                  <p className="text-xs text-white/40 mt-1">{conteudoMode === "conteudo" ? "Composição dos posts por categoria" : conteudoMode === "engagement" ? "Engajamento total por empresa" : "Volume de posts por empresa"}</p>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={showVagas} onChange={(e) => setShowVagas(e.target.checked)} className="sr-only peer" />
-                  <div className="w-8 h-4 bg-white/10 rounded-full peer-checked:bg-[#f59e0b]/30 relative transition-colors">
-                    <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full transition-transform ${showVagas ? "translate-x-4 bg-[#f59e0b]" : "bg-white/40"}`} />
+                <div className="flex items-center gap-3">
+                  <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5">
+                    {(["conteudo", "engagement", "posts"] as const).map((m) => (
+                      <button key={m} onClick={() => setConteudoMode(m)} className={`px-3 py-1 rounded-full text-[10px] font-medium transition-colors ${conteudoMode === m ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "text-white/40 hover:text-white/60"}`}>
+                        {m === "conteudo" ? "Conteúdo" : m === "engagement" ? "Engajamento" : "Posts"}
+                      </button>
+                    ))}
                   </div>
-                  <span className="text-[10px] text-white/40">Mostrar vagas</span>
-                </label>
+                  {conteudoMode === "conteudo" && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={showVagas} onChange={(e) => setShowVagas(e.target.checked)} className="sr-only peer" />
+                      <div className="w-8 h-4 bg-white/10 rounded-full peer-checked:bg-[#f59e0b]/30 relative transition-colors">
+                        <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full transition-transform ${showVagas ? "translate-x-4 bg-[#f59e0b]" : "bg-white/40"}`} />
+                      </div>
+                      <span className="text-[10px] text-white/40">Mostrar vagas</span>
+                    </label>
+                  )}
+                </div>
               </div>
+              {conteudoMode === "engagement" || conteudoMode === "posts" ? (
+                <div className="space-y-3">
+                  {metrics && Object.entries(metrics.companies)
+                    .sort((a, b) => conteudoMode === "engagement" ? b[1].engagement_total - a[1].engagement_total : b[1].posts_count - a[1].posts_count)
+                    .map(([name, cm]) => {
+                      const value = conteudoMode === "engagement" ? cm.engagement_total : cm.posts_count;
+                      const maxValue = Math.max(...Object.values(metrics.companies).map((c) => conteudoMode === "engagement" ? c.engagement_total : c.posts_count), 1);
+                      const pct = Math.round((value / maxValue) * 100);
+                      const isMain = name.toLowerCase() === profileCompanyName.toLowerCase();
+                      const barColor = getCompanyBarColor(name);
+                      return (
+                        <div key={name}>
+                          <div className="flex items-center gap-3">
+                            <span className={`text-xs w-32 truncate text-right ${isMain ? "text-[#ca98ff] font-bold" : "text-white/60"}`}>{name}</span>
+                            <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(pct, 3)}%`, backgroundColor: barColor }} />
+                            </div>
+                            <span className="text-xs font-bold text-white/80 w-16 text-right tabular-nums">
+                              {value.toLocaleString("pt-BR")}
+                            </span>
+                            {!isMain && mainMetrics && (() => {
+                              const mv = conteudoMode === "engagement" ? mainMetrics.engagement_total : mainMetrics.posts_count;
+                              const d = formatDelta(value, mv);
+                              return d ? <span className={`text-[10px] font-bold shrink-0 w-14 text-right ${d.color}`}>{d.text}</span> : <span className="w-14 shrink-0" />;
+                            })()}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : (
               <div className="space-y-4">
                 {companyNames.map((name) => {
                   const compPosts = data.posts.filter((p) => p.company_name === name);
@@ -949,11 +1130,6 @@ export default function ReportPage() {
                                 <span className={`text-[9px] px-1.5 py-0.5 rounded shrink-0 ${ct.color} ${ct.bg}/10`}>{ct.label}</span>
                                 <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
                                 <span className="text-white/40 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
-                                {p.rer_estimate != null && (
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${p.rer_estimate >= 30 ? "text-[#a2f31f] bg-[#a2f31f]/10" : p.rer_estimate >= 15 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10"}`}>
-                                    RER {p.rer_estimate}%
-                                  </span>
-                                )}
                                 {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
                               </a>
                             );
@@ -966,6 +1142,7 @@ export default function ReportPage() {
                   );
                 })}
               </div>
+              )}
             </div>
 
             {/* Highlight posts per company */}
@@ -975,16 +1152,16 @@ export default function ReportPage() {
                 {companyNames.map((name) => {
                   const compPosts = data.posts.filter((p) => p.company_name === name && p.content_type !== "vagas");
                   if (compPosts.length === 0) return null;
-                  const withRer = compPosts.filter((p) => p.rer_estimate != null);
-                  const bestRer = withRer.length > 0 ? withRer.sort((a, b) => (b.rer_estimate ?? 0) - (a.rer_estimate ?? 0))[0] : null;
-                  const worstRer = withRer.length > 1 ? withRer.sort((a, b) => (a.rer_estimate ?? 0) - (b.rer_estimate ?? 0))[0] : null;
+                  const sorted = [...compPosts].sort((a, b) => (b.reactions + b.comments) - (a.reactions + a.comments));
+                  const bestEng = sorted[0] ?? null;
                   const avgEng = compPosts.reduce((s, p) => s + p.reactions + p.comments, 0) / compPosts.length;
-                  const unexpected = compPosts.filter((p) => (p.reactions + p.comments) > avgEng * 2 && (p.rer_estimate ?? 100) < 20).sort((a, b) => (b.reactions + b.comments) - (a.reactions + a.comments))[0] ?? null;
+                  const worstEng = sorted.length > 1 ? sorted[sorted.length - 1] : null;
+                  const unexpected = compPosts.filter((p) => (p.reactions + p.comments) > avgEng * 2).sort((a, b) => (b.reactions + b.comments) - (a.reactions + a.comments))[0] ?? null;
 
                   const highlights = [
-                    bestRer && { type: "positive", label: "Melhor RER", icon: "text-[#a2f31f]", post: bestRer },
-                    worstRer && worstRer.id !== bestRer?.id && { type: "negative", label: "Menor RER", icon: "text-[#ff946e]", post: worstRer },
-                    unexpected && unexpected.id !== bestRer?.id && unexpected.id !== worstRer?.id && { type: "unexpected", label: "Inesperado", icon: "text-[#f59e0b]", post: unexpected },
+                    bestEng && { type: "positive", label: "Maior engajamento", icon: "text-[#a2f31f]", post: bestEng },
+                    worstEng && worstEng.id !== bestEng?.id && { type: "negative", label: "Menor engajamento", icon: "text-[#ff946e]", post: worstEng },
+                    unexpected && unexpected.id !== bestEng?.id && { type: "unexpected", label: "Destaque", icon: "text-[#f59e0b]", post: unexpected },
                   ].filter(Boolean);
 
                   if (highlights.length === 0) return null;
@@ -1004,7 +1181,6 @@ export default function ReportPage() {
                                 <span className={`text-[10px] font-bold ${h.icon}`}>{h.label}</span>
                                 <div className="flex items-center gap-2">
                                   {p.content_type && <span className={`text-[9px] px-1.5 py-0.5 rounded ${ct.color} ${ct.bg}/10`}>{ct.label}</span>}
-                                  {p.rer_estimate != null && <span className="text-[10px] font-bold text-white/40">RER {p.rer_estimate}%</span>}
                                 </div>
                               </div>
                               <p className="text-xs text-white/70 line-clamp-3">{p.summary ?? (p.text_content ?? "").slice(0, 120)}</p>
@@ -1036,15 +1212,11 @@ export default function ReportPage() {
                           <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Nome</th>
                           <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Posts</th>
                           <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Engaj.</th>
-                          <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">RER</th>
                           <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Categoria</th>
-                          <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Aderência</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
-                        {(metrics.collaborators[collabCompany] ?? []).map((col) => {
-                          const adherenceColor = col.adherence === "alta" ? "text-[#a2f31f] bg-[#a2f31f]/10" : col.adherence === "média" ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10";
-                          return (
+                        {(metrics.collaborators[collabCompany] ?? []).map((col) => (
                             <tr key={col.slug}>
                               <td className="py-2.5">
                                 <p className="text-sm text-white/80 font-medium">{col.name}</p>
@@ -1052,12 +1224,9 @@ export default function ReportPage() {
                               </td>
                               <td className="py-2.5 text-center text-white/60 text-sm">{col.posts}</td>
                               <td className="py-2.5 text-center text-white/60 text-sm">{col.engagement}</td>
-                              <td className="py-2.5 text-center"><span className={`text-xs font-bold px-2 py-0.5 rounded-full ${col.rer_avg >= 30 ? "text-[#a2f31f] bg-[#a2f31f]/10" : col.rer_avg >= 15 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10"}`}>{col.rer_avg}%</span></td>
                               <td className="py-2.5 text-white/50 text-xs capitalize">{col.main_category}</td>
-                              <td className="py-2.5"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${adherenceColor}`}>{col.adherence}</span></td>
                             </tr>
-                          );
-                        })}
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -1066,6 +1235,27 @@ export default function ReportPage() {
                 )}
               </div>
             )}
+
+            {/* RER Upgrade Banner */}
+            <div className="rounded-2xl border border-[#ca98ff]/20 bg-[#ca98ff]/[0.04] p-6">
+              <div className="flex items-start gap-4">
+                <div className="shrink-0 w-10 h-10 rounded-xl bg-[#ca98ff]/10 flex items-center justify-center">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                </div>
+                <div className="flex-1 space-y-2">
+                  <h4 className="text-sm font-bold text-[#ca98ff]">RER — Revenue Engagement Rate</h4>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    O RER mede a <strong className="text-white/70">porcentagem de decisores de compra</strong> (C-level, diretores, gerentes) entre os engajadores de cada post. Quanto maior o RER, mais o conteúdo está atraindo quem realmente toma decisões.
+                  </p>
+                  <p className="text-xs text-white/40 leading-relaxed">
+                    Com o upgrade, o RER apareceria em: <strong className="text-white/50">coluna RER no ranking competitivo</strong>, <strong className="text-white/50">badges nos posts individuais</strong>, <strong className="text-white/50">destaques de melhor/pior RER por empresa</strong>, e <strong className="text-white/50">índice de aderência dos colaboradores</strong>.
+                  </p>
+                  <span className="inline-block mt-1 rounded-lg bg-[#ca98ff]/10 border border-[#ca98ff]/20 px-3 py-1.5 text-xs font-semibold text-[#ca98ff]">
+                    Disponível com upgrade
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1074,6 +1264,96 @@ export default function ReportPage() {
         {/* ============================================================ */}
         {activeTab === "posts" && (
           <div className="space-y-4">
+            {/* Posts mode toggle */}
+            <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5 w-fit">
+              <button onClick={() => setPostsMode("sugeridos")} className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${postsMode === "sugeridos" ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "text-white/40 hover:text-white/60"}`}>Posts sugeridos</button>
+              <button onClick={() => setPostsMode("mapeados")} className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${postsMode === "mapeados" ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "text-white/40 hover:text-white/60"}`}>Posts mapeados</button>
+            </div>
+
+            {/* Suggested posts */}
+            {postsMode === "sugeridos" && (() => {
+              const suggestedPosts = recommendationsPayload?.suggested_posts ?? [];
+              const toggleSection = (postId: number, section: string) => {
+                setExpandedSuggestedPost((prev) => {
+                  const current = prev[postId] ?? new Set<string>();
+                  const next = new Set(current);
+                  if (next.has(section)) next.delete(section); else next.add(section);
+                  return { ...prev, [postId]: next };
+                });
+              };
+              const isSectionOpen = (postId: number, section: string) => (expandedSuggestedPost[postId] ?? new Set()).has(section);
+
+              if (suggestedPosts.length === 0) return (
+                <div className="text-center py-16">
+                  <p className="text-white/40 text-sm">Nenhuma sugestão de post disponível.</p>
+                  <p className="text-white/30 text-xs mt-1">Reprocesse a IA para gerar sugestões.</p>
+                </div>
+              );
+
+              return (
+                <div className="space-y-4">
+                  {suggestedPosts.map((sp) => {
+                    const confColor = sp.confidence > 70 ? "text-[#a2f31f] bg-[#a2f31f]/10" : sp.confidence >= 40 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10";
+                    return (
+                      <div key={sp.id} className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 py-4 space-y-3">
+                        {/* Header: confidence + title */}
+                        <div className="flex items-center gap-3">
+                          <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${confColor}`}>{sp.confidence}%</span>
+                          <h4 className="text-sm font-semibold text-white/90">{sp.title}</h4>
+                        </div>
+
+                        {/* Executives */}
+                        {sp.suggested_executives.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {sp.suggested_executives.map((exec) => (
+                              <span key={exec.slug} className="text-[10px] px-2.5 py-1 rounded-lg bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/10" title={exec.reason}>
+                                {exec.name}{exec.headline ? ` — ${exec.headline}` : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Expected outcome */}
+                        <div className="bg-[#ca98ff]/[0.05] border border-[#ca98ff]/10 rounded-lg px-3 py-2">
+                          <p className="text-[10px] font-medium text-[#ca98ff]/60 uppercase tracking-wider mb-0.5">Expectativa de resultado</p>
+                          <p className="text-xs text-white/60">{sp.expected_outcome}</p>
+                        </div>
+
+                        {/* Topics (collapsible) */}
+                        <button onClick={() => toggleSection(sp.id, "topics")} className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/60 transition-colors">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${isSectionOpen(sp.id, "topics") ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
+                          Tópicos ({sp.topics.length})
+                        </button>
+                        {isSectionOpen(sp.id, "topics") && (
+                          <ul className="ml-6 space-y-1">
+                            {sp.topics.map((t, i) => (
+                              <li key={i} className="text-xs text-white/50 flex items-start gap-2">
+                                <span className="text-white/20 mt-0.5">•</span>
+                                <span>{t}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {/* Justification (collapsible) */}
+                        <button onClick={() => toggleSection(sp.id, "justification")} className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/60 transition-colors">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${isSectionOpen(sp.id, "justification") ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
+                          Justificativa
+                        </button>
+                        {isSectionOpen(sp.id, "justification") && (
+                          <div className="ml-6 bg-white/[0.02] border border-white/[0.04] rounded-lg px-3 py-2">
+                            <p className="text-xs text-white/50 leading-relaxed whitespace-pre-wrap">{sp.justification}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* Mapped posts (existing) */}
+            {postsMode === "mapeados" && <>
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5">
                 {companies.map((c) => (
@@ -1092,10 +1372,9 @@ export default function ReportPage() {
                 <option value="vagas">Vagas</option>
                 <option value="outros">Outros</option>
               </select>
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "engagement" | "rer")} className="bg-white/[0.03] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/60">
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "engagement")} className="bg-white/[0.03] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/60">
                 <option value="date">Mais recentes</option>
                 <option value="engagement">Maior engajamento</option>
-                <option value="rer">Maior RER</option>
               </select>
               <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Buscar..." className="bg-white/[0.03] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 w-40" />
               <label className="flex items-center gap-1.5 cursor-pointer">
@@ -1117,7 +1396,6 @@ export default function ReportPage() {
               <span className="text-[10px] font-bold tracking-widest text-white/40 uppercase flex-1">Conteúdo / Autor</span>
               <span className="text-[10px] font-bold tracking-widest text-white/40 uppercase shrink-0 hidden sm:inline">Data</span>
               <span className="text-[10px] font-bold tracking-widest text-white/40 uppercase w-14 text-right shrink-0">Engaj.</span>
-              <span className="text-[10px] font-bold tracking-widest text-white/40 uppercase shrink-0">RER</span>
               <span className="w-[14px] shrink-0" />
             </div>
 
@@ -1127,7 +1405,6 @@ export default function ReportPage() {
                 const preview = (post.text_content ?? "").length > 150 ? (post.text_content ?? "").slice(0, 150) + "..." : (post.text_content ?? "");
                 const engagement = post.reactions + post.comments;
                 const postedDate = post.posted_at ? new Date(post.posted_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "—";
-                const rerColor = post.rer_estimate != null ? (post.rer_estimate >= 30 ? "text-[#a2f31f] bg-[#a2f31f]/10" : post.rer_estimate >= 15 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10") : "";
                 const ct = CONTENT_TYPE_COLORS[post.content_type ?? "outros"];
 
                 return (
@@ -1145,11 +1422,6 @@ export default function ReportPage() {
                       </div>
                       <span className="text-[10px] text-white/30 shrink-0 hidden sm:inline">{postedDate}</span>
                       <span className="text-xs text-white/60 font-medium tabular-nums w-14 text-right shrink-0">{engagement.toLocaleString("pt-BR")}</span>
-                      {post.rer_estimate != null && (
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${rerColor}`} title="Estimativa baseada em amostragem de 10-20 engajadores por post">
-                          RER {post.rer_estimate}%
-                        </span>
-                      )}
                       {post.post_url && (
                         <a href={post.post_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-white/30 hover:text-[#ca98ff] transition-colors shrink-0" title="Ver post no LinkedIn">
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -1176,6 +1448,28 @@ export default function ReportPage() {
               </div>
             )}
             <p className="text-center text-xs text-white/30">{filteredPosts.length} posts no período</p>
+            </>}
+
+            {/* RER Upgrade Banner */}
+            <div className="rounded-2xl border border-[#ca98ff]/20 bg-[#ca98ff]/[0.04] p-6 mt-4">
+              <div className="flex items-start gap-4">
+                <div className="shrink-0 w-10 h-10 rounded-xl bg-[#ca98ff]/10 flex items-center justify-center">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                </div>
+                <div className="flex-1 space-y-2">
+                  <h4 className="text-sm font-bold text-[#ca98ff]">RER — Revenue Engagement Rate</h4>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    O RER mede a <strong className="text-white/70">porcentagem de decisores de compra</strong> (C-level, diretores, gerentes) entre os engajadores de cada post. Quanto maior o RER, mais o conteúdo está atraindo quem realmente toma decisões.
+                  </p>
+                  <p className="text-xs text-white/40 leading-relaxed">
+                    Com o upgrade, o RER apareceria em: <strong className="text-white/50">coluna RER no ranking competitivo</strong>, <strong className="text-white/50">badges nos posts individuais</strong>, <strong className="text-white/50">destaques de melhor/pior RER por empresa</strong>, e <strong className="text-white/50">índice de aderência dos colaboradores</strong>.
+                  </p>
+                  <span className="inline-block mt-1 rounded-lg bg-[#ca98ff]/10 border border-[#ca98ff]/20 px-3 py-1.5 text-xs font-semibold text-[#ca98ff]">
+                    Disponível com upgrade
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1203,9 +1497,9 @@ export default function ReportPage() {
                       finally { setReprocessingInfluencers(false); }
                     }}
                     disabled={reprocessingInfluencers}
-                    className="shrink-0 rounded-lg bg-[#ca98ff]/20 border border-[#ca98ff]/30 px-3 py-1.5 text-xs font-semibold text-[#ca98ff] hover:bg-[#ca98ff]/30 disabled:opacity-50 transition-colors"
+                    className="shrink-0 rounded-lg bg-red-500/20 border border-red-500/30 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/30 disabled:opacity-50 transition-colors"
                   >
-                    {reprocessingInfluencers ? "Reprocessando..." : "Reprocessar"}
+                    {reprocessingInfluencers ? "Reprocessando..." : "Reprocessar (admin)"}
                   </button>
                 )}
               </div>
@@ -1550,6 +1844,27 @@ export default function ReportPage() {
                   </div>
                 </>
               )}
+            </div>
+
+            {/* RER Upgrade Banner */}
+            <div className="rounded-2xl border border-[#ca98ff]/20 bg-[#ca98ff]/[0.04] p-6">
+              <div className="flex items-start gap-4">
+                <div className="shrink-0 w-10 h-10 rounded-xl bg-[#ca98ff]/10 flex items-center justify-center">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ca98ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                </div>
+                <div className="flex-1 space-y-2">
+                  <h4 className="text-sm font-bold text-[#ca98ff]">RER — Revenue Engagement Rate</h4>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    O RER mede a <strong className="text-white/70">porcentagem de decisores de compra</strong> (C-level, diretores, gerentes) entre os engajadores de cada post. Quanto maior o RER, mais o conteúdo está atraindo quem realmente toma decisões.
+                  </p>
+                  <p className="text-xs text-white/40 leading-relaxed">
+                    Com o upgrade, o RER apareceria em: <strong className="text-white/50">coluna RER no ranking competitivo</strong>, <strong className="text-white/50">badges nos posts individuais</strong>, <strong className="text-white/50">destaques de melhor/pior RER por empresa</strong>, e <strong className="text-white/50">índice de aderência dos colaboradores</strong>.
+                  </p>
+                  <span className="inline-block mt-1 rounded-lg bg-[#ca98ff]/10 border border-[#ca98ff]/20 px-3 py-1.5 text-xs font-semibold text-[#ca98ff]">
+                    Disponível com upgrade
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         )}

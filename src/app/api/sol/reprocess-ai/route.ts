@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient, createServiceClient } from "@/lib/supabase/server";
-import { classifyPost, generateSolRecommendations } from "@/lib/ai";
+import { classifyPost, generateSolRecommendations, generateSolSuggestedPosts } from "@/lib/ai";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
 import {
@@ -106,6 +106,7 @@ export async function POST(request: Request) {
 
       const companyName = profile?.name ?? "";
       const companies = (metrics.companies ?? {}) as Record<string, unknown>;
+      const collabsRaw = ((metrics as Record<string, unknown>).collaborators ?? {}) as Record<string, Array<Record<string, unknown>>>;
       const rawSov = (rawData as Record<string, Record<string, unknown>> | null)?.sov ?? {};
       const sovTotals = (rawSov.totals_by_company ?? {}) as Record<string, unknown>;
       const topInfluencers = ((rawData as Record<string, unknown[]> | null)?.influencers ?? []) as Array<Record<string, unknown>>;
@@ -114,8 +115,18 @@ export async function POST(request: Request) {
       const periodEnd = new Date(report.period_end);
       const periodLabel = `${periodStart.toLocaleDateString("pt-BR", { month: "short", year: "numeric" })} – ${periodEnd.toLocaleDateString("pt-BR", { month: "short", year: "numeric" })}`;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const aiOutput = await generateSolRecommendations({
+      // Extract main company collaborators
+      const mainCollabs = (collabsRaw[companyName] ?? []).map((c) => ({
+        name: String(c.name ?? ""),
+        slug: String(c.slug ?? ""),
+        headline: String(c.headline ?? ""),
+        posts: Number(c.posts ?? 0),
+        engagement: Number(c.engagement ?? 0),
+        main_category: String(c.main_category ?? "outros"),
+      }));
+
+      // Phase 6a: analyses
+      const solBundle = {
         period: periodLabel,
         mainCompany: companyName,
         mainBrands,
@@ -123,8 +134,10 @@ export async function POST(request: Request) {
         companies: companies as Parameters<typeof generateSolRecommendations>[0]["companies"],
         sov_totals: sovTotals as Parameters<typeof generateSolRecommendations>[0]["sov_totals"],
         top_influencers: topInfluencers as Parameters<typeof generateSolRecommendations>[0]["top_influencers"],
-      });
+        collaborators: mainCollabs,
+      };
 
+      const aiOutput = await generateSolRecommendations(solBundle);
       logApiCost({
         userId: ownerId,
         source: "sol",
@@ -133,20 +146,35 @@ export async function POST(request: Request) {
         estimatedCost: API_COSTS.openrouter.generateSolRecommendations,
         metadata: { reportId, context: "reprocess-ai", actorUserId: user.id },
       });
+      console.log(`[sol-reprocess-ai] Phase 6a: ${aiOutput.recommendations.length} recs`);
 
+      // Phase 6b: suggested posts (receives analyses)
+      const suggestedPosts = await generateSolSuggestedPosts(solBundle, aiOutput);
+      logApiCost({
+        userId: ownerId,
+        source: "sol",
+        provider: "openrouter",
+        operation: "generateSolSuggestedPosts",
+        estimatedCost: API_COSTS.openrouter.generateSolSuggestedPosts,
+        metadata: { reportId, context: "reprocess-ai", actorUserId: user.id },
+      });
+      console.log(`[sol-reprocess-ai] Phase 6b: ${suggestedPosts.length} suggested posts`);
+
+      const fullAiOutput = { ...aiOutput, suggested_posts: suggestedPosts };
       const aiIncomplete = aiOutput.recommendations.length === 0 && aiOutput.insights.positives.length === 0;
 
       await service.from("sol_reports").update({
-        recommendations: aiOutput,
+        recommendations: fullAiOutput,
         ai_incomplete: aiIncomplete,
       }).eq("id", reportId);
 
-      console.log(`[sol-reprocess-ai] Recommendations saved: ${aiOutput.recommendations.length} recs, ai_incomplete=${aiIncomplete}`);
+      console.log(`[sol-reprocess-ai] Saved: ${aiOutput.recommendations.length} recs, ${suggestedPosts.length} suggested posts, ai_incomplete=${aiIncomplete}`);
 
       return NextResponse.json({
         ok: true,
         reclassified,
         recommendations: aiOutput.recommendations.length,
+        suggested_posts: suggestedPosts.length,
         ai_incomplete: aiIncomplete,
       });
     }

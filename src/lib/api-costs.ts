@@ -42,6 +42,7 @@ export const API_COSTS = {
     classifyPost: 0.001,
     classifySentiment: 0.0005,
     generateSolRecommendations: 0.01,
+    generateSolSuggestedPosts: 0.01,
     extractBrands: 0.001,
   },
 } as const;

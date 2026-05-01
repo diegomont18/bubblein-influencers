@@ -7,7 +7,7 @@ export default function PostsTab() {
   const [companyFilter, setCompanyFilter] = useState("Todos");
   const [categoryFilter, setCategoryFilter] = useState("Todas");
   const [sourceFilter, setSourceFilter] = useState("own");
-  const [sortBy, setSortBy] = useState<"engagement" | "rer">("engagement");
+  const [sortBy, setSortBy] = useState<"engagement">("engagement");
   const [expandedPost, setExpandedPost] = useState<number | null>(null);
 
   const companies = ["Todos", "TOTVS", "SAP Brasil", "Oracle", "Perfil oficial"];
@@ -19,7 +19,7 @@ export default function PostsTab() {
   const filtered = base
     .filter((p) => companyFilter === "Todos" ? true : companyFilter === "Perfil oficial" ? !!((p as Record<string, unknown>).official) : p.company === companyFilter)
     .filter((p) => categoryFilter === "Todas" || p.category === categoryFilter)
-    .sort((a, b) => sortBy === "engagement" ? b.engagement - a.engagement : b.rer - a.rer);
+    .sort((a, b) => b.engagement - a.engagement);
 
   return (
     <div className="space-y-6">
@@ -37,16 +37,14 @@ export default function PostsTab() {
         <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="bg-[#0B0B1A] border border-[#1E1E3A] rounded-lg px-3 py-1.5 text-xs text-gray-300">
           {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "engagement" | "rer")} className="bg-[#0B0B1A] border border-[#1E1E3A] rounded-lg px-3 py-1.5 text-xs text-gray-300">
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "engagement")} className="bg-[#0B0B1A] border border-[#1E1E3A] rounded-lg px-3 py-1.5 text-xs text-gray-300">
           <option value="engagement">Ordenar por Engajamento</option>
-          <option value="rer">Ordenar por RER</option>
         </select>
         <span className="text-xs text-gray-500">{filtered.length} posts</span>
       </div>
 
       <div className="space-y-2">
         {filtered.map((post, i) => {
-          const rerColor = post.rer >= 30 ? "text-green-400 bg-green-400/10" : post.rer >= 15 ? "text-yellow-400 bg-yellow-400/10" : "text-orange-400 bg-orange-400/10";
           const isExpanded = expandedPost === i;
           const preview = post.text.length > 100 ? post.text.slice(0, 100) + "..." : post.text;
           const sent = "sentiment" in post ? String((post as {sentiment?: string}).sentiment) : null;
@@ -67,7 +65,6 @@ export default function PostsTab() {
                 </div>
                 <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded shrink-0 hidden sm:inline">{post.category}</span>
                 <span className="text-sm text-gray-300 font-medium tabular-nums w-16 text-right shrink-0">{post.engagement.toLocaleString("pt-BR")}</span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${rerColor}`}>RER {post.rer}%</span>
                 <a href="#" onClick={(e) => e.stopPropagation()} className="text-gray-500 hover:text-[#E91E8C] transition-colors shrink-0" title="Ver post no LinkedIn">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </a>

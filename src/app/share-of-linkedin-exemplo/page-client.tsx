@@ -306,9 +306,9 @@ function NewReport() {
               ],
             };
             const tabs: Array<{ key: "share" | "sov" | "engagement" | "posts"; label: string; tip: string }> = [
-              { key: "share", label: "Share of LinkedIn", tip: "Índice composto que mede a presença qualificada da marca. Calculado como: Posts engajados × RER (% de decisores) × Engajamentos totais. Quanto maior, mais a marca está dominando as conversas relevantes." },
+              { key: "share", label: "Share of LinkedIn", tip: "Índice composto que mede a presença da marca. Calculado como: Posts × Engajamentos totais. Quanto maior, mais a marca está dominando as conversas relevantes." },
               { key: "sov", label: "Share of Voice", tip: "Posts de terceiros mencionando a marca." },
-              { key: "engagement", label: "Engajamento", tip: "Volume total de engajamento (curtidas, comentários, compartilhamentos) gerado pelos perfis monitorados de cada empresa. Não filtra por decisores — mede alcance bruto." },
+              { key: "engagement", label: "Engajamento", tip: "Volume total de engajamento (curtidas, comentários, compartilhamentos) gerado pelos perfis monitorados de cada empresa. Mede alcance bruto." },
               { key: "posts", label: "Número de Posts", tip: "Total de posts publicados no período pelos perfis monitorados (oficial + colaboradores). Exclui reposts sem comentário." },
             ];
             const bars = chartData[chartTab];
@@ -389,11 +389,11 @@ function NewReport() {
               <div className="space-y-2.5">
                 <div>
                   <p className="text-sm text-white font-semibold">Liderança em Reforma Tributária mantida</p>
-                  <p className="text-xs text-gray-400">Post do Dennis Herszkowicz sobre os 3 erros da reforma tributária foi o post com maior RER do mês em todo o set competitivo (51%, 2.347 reações, 89 comentários de decisores). Nenhum concorrente publicou sobre o tema com engajamento comparável. A TOTVS é a referência percebida neste território.</p>
+                  <p className="text-xs text-gray-400">Post do Dennis Herszkowicz sobre os 3 erros da reforma tributária foi o post com maior engajamento do mês em todo o set competitivo (2.347 reações, 89 comentários). Nenhum concorrente publicou sobre o tema com engajamento comparável. A TOTVS é a referência percebida neste território.</p>
                 </div>
                 <div>
                   <p className="text-sm text-white font-semibold">Dominio no buyer financeiro (CFO/Controller)</p>
-                  <p className="text-xs text-gray-400">6 dos 8 decisores engajados sao financeiros. Gerdau, Ambev, Raizen e Vale ativos.</p>
+                  <p className="text-xs text-gray-400">Gerdau, Ambev, Raizen e Vale ativos no engajamento.</p>
                 </div>
                 <div>
                   <p className="text-sm text-white font-semibold">Share of Voice positivo (8 de 15)</p>
@@ -411,11 +411,11 @@ function NewReport() {
               <div className="space-y-2.5">
                 <div>
                   <p className="text-sm text-white font-semibold">SAP assumiu liderança no tema IA+ERP (−3% SoL)</p>
-                  <p className="text-xs text-gray-400">SAP publicou 42 posts sobre IA aplicada a ERP no mês (3,2x a média), ativou 8 colaboradores no tema e atraiu 47 decisores de TI que não interagiram com TOTVS no mesmo período. A associação &ldquo;IA em ERP = SAP&rdquo; está se consolidando. Se não for contestada em 30 dias, pode virar permanente.</p>
+                  <p className="text-xs text-gray-400">SAP publicou 42 posts sobre IA aplicada a ERP no mês (3,2x a média), ativou 8 colaboradores no tema e gerou engajamento significativo de profissionais de TI que não interagiram com TOTVS no mesmo período. A associação &ldquo;IA em ERP = SAP&rdquo; está se consolidando. Se não for contestada em 30 dias, pode virar permanente.</p>
                 </div>
                 <div>
                   <p className="text-sm text-white font-semibold">Oracle construindo autoridade em ERP Cloud sem resposta</p>
-                  <p className="text-xs text-gray-400">Oracle: 18 posts ERP Cloud, RER acima de 35%. TOTVS sem colaborador ativo em cloud.</p>
+                  <p className="text-xs text-gray-400">Oracle: 18 posts ERP Cloud com alto engajamento. TOTVS sem colaborador ativo em cloud.</p>
                 </div>
                 <div>
                   <p className="text-sm text-white font-semibold">SAP acumula menções negativas</p>
@@ -433,7 +433,7 @@ function NewReport() {
             {[
               { id: 1, title: "Defender território IA+ERP", tag: "DEFENSIVA", tagColor: "text-red-400 bg-red-400/10 border-red-400/20", urgency: "alta urgência", desc: "Dennis publica tese sobre 'IA brasileira para gestão brasileira' + ativar Izabel Branco (Head de IA) como voz técnica complementar.", who: "Dennis + Izabel Branco + Marcelo Cosentino", details: "Tese: SAP está construindo a associação de que 'IA em ERP é coisa de plataforma global'. Se não respondermos em 30 dias, vira permanente.\n\nJustificativa: SAP cresceu 5% de SoL puxada por esse tema. 47 decisores de TI engajaram com eles, 0 conosco.\n\nTópicos sugeridos:\n• Casos reais de IA preditiva em clientes do varejo e indústria\n• Diferença entre 'IA como chatbot' e 'IA como inteligência de processo'\n• Limites honestos da IA em ERP — hype vs realidade\n• Soberania de dados: IA em servidor brasileiro" },
               { id: 2, title: "Case de IA preditiva em cliente do varejo", tag: "CONTEÚDO", tagColor: "text-blue-400 bg-blue-400/10 border-blue-400/20", urgency: "alta urgência", desc: "Como um cliente reduziu ruptura de estoque em X% usando IA preditiva da TOTVS. Case real com número fura narrativa abstrata da SAP.", who: "Diretor de Produto + cliente marcado no post", details: "Justificativa: SAP está todo discurso e nenhum case concreto no mês. Case real com número específico é a melhor resposta. Formato que gera confiança com buyers enterprise." },
-              { id: 3, title: "Reforma tributária: 5 decisões que sua empresa precisa tomar", tag: "CONTEÚDO", tagColor: "text-blue-400 bg-blue-400/10 border-blue-400/20", urgency: "média urgência", desc: "Checklist de decisões fiscais-tributárias com prazo curto. Formato 'N coisas com prazo' converte bem em comentários.", who: "Ricardo Oliveira (Head Fiscal) + Dennis amplifica", details: "Justificativa: Duplicar aposta em pauta que já ganhamos (Dennis RER 51%). Formato de checklist com prazo gera urgência e engajamento de decisores financeiros." },
+              { id: 3, title: "Reforma tributária: 5 decisões que sua empresa precisa tomar", tag: "CONTEÚDO", tagColor: "text-blue-400 bg-blue-400/10 border-blue-400/20", urgency: "média urgência", desc: "Checklist de decisões fiscais-tributárias com prazo curto. Formato 'N coisas com prazo' converte bem em comentários.", who: "Ricardo Oliveira (Head Fiscal) + Dennis amplifica", details: "Justificativa: Duplicar aposta em pauta que já ganhamos (Dennis com alto engajamento). Formato de checklist com prazo gera urgência e engajamento." },
               { id: 4, title: "Responder Oracle em ERP Cloud Enterprise", tag: "OFENSIVA", tagColor: "text-amber-400 bg-amber-400/10 border-amber-400/20", urgency: "média urgência", desc: "Publicar cases reais de migração cloud em clientes enterprise brasileiros. Contestar narrativa da Oracle com dados concretos.", who: "Marcelo Cosentino (VP Tech) + cliente enterprise", details: "Tópicos sugeridos:\n• Diferenças estruturais entre ERP on-premise e cloud enterprise\n• Custos escondidos na migração com vendor lock-in\n• Cases reais de migração cloud em clientes brasileiros\n• Compliance e soberania de dados em ERP cloud" },
               { id: 5, title: "ERP para PME ≠ ERP enterprise menor", tag: "CONTEÚDO", tagColor: "text-blue-400 bg-blue-400/10 border-blue-400/20", urgency: "média urgência", desc: "Diferenças estruturais de produto, operação e custo. Entrar no território que Oracle construiu sem resposta.", who: "Ana Paula Motta (Dir. PMEs) + líder de cliente PME", details: "Justificativa: Oracle construiu 6 meses de autoridade no tema sem resposta nossa. Entrar agora corta crescimento deles e recupera território." },
               { id: 6, title: "IA em ERP: o que é real e o que é marketing", tag: "CONTEÚDO", tagColor: "text-blue-400 bg-blue-400/10 border-blue-400/20", urgency: "média urgência", desc: "Tese provocativa — ceticismo maduro que funciona com CIO/CTO. Responde ao aumento de 3,2x nos posts de IA da SAP.", who: "Marcelo Cosentino (VP Tech — reativação)", details: "Justificativa: Responde diretamente ao aumento de 3,2x nos posts de IA da SAP. Posicionamento de ceticismo maduro funciona com buyer técnico (CIO/CTO — público que não estamos capturando)." },
@@ -496,9 +496,7 @@ function NewReport() {
                   <th className="py-2.5 pr-3 text-[0.6rem] font-bold tracking-widest text-gray-500 uppercase w-16">#</th>
                   <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-gray-500 uppercase">Empresa</th>
                   <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-gray-500 uppercase text-center">SoL <InfoTooltip text="Share of LinkedIn — percentual da presença qualificada da marca no LinkedIn do nicho." /></th>
-                  <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-gray-500 uppercase text-center">RER <InfoTooltip text="Revenue Engagement Rate — % do engajamento que vem de decisores." /></th>
                   <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-gray-500 uppercase text-center">Posts <InfoTooltip text="Total de posts publicados no período." /></th>
-                  <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-gray-500 uppercase text-center">Decisores <InfoTooltip text="Pessoas únicas do ICP que engajaram." /></th>
                   <th className="py-2.5 text-[0.6rem] font-bold tracking-widest text-gray-500 uppercase">Top Temas <InfoTooltip text="Temas com maior engajamento qualificado no período." /></th>
                 </tr>
               </thead>
@@ -515,9 +513,7 @@ function NewReport() {
                     </td>
                     <td className={`py-3 font-medium ${row.hl ? "text-[#E91E8C]" : "text-gray-300"}`}>{row.name}</td>
                     <td className="py-3 text-center text-gray-300">{row.sov} <span className={`text-[10px] ${row.sovD.startsWith("−") ? "text-red-400" : "text-green-400"}`}>({row.sovD})</span></td>
-                    <td className="py-3 text-center text-gray-300">{row.rer} <span className="text-[10px] text-green-400">({row.rerD})</span></td>
                     <td className="py-3 text-center text-gray-300">{row.posts} <span className={`text-[10px] ${row.postsD.startsWith("−") ? "text-red-400" : "text-green-400"}`}>({row.postsD})</span></td>
-                    <td className="py-3 text-center text-gray-300">{row.dec} <span className={`text-[10px] ${row.decD.startsWith("−") ? "text-red-400" : "text-green-400"}`}>({row.decD})</span></td>
                     <td className="py-3">
                       <div className="flex flex-wrap gap-1">
                         {row.temas.map((t) => (
@@ -562,7 +558,7 @@ function NewReport() {
                 <p className="text-sm font-semibold text-white">&ldquo;{posts.positive.title}&rdquo;</p>
                 <p className="text-[10px] text-gray-500">{posts.positive.author}</p>
                 <div className="flex items-center gap-3 text-[10px] text-gray-500">
-                  <span className="text-green-400 font-bold bg-green-400/10 px-2 py-0.5 rounded-full">RER {posts.positive.rer}%</span>
+                  <span className="text-green-400 font-bold bg-green-400/10 px-2 py-0.5 rounded-full">{(posts.positive.reactions + posts.positive.comments).toLocaleString("pt-BR")} engaj.</span>
                   <span>{posts.positive.reactions.toLocaleString("pt-BR")} reações</span>
                   <span>{posts.positive.comments} comentários</span>
                 </div>
@@ -578,7 +574,7 @@ function NewReport() {
                 <p className="text-sm font-semibold text-white">&ldquo;{posts.negative.title}&rdquo;</p>
                 <p className="text-[10px] text-gray-500">{posts.negative.author}</p>
                 <div className="flex items-center gap-3 text-[10px] text-gray-500">
-                  <span className="text-red-400 font-bold bg-red-400/10 px-2 py-0.5 rounded-full">RER {posts.negative.rer}%</span>
+                  <span className="text-red-400 font-bold bg-red-400/10 px-2 py-0.5 rounded-full">{posts.negative.reactions + posts.negative.comments} engaj.</span>
                   <span>{posts.negative.reactions} reações</span>
                   <span>{posts.negative.comments} comentários</span>
                 </div>
@@ -732,7 +728,7 @@ function NewReport() {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-gray-500 italic mt-4">Padrão claro: decisores financeiros dominam nosso engajamento — 6 dos 8. Para capturar o buyer tecnológico, é preciso conteúdo que fale diretamente com CIO/CTO.</p>
+          <p className="text-xs text-gray-500 italic mt-4">Padrão claro: profissionais financeiros dominam nosso engajamento. Para capturar o buyer tecnológico, é preciso conteúdo que fale diretamente com CIO/CTO.</p>
         </section>
         </>)}
 
@@ -741,9 +737,9 @@ function NewReport() {
         <section id="traducao" ref={setRef("traducao")} className="rounded-2xl bg-gradient-to-br from-[#E91E8C]/10 to-[#C724D1]/10 border border-[#E91E8C]/20 p-6 scroll-mt-20">
           <h3 className="text-lg font-bold text-white mb-4">O que esses números significam para a TOTVS</h3>
           <div className="space-y-2.5 text-sm text-gray-300">
-            <p><strong className="text-white">142 decisores engajados</strong> representam <strong className="text-white">47 contas</strong> do seu ICP Enterprise — destas, 12 já são clientes e 35 são contas-alvo.</p>
-            <p>O <strong className="text-white">RER de 42%</strong> está <strong className="text-white">14% acima da média do setor</strong> de software B2B no Brasil.</p>
-            <p>Os <strong className="text-white">5 decisores que engajaram com a SAP</strong> movimentam <strong className="text-white">~R$ 80M em budget anual de tecnologia</strong>.</p>
+            <p><strong className="text-white">142 perfis engajados</strong> representam <strong className="text-white">47 contas</strong> do seu ICP Enterprise — destas, 12 já são clientes e 35 são contas-alvo.</p>
+            <p>O <strong className="text-white">engajamento qualificado</strong> está <strong className="text-white">14% acima da média do setor</strong> de software B2B no Brasil.</p>
+            <p>Os <strong className="text-white">5 perfis que engajaram com a SAP</strong> movimentam <strong className="text-white">~R$ 80M em budget anual de tecnologia</strong>.</p>
             <p>A perda de <strong className="text-white">3% de SoL</strong> em IA+ERP equivale a <strong className="text-white">~20 oportunidades de top-of-funnel</strong> deixadas na mesa.</p>
           </div>
         </section>

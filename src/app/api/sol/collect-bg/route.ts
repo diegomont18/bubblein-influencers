@@ -1,10 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
-import { fetchProfilePosts, fetchPostEngagers, searchLinkedInPosts, fetchLinkedInProfileCached } from "@/lib/apify";
+import { fetchProfilePosts, searchLinkedInPosts, fetchLinkedInProfileCached } from "@/lib/apify";
 import { searchGoogle } from "@/lib/serper";
 import { logApiCost, API_COSTS } from "@/lib/api-costs";
 import { notifyError } from "@/lib/error-notifier";
 import { extractPostDate, computePostsPerMonth } from "@/lib/find-employees";
-import { classifyPost, classifySentiment, generateSolRecommendations, checkPublishLanguage } from "@/lib/ai";
+import { classifyPost, classifySentiment, generateSolRecommendations, generateSolSuggestedPosts, checkPublishLanguage } from "@/lib/ai";
 import { parseAbbreviatedNumber } from "@/lib/normalize";
 
 export const maxDuration = 600;
@@ -174,7 +174,7 @@ export async function POST(request: Request) {
       if (!emp.slug) continue;
       targets.push({
         url: `https://www.linkedin.com/in/${emp.slug}/`,
-        maxPosts: 15,
+        maxPosts: 50,
         sourceType: "employee",
         companyName,
         profileSlug: emp.slug,
@@ -214,7 +214,7 @@ export async function POST(request: Request) {
         if (!emp.slug) continue;
         targets.push({
           url: emp.linkedinUrl ?? `https://www.linkedin.com/in/${emp.slug}/`,
-          maxPosts: 15,
+          maxPosts: 50,
           sourceType: "employee",
           companyName: comp.name,
           profileSlug: emp.slug,
@@ -351,51 +351,6 @@ export async function POST(request: Request) {
     }
 
     // ============================================================
-    // Phase 3: Sample engagers for RER estimation
-    // ============================================================
-    const postsForEngagers = allPosts?.filter((p) => p.post_url) ?? [];
-    console.log(`[sol-collect] Sampling engagers for ${postsForEngagers.length} posts...`);
-
-    for (const post of postsForEngagers) {
-      const { data: sc } = await service.from("sol_reports").select("status").eq("id", reportId).single();
-      if (sc?.status === "cancelled") return new Response("Cancelled");
-
-      try {
-        const { reactions: rxEngagers, comments: cmEngagers } = await fetchPostEngagers(
-          post.post_url!, 10, 10,
-          { userId, source: "sol", searchId: reportId }
-        );
-
-        const allEngagers = [...rxEngagers, ...cmEngagers];
-        // supreme_coder wraps data in { type, actor: {...} } — unwrap actor
-        const sample = allEngagers.map((e) => {
-          const raw = e as Record<string, unknown>;
-          const actor = (raw.actor && typeof raw.actor === "object" ? raw.actor : raw) as Record<string, unknown>;
-          return {
-            name: String(actor.name ?? raw.name ?? ""),
-            headline: String(actor.position ?? actor.headline ?? raw.position ?? raw.headline ?? ""),
-            linkedinUrl: String(actor.linkedinUrl ?? raw.linkedinUrl ?? ""),
-          };
-        });
-
-        const decisorRegex = /\b(CEO|CTO|CFO|COO|CMO|CIO|CRO|CHRO|VP|Vice.?Pres|Director|Diretor|Head\s+(?:of|de)|Gerente|Manager|Partner|Founder|Fundador|Co.?Founder|S[oó]cio|C-Level|Chief|Managing\s+Director|President|Presidente|Owner|Propriet[aá]rio|Country.?Manager|General.?Manager|Regional|Coordenador|Supervisor|Lead(?:er)?|Principal|Senior\s+Director|Executive\s+Director|Board|Conselheiro)\b/i;
-        const decisorCount = sample.filter((e) => decisorRegex.test(e.headline)).length;
-        const rerEstimate = sample.length > 0 ? Math.round((decisorCount / sample.length) * 100) : 0;
-
-        await service.from("sol_posts").update({
-          rer_estimate: rerEstimate,
-          rer_sample_size: sample.length,
-          engager_sample: sample.slice(0, 20),
-        }).eq("id", post.id);
-
-        const decisorHeadlines = sample.filter((e) => decisorRegex.test(e.headline)).map((e) => e.headline.slice(0, 50));
-        console.log(`[sol-collect] Post ${post.id.slice(0, 8)}: ${sample.length} engagers, ${decisorCount} decisors, RER=${rerEstimate}%${decisorHeadlines.length ? " decisors=" + JSON.stringify(decisorHeadlines) : ""}`);
-      } catch (err) {
-        console.error(`[sol-collect] Engagers error for post ${post.id.slice(0, 8)}:`, err instanceof Error ? err.message : err);
-      }
-    }
-
-    // ============================================================
     // Phase 4: Calculate metrics per company
     // ============================================================
     const { data: finalPosts } = await service
@@ -421,9 +376,6 @@ export async function POST(request: Request) {
       for (const [compName, posts] of compEntries) {
         const postsCount = posts.length;
         const engagementTotal = posts.reduce((s: number, p: SolPostRow) => s + (p.reactions ?? 0) + (p.comments ?? 0), 0);
-        const postsWithRer = posts.filter((p: SolPostRow) => p.rer_estimate != null && p.rer_sample_size && p.rer_sample_size > 0);
-        const rerAvg = postsWithRer.length > 0 ? Math.round(postsWithRer.reduce((s: number, p: SolPostRow) => s + (p.rer_estimate ?? 0), 0) / postsWithRer.length) : 0;
-        const decisoresEstimated = Math.round((rerAvg / 100) * engagementTotal);
 
         // Content composition
         const composition: Record<string, number> = { produto: 0, institucional: 0, vagas: 0, outros: 0 };
@@ -436,16 +388,12 @@ export async function POST(request: Request) {
         }
         const topThemes = Object.entries(themeCount).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t);
 
-        // Use max(rerAvg, 1) so SOL isn't zero when no decisors are sampled
-        const rerForSol = Math.max(rerAvg, 1);
-        const rawSol = postsCount * (rerForSol / 100) * engagementTotal;
+        const rawSol = postsCount * engagementTotal;
         if (rawSol > maxRawSol) maxRawSol = rawSol;
 
         companies[compName] = {
           posts_count: postsCount,
           engagement_total: engagementTotal,
-          rer_avg: rerAvg,
-          decisores_estimated: decisoresEstimated,
           top_themes: topThemes,
           content_composition: composition,
           raw_sol: rawSol,
@@ -465,21 +413,16 @@ export async function POST(request: Request) {
         empMap.forEach((v, k) => empEntries.push([k, v]));
         collaborators[compName] = empEntries.map(([slug, eps]) => {
           const engagement = eps.reduce((s: number, p: SolPostRow) => s + (p.reactions ?? 0) + (p.comments ?? 0), 0);
-          const epsWithRer = eps.filter((p: SolPostRow) => p.rer_estimate != null);
-          const empRer = epsWithRer.length > 0 ? Math.round(epsWithRer.reduce((s: number, p: SolPostRow) => s + (p.rer_estimate ?? 0), 0) / epsWithRer.length) : 0;
           const catCount: Record<string, number> = {};
           for (const p of eps) if (p.content_type) catCount[p.content_type] = (catCount[p.content_type] ?? 0) + 1;
           const mainCategory = Object.entries(catCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "outros";
-          const adherence = empRer >= 30 ? "alta" : empRer >= 15 ? "média" : "baixa";
           return {
             name: eps[0]?.author_name ?? slug,
             slug,
             headline: eps[0]?.author_headline ?? "",
             posts: eps.length,
             engagement,
-            rer_avg: empRer,
             main_category: mainCategory,
-            adherence,
           };
         });
       }
@@ -1167,9 +1110,9 @@ export async function POST(request: Request) {
       // Build top_posts per company (top 3 by engagement)
       const { data: postsForBundle } = await service
         .from("sol_posts")
-        .select("company_name, summary, text_content, rer_estimate, reactions, comments, author_name")
+        .select("company_name, summary, text_content, reactions, comments, author_name")
         .eq("report_id", reportId);
-      const topPostsByCompany = new Map<string, Array<{ summary: string; rer: number | null; engagement: number; author: string }>>();
+      const topPostsByCompany = new Map<string, Array<{ summary: string; engagement: number; author: string }>>();
       if (postsForBundle) {
         const grouped = new Map<string, typeof postsForBundle>();
         for (const p of postsForBundle) {
@@ -1183,7 +1126,6 @@ export async function POST(request: Request) {
             comp,
             sorted.map((p) => ({
               summary: (p.summary ?? p.text_content ?? "").slice(0, 200),
-              rer: p.rer_estimate,
               engagement: p.reactions + p.comments,
               author: p.author_name ?? "",
             })),
@@ -1199,9 +1141,7 @@ export async function POST(request: Request) {
           brand_owner: cb.brand_owner,
           posts_count: Number(cm.posts_count ?? 0),
           engagement_total: Number(cm.engagement_total ?? 0),
-          rer_avg: Number(cm.rer_avg ?? 0),
           sol_score: Number(cm.sol_score ?? 0),
-          decisores_estimated: Number(cm.decisores_estimated ?? 0),
           top_themes: Array.isArray(cm.top_themes) ? (cm.top_themes as string[]) : [],
           content_composition: (cm.content_composition ?? {}) as Record<string, number>,
           top_posts: topPostsByCompany.get(cb.name) ?? [],
@@ -1226,7 +1166,18 @@ export async function POST(request: Request) {
         timeZone: "UTC",
       });
 
-      const aiOutput = await generateSolRecommendations({
+      // Extract main company collaborators for AI
+      const mainCollabs = ((metricsForBundle.collaborators ?? {})[companyName] ?? []).map((c) => ({
+        name: String(c.name ?? ""),
+        slug: String(c.slug ?? ""),
+        headline: String(c.headline ?? ""),
+        posts: Number(c.posts ?? 0),
+        engagement: Number(c.engagement ?? 0),
+        main_category: String(c.main_category ?? "outros"),
+      }));
+
+      // Phase 6a: AI synthesis (insights + recommendations + movements)
+      const solBundle = {
         period: periodLabel,
         mainCompany: companyName,
         mainBrands,
@@ -1234,7 +1185,10 @@ export async function POST(request: Request) {
         companies: bundleCompanies,
         sov_totals: sovTotalsForAi,
         top_influencers: topInfluencersForAi,
-      });
+        collaborators: mainCollabs,
+      };
+
+      const aiOutput = await generateSolRecommendations(solBundle);
       logApiCost({
         userId,
         source: "sol",
@@ -1244,13 +1198,28 @@ export async function POST(request: Request) {
         estimatedCost: API_COSTS.openrouter.generateSolRecommendations,
         metadata: { reportId },
       });
+      console.log(`[sol-collect] Phase 6a: ${aiOutput.recommendations.length} recs, ${aiOutput.movements.length} movements`);
 
+      // Phase 6b: Generate suggested posts (with full context + analyses)
+      const suggestedPosts = await generateSolSuggestedPosts(solBundle, aiOutput);
+      logApiCost({
+        userId,
+        source: "sol",
+        searchId: reportId,
+        provider: "openrouter",
+        operation: "generateSolSuggestedPosts",
+        estimatedCost: API_COSTS.openrouter.generateSolSuggestedPosts,
+        metadata: { reportId },
+      });
+      console.log(`[sol-collect] Phase 6b: ${suggestedPosts.length} suggested posts`);
+
+      const fullAiOutput = { ...aiOutput, suggested_posts: suggestedPosts };
       const aiRecsEmpty = aiOutput.recommendations.length === 0 && aiOutput.insights.positives.length === 0;
       await service.from("sol_reports").update({
-        recommendations: aiOutput,
+        recommendations: fullAiOutput,
         ...(aiRecsEmpty ? { ai_incomplete: true } : {}),
       }).eq("id", reportId);
-      console.log(`[sol-collect] recommendations saved: ${aiOutput.recommendations.length} recs, ${aiOutput.movements.length} movements${aiRecsEmpty ? " (ai_incomplete)" : ""}`);
+      console.log(`[sol-collect] recommendations saved: ${aiOutput.recommendations.length} recs, ${suggestedPosts.length} suggested posts${aiRecsEmpty ? " (ai_incomplete)" : ""}`);
     } catch (err) {
       console.error(`[sol-collect] Phase 6 synthesis error:`, err instanceof Error ? err.message : err);
       notifyError("sol-collect-phase6", err, { reportId, profileId });
@@ -1276,11 +1245,9 @@ type SolBundleCompanies = Record<
     brand_owner: "main" | "competitor";
     posts_count: number;
     engagement_total: number;
-    rer_avg: number;
     sol_score: number;
-    decisores_estimated: number;
     top_themes: string[];
     content_composition: Record<string, number>;
-    top_posts: Array<{ summary: string; rer: number | null; engagement: number; author: string }>;
+    top_posts: Array<{ summary: string; engagement: number; author: string }>;
   }
 >;
