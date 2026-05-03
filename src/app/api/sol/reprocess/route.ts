@@ -58,10 +58,8 @@ export async function POST(request: Request) {
       .eq("id", reportId);
 
     // Fire-and-forget background collection (same pattern as generate/route.ts)
-    const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      `http://localhost:${process.env.PORT || 3000}`;
-    const bgUrl = `${siteUrl}/api/sol/collect-bg`;
+    const internalUrl = process.env.INTERNAL_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+    const bgUrl = `${internalUrl}/api/sol/collect-bg`;
 
     console.log(
       `[sol-reprocess] Triggering full reprocess at ${bgUrl} for report ${reportId}`,

@@ -78,8 +78,8 @@ export async function POST(request: Request) {
     }
 
     // Fire-and-forget background collection
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3000}`;
-    const bgUrl = `${siteUrl}/api/sol/collect-bg`;
+    const internalUrl = process.env.INTERNAL_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+    const bgUrl = `${internalUrl}/api/sol/collect-bg`;
 
     console.log(`[sol-generate] Triggering background collection at ${bgUrl} for report ${report.id}`);
     fetch(bgUrl, {

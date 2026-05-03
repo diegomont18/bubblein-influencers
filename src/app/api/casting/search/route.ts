@@ -149,8 +149,8 @@ export async function POST(request: Request) {
   }
 
   // Trigger background processing (fire-and-forget)
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3000}`;
-  const bgUrl = `${siteUrl}/api/casting/search-bg`;
+  const internalUrl = process.env.INTERNAL_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const bgUrl = `${internalUrl}/api/casting/search-bg`;
 
   console.log(`[casting] Triggering background route at ${bgUrl} for list ${listId}`);
 

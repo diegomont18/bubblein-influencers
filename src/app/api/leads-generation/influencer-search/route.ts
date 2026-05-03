@@ -35,11 +35,11 @@ export async function POST(request: Request) {
 
   const resultsCount = credits * 3;
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const internalUrl = process.env.INTERNAL_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
   const cookies = request.headers.get("cookie") ?? "";
 
   try {
-    const searchRes = await fetch(`${siteUrl}/api/casting/search`, {
+    const searchRes = await fetch(`${internalUrl}/api/casting/search`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
