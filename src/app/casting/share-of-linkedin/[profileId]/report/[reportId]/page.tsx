@@ -52,7 +52,7 @@ function InfoTooltip({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
     <span className="relative inline-flex items-center ml-1 align-middle">
-      <button type="button" onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }} onBlur={() => setTimeout(() => setOpen(false), 150)} className="w-3.5 h-3.5 rounded-full bg-white/10 text-white/60 hover:bg-white/20 hover:text-white flex items-center justify-center text-[9px] font-bold leading-none" aria-label="Mais informações">i</button>
+      <button type="button" onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }} onBlur={() => setTimeout(() => setOpen(false), 150)} className="w-3.5 h-3.5 rounded-full bg-white/10 text-white/60 hover:bg-white/20 hover:text-white flex items-center justify-center text-[9px] font-bold leading-none" aria-label="Mais informações">?</button>
       {open && <span role="tooltip" className="absolute z-50 left-5 top-1/2 -translate-y-1/2 w-64 rounded-lg bg-[#1a1919] border border-[#ca98ff]/30 px-3 py-2 text-[11px] text-white/80 font-normal normal-case tracking-normal shadow-[0_8px_24px_rgba(0,0,0,0.5)]">{text}</span>}
     </span>
   );
@@ -152,7 +152,9 @@ interface RecommendationItem {
   tag: "DEFENSIVA" | "CONTEÚDO" | "OFENSIVA" | "CONSOLIDACAO" | "RELACIONAMENTO";
   urgency: "alta" | "média" | "baixa";
   desc: string;
-  who: string;
+  who?: string;
+  baseline?: string;
+  expected_impact?: string;
   details: string;
 }
 
@@ -181,11 +183,19 @@ interface RecommendationsPayload {
   suggested_posts?: SuggestedPostItem[];
 }
 
+interface VoteEntry { email: string; vote: "like" | "dislike"; at: string }
+interface VotesPayload {
+  recommendations?: Record<string, VoteEntry[]>;
+  suggested_posts?: Record<string, VoteEntry[]>;
+}
+
 interface RawDataPayload {
   sov?: { totals_by_company: Record<string, SovTotals>; mentions: SovMention[] };
   influencers?: InfluencerCard[];
   influencer_mentions?: Record<string, InfluencerMentionRow[]>;
   archived_influencers?: string[];
+  excluded_posts?: string[];
+  votes?: VotesPayload;
 }
 
 interface ReportData {
@@ -298,9 +308,13 @@ export default function ReportPage() {
   const [expandedRankingCompany, setExpandedRankingCompany] = useState<string | null>(null);
   const [expandedContentCompany, setExpandedContentCompany] = useState<string | null>(null);
 
-  // Recommendations like/dislike (ephemeral)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [recVotes, setRecVotes] = useState<Record<number, "like" | "dislike">>({});
+  // Votes (persisted)
+  const [votes, setVotes] = useState<VotesPayload>({});
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [showOnlyLikedRecs, setShowOnlyLikedRecs] = useState(false);
+  const [showOnlyLikedSuggested, setShowOnlyLikedSuggested] = useState(false);
+  const [excludingPost, setExcludingPost] = useState<string | null>(null);
+  const [showExcludedPosts, setShowExcludedPosts] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [expandedRec, setExpandedRec] = useState<number | null>(null);
   // Influencers tab state
@@ -332,7 +346,10 @@ export default function ReportPage() {
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d?.user?.role === "admin") setIsAdmin(true); })
+      .then((d) => {
+        if (d?.user?.role === "admin") setIsAdmin(true);
+        if (d?.user?.email) setUserEmail(d.user.email);
+      })
       .catch(() => {});
   }, []);
 
@@ -345,6 +362,72 @@ export default function ReportPage() {
   const metrics = data?.report?.metrics ?? null;
   const sovTotals = data?.report?.raw_data?.sov?.totals_by_company ?? null;
   const recommendationsPayload = data?.report?.recommendations ?? null;
+  const excludedPosts = useMemo(() => new Set(data?.report?.raw_data?.excluded_posts ?? []), [data]);
+  const activePosts = useMemo(() => data ? data.posts.filter((p) => !excludedPosts.has(p.id)) : [], [data, excludedPosts]);
+  const excludedPostsList = useMemo(() => data ? data.posts.filter((p) => excludedPosts.has(p.id)) : [], [data, excludedPosts]);
+
+  // Sync votes from raw_data
+  useEffect(() => {
+    if (data?.report?.raw_data?.votes) setVotes(data.report.raw_data.votes);
+  }, [data]);
+
+  const handleVote = async (section: "recommendations" | "suggested_posts", itemId: number, vote: "like" | "dislike" | null) => {
+    if (!userEmail) return;
+    // Optimistic update
+    setVotes((prev) => {
+      const sectionVotes = { ...(prev[section] ?? {}) };
+      const key = String(itemId);
+      let entries = [...(sectionVotes[key] ?? [])].filter((v) => v.email !== userEmail);
+      if (vote) entries.push({ email: userEmail, vote, at: new Date().toISOString() });
+      sectionVotes[key] = entries;
+      return { ...prev, [section]: sectionVotes };
+    });
+    try {
+      await fetch("/api/sol/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId, section, itemId, vote }),
+      });
+    } catch { /* ignore */ }
+  };
+
+  const getMyVote = (section: "recommendations" | "suggested_posts", itemId: number): "like" | "dislike" | null => {
+    const entries = votes[section]?.[String(itemId)] ?? [];
+    return entries.find((v) => v.email === userEmail)?.vote ?? null;
+  };
+
+  const getVoters = (section: "recommendations" | "suggested_posts", itemId: number) => {
+    return votes[section]?.[String(itemId)] ?? [];
+  };
+
+  const hasAnyLike = (section: "recommendations" | "suggested_posts", itemId: number) => {
+    return (votes[section]?.[String(itemId)] ?? []).some((v) => v.vote === "like");
+  };
+
+  const handleExcludePost = async (postId: string, exclude: boolean) => {
+    setExcludingPost(postId);
+    try {
+      await fetch("/api/sol/exclude-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId, postId, exclude }),
+      });
+      await loadReport();
+    } catch { /* ignore */ }
+    finally { setExcludingPost(null); }
+  };
+
+  const handleExcludeMention = async (postUrl: string) => {
+    try {
+      await fetch("/api/sol/exclude-mention", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId, postUrl }),
+      });
+      await loadReport();
+    } catch { /* ignore */ }
+  };
+
   const allInfluencerCards = data?.report?.raw_data?.influencers ?? [];
   const archivedInfluencerKeys = data?.report?.raw_data?.archived_influencers ?? [];
   const archivedSet = useMemo(() => new Set(archivedInfluencerKeys), [archivedInfluencerKeys]);
@@ -401,14 +484,13 @@ export default function ReportPage() {
   // Set default collabCompany
   useEffect(() => {
     if (data && !collabCompany) {
-      const names = Array.from(new Set(data.posts.map((p) => p.company_name)));
-      if (names.length > 0) setCollabCompany(names[0]);
+      setCollabCompany("Todos");
     }
   }, [data, collabCompany]);
 
   const filteredPosts = useMemo(() => {
     if (!data) return [];
-    let filtered = data.posts;
+    let filtered = activePosts;
 
     if (!showVagas) filtered = filtered.filter((p) => p.content_type !== "vagas");
     if (companyFilter !== "Todos") filtered = filtered.filter((p) => p.company_name === companyFilter);
@@ -424,7 +506,7 @@ export default function ReportPage() {
       return new Date(b.posted_at ?? 0).getTime() - new Date(a.posted_at ?? 0).getTime();
     });
     return filtered;
-  }, [data, companyFilter, typeFilter, contentTypeFilter, searchText, sortBy, showVagas]);
+  }, [activePosts, data, companyFilter, typeFilter, contentTypeFilter, searchText, sortBy, showVagas]);
 
   const totalPages = Math.ceil(filteredPosts.length / POSTS_PER_PAGE);
   const paginatedPosts = filteredPosts.slice((page - 1) * POSTS_PER_PAGE, page * POSTS_PER_PAGE);
@@ -446,7 +528,7 @@ export default function ReportPage() {
       <div className="min-h-screen bg-[#131313] flex items-center justify-center">
         <div className="text-center">
           <p className="text-white/60 mb-4">Relatório não encontrado.</p>
-          <Link href={`/casting/share-of-linkedin/${profileId}`} className="text-[#ca98ff] hover:underline text-sm">← Voltar ao mapeamento</Link>
+          <Link href={`/casting/share-of-linkedin/${profileId}`} className="text-[#ca98ff] hover:underline text-sm">← Voltar à configuração</Link>
         </div>
       </div>
     );
@@ -455,10 +537,15 @@ export default function ReportPage() {
   const periodStart = new Date(data.report.period_start + "T12:00:00");
   const periodLabel = periodStart.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
-  // Derived company names (without "Todos")
-  const companyNames = companies.filter((c) => c !== "Todos");
   const profileCompanyName = data.profile.name;
   setMainCompany(profileCompanyName);
+
+  // Derived company names (without "Todos"), main brand first
+  const companyNames = companies.filter((c) => c !== "Todos").sort((a, b) => {
+    if (a.toLowerCase() === profileCompanyName.toLowerCase()) return -1;
+    if (b.toLowerCase() === profileCompanyName.toLowerCase()) return 1;
+    return 0;
+  });
 
   // Main company metrics for delta comparisons
   const mainMetrics = metrics?.companies[profileCompanyName] ?? null;
@@ -505,7 +592,7 @@ export default function ReportPage() {
           const postCountBySlug = new Map<string, number>();
           const postCountByCompany = new Map<string, number>();
           const companyOfficialCount = new Map<string, number>();
-          for (const p of data.posts) {
+          for (const p of activePosts) {
             postCountBySlug.set(p.profile_slug, (postCountBySlug.get(p.profile_slug) ?? 0) + 1);
             postCountByCompany.set(p.company_name, (postCountByCompany.get(p.company_name) ?? 0) + 1);
             if (p.source_type === "company") companyOfficialCount.set(p.company_name, (companyOfficialCount.get(p.company_name) ?? 0) + 1);
@@ -552,7 +639,7 @@ export default function ReportPage() {
             <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-white/70">
-                  Total: <span className="text-white font-bold">{data.posts.length}</span> posts analisados
+                  Total: <span className="text-white font-bold">{activePosts.length}</span> posts analisados
                 </p>
                 <button onClick={() => setDetailsExpanded(false)} className="text-[10px] text-white/30 hover:text-white/60 transition-colors">fechar</button>
               </div>
@@ -625,8 +712,15 @@ export default function ReportPage() {
                 <div>
                   <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)]">
                     {chartMode === "ranking" ? "Ranking Competitivo" : chartMode === "sov" ? "Share of Voice" : "Share of LinkedIn"}
-                    <InfoTooltip text={chartMode === "ranking" ? "Ranking das empresas por score SOL, combinando volume de posts e engajamento." : chartMode === "sov" ? "Share of Voice = posts externos no LinkedIn que citam as marcas próprias de cada empresa, classificados por sentimento (positivo, neutro, negativo)." : "O SOL combina volume de posts e engajamento para medir presença competitiva no LinkedIn."} />
                   </h3>
+                  <p className="text-xs text-white/40 mt-0.5">
+                    {chartMode === "ranking"
+                      ? "Posição de cada empresa ordenada pelo score SOL (Share of LinkedIn)"
+                      : chartMode === "sov"
+                      ? "Menções do público em geral no LinkedIn, fora do perfil da empresa e seus executivos"
+                      : "Índice que combina volume e engajamento para medir presença competitiva"}
+                    <InfoTooltip text={chartMode === "ranking" ? "Ranking das empresas por score SOL — índice que combina volume de posts e engajamento — mostrando também os principais temas abordados por cada empresa." : chartMode === "sov" ? "Contabiliza posts de terceiros (fora dos perfis oficiais e colaboradores) que citam as marcas de cada empresa, classificados por sentimento (positivo, neutro, negativo)." : "O SOL combina a quantidade de posts e o engajamento total de cada empresa, normalizado pelo maior valor do grupo, gerando um score de 0 a 10."} />
+                  </p>
                 </div>
                 <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5">
                   {(["sol", ...(sovTotals ? (["sov"] as const) : []), "ranking"] as const).map((m) => (
@@ -640,6 +734,10 @@ export default function ReportPage() {
                 <div className="space-y-3">
                   {Object.entries(sovTotals)
                     .sort((a, b) => {
+                      const aMain = a[1].brand_owner === "main";
+                      const bMain = b[1].brand_owner === "main";
+                      if (aMain && !bMain) return -1;
+                      if (!aMain && bMain) return 1;
                       const ta = a[1].positivo + a[1].neutro + a[1].negativo;
                       const tb = b[1].positivo + b[1].neutro + b[1].negativo;
                       return tb - ta;
@@ -659,7 +757,7 @@ export default function ReportPage() {
                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${isMain ? "text-[#ca98ff] bg-[#ca98ff]/10" : "text-white/40 bg-white/5"}`}>
                               {isMain ? "Marca própria" : "Concorrente"}
                             </span>
-                            <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden flex" style={{ width: `${Math.max(widthPct, 3)}%` }}>
+                            <div className="flex-1"><div className="h-6 bg-white/[0.03] rounded-full overflow-hidden flex" style={{ width: `${Math.max(widthPct, 3)}%` }}>
                               {total > 0 && (
                                 <>
                                   <div style={{ width: `${(t.positivo / total) * 100}%`, backgroundColor: SENTIMENT_COLORS.positivo.bar }} title={`Positivo: ${t.positivo}`} />
@@ -667,9 +765,9 @@ export default function ReportPage() {
                                   <div style={{ width: `${(t.negativo / total) * 100}%`, backgroundColor: SENTIMENT_COLORS.negativo.bar }} title={`Negativo: ${t.negativo}`} />
                                 </>
                               )}
-                            </div>
-                            <span className="text-xs font-bold text-white/80 w-12 text-right tabular-nums">{total}</span>
-                            <span className="w-14 shrink-0 text-[9px] text-white/40 text-right">+{t.positivo}/{t.neutro}/-{t.negativo}</span>
+                            </div></div>
+                            <span className="text-xs font-bold text-white/80 w-12 text-right tabular-nums" title="Total de menções externas a esta empresa">{total}</span>
+                            <span className="w-14 shrink-0 text-[9px] text-white/40 text-right" title={`Positivo: ${t.positivo} · Neutro: ${t.neutro} · Negativo: ${t.negativo}`}>+{t.positivo}/{t.neutro}/-{t.negativo}</span>
                           </div>
                           {isSovExpanded && (
                             <div className="ml-12 mt-2 mb-1 space-y-1">
@@ -679,15 +777,21 @@ export default function ReportPage() {
                               {companyMentions.slice(0, 10).map((m, idx) => {
                                 const sc = SENTIMENT_COLORS[m.sentiment];
                                 return (
-                                  <a key={`${m.post_url}-${idx}`} href={m.post_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors">
-                                    <span className="flex-1 text-white/60 truncate">
-                                      <span className="text-white/40">{m.author_name}</span>
-                                      {m.author_company && <span className="text-white/30"> · {m.author_company}</span>}
-                                      <span className="text-white/50"> — {m.summary || m.text.slice(0, 80)}</span>
-                                    </span>
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${sc.text} ${sc.bg}`}>{m.brand_term}</span>
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${sc.text} ${sc.bg}`}>{sc.label}</span>
-                                  </a>
+                                  <div key={`${m.post_url}-${idx}`} className="flex items-center gap-1">
+                                    <a href={m.post_url} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors min-w-0">
+                                      <span className="flex-1 text-white/60 truncate">
+                                        <span className="text-white/40">{m.author_name}</span>
+                                        {m.author_company && <span className="text-white/30"> · {m.author_company}</span>}
+                                        <span className="text-white/50"> — {m.summary || m.text.slice(0, 80)}</span>
+                                      </span>
+                                      {m.posted_at && <span className="text-[10px] text-white/30 shrink-0">{new Date(m.posted_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>}
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${sc.text} ${sc.bg}`}>{m.brand_term}</span>
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${sc.text} ${sc.bg}`}>{sc.label}</span>
+                                    </a>
+                                    <button onClick={(e) => { e.stopPropagation(); handleExcludeMention(m.post_url); }} className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-colors" title="Excluir menção">
+                                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                    </button>
+                                  </div>
                                 );
                               })}
                               {companyMentions.length > 10 && <p className="text-[10px] text-white/30 pl-3">+{companyMentions.length - 10} menções</p>}
@@ -720,11 +824,17 @@ export default function ReportPage() {
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {Object.entries(metrics.companies)
-                      .sort((a, b) => b[1].sol_score - a[1].sol_score)
+                      .sort((a, b) => {
+                        const aMain = a[0].toLowerCase() === profileCompanyName.toLowerCase();
+                        const bMain = b[0].toLowerCase() === profileCompanyName.toLowerCase();
+                        if (aMain && !bMain) return -1;
+                        if (!aMain && bMain) return 1;
+                        return b[1].sol_score - a[1].sol_score;
+                      })
                       .map(([name, cm], idx) => {
                         const isMain = name.toLowerCase() === profileCompanyName.toLowerCase();
                         const isRankExpanded = expandedRankingCompany === name;
-                        const rankPosts = isRankExpanded ? data.posts.filter((p) => p.company_name === name && p.content_type !== "vagas") : [];
+                        const rankPosts = isRankExpanded ? activePosts.filter((p) => p.company_name === name && p.content_type !== "vagas") : [];
                         return (
                           <React.Fragment key={name}>
                             <tr className={`cursor-pointer hover:bg-white/[0.02] ${isMain ? "bg-[#ca98ff]/[0.06]" : ""}`} onClick={() => setExpandedRankingCompany(isRankExpanded ? null : name)}>
@@ -735,13 +845,13 @@ export default function ReportPage() {
                                   {name}
                                 </span>
                               </td>
-                              <td className="py-3 text-center text-white/60">
+                              <td className="py-3 text-center text-white/60" title="Total de posts publicados no período">
                                 <div>{cm.posts_count}</div>
-                                {!isMain && mainMetrics && (() => { const d = formatDelta(cm.posts_count, mainMetrics.posts_count); return d ? <div className={`text-[9px] ${d.color}`}>{d.text}</div> : null; })()}
+                                {!isMain && mainMetrics && (() => { const d = formatDelta(cm.posts_count, mainMetrics.posts_count); return d ? <div className={`text-[9px] ${d.color}`} title="Diferença percentual em relação à marca principal">{d.text}</div> : null; })()}
                               </td>
-                              <td className="py-3 text-center text-white/60">
+                              <td className="py-3 text-center text-white/60" title="Engajamento total (reações + comentários)">
                                 <div>{cm.engagement_total.toLocaleString("pt-BR")}</div>
-                                {!isMain && mainMetrics && (() => { const d = formatDelta(cm.engagement_total, mainMetrics.engagement_total); return d ? <div className={`text-[9px] ${d.color}`}>{d.text}</div> : null; })()}
+                                {!isMain && mainMetrics && (() => { const d = formatDelta(cm.engagement_total, mainMetrics.engagement_total); return d ? <div className={`text-[9px] ${d.color}`} title="Diferença percentual em relação à marca principal">{d.text}</div> : null; })()}
                               </td>
                               <td className="py-3 text-white/50 text-xs">{cm.top_themes.join(", ")}</td>
                             </tr>
@@ -752,12 +862,17 @@ export default function ReportPage() {
                                     {rankPosts.slice(0, 10).map((p) => {
                                       const eng = p.reactions + p.comments;
                                       return (
-                                        <a key={p.id} href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
-                                          <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
-                                          {p.posted_at && <span className="text-[10px] text-white/30 shrink-0">{new Date(p.posted_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>}
-                                          <span className="text-white/40 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
-                                          {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
-                                        </a>
+                                        <div key={p.id} className="flex items-center gap-1">
+                                          <a href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors min-w-0" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
+                                            <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
+                                            {p.posted_at && <span className="text-[10px] text-white/30 shrink-0">{new Date(p.posted_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>}
+                                            <span className="text-white/40 tabular-nums shrink-0" title={`Reações: ${p.reactions} · Comentários: ${p.comments}`}>{eng.toLocaleString("pt-BR")} engaj.</span>
+                                            {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
+                                          </a>
+                                          <button onClick={(e) => { e.stopPropagation(); handleExcludePost(p.id, true); }} disabled={excludingPost === p.id} className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-colors" title="Excluir post">
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                          </button>
+                                        </div>
                                       );
                                     })}
                                     {rankPosts.length > 10 && <p className="text-[10px] text-white/30 pl-3">+{rankPosts.length - 10} posts</p>}
@@ -775,7 +890,13 @@ export default function ReportPage() {
               ) : (
                 <div className="space-y-3">
                   {Object.entries(metrics.companies)
-                    .sort((a, b) => b[1].sol_score - a[1].sol_score)
+                    .sort((a, b) => {
+                      const aMain = a[0].toLowerCase() === profileCompanyName.toLowerCase();
+                      const bMain = b[0].toLowerCase() === profileCompanyName.toLowerCase();
+                      if (aMain && !bMain) return -1;
+                      if (!aMain && bMain) return 1;
+                      return b[1].sol_score - a[1].sol_score;
+                    })
                     .map(([name, cm]) => {
                       const value = cm.sol_score;
                       const maxValue = Math.max(...Object.values(metrics.companies).map((c) => c.sol_score), 1);
@@ -783,16 +904,18 @@ export default function ReportPage() {
                       const isMain = name.toLowerCase() === profileCompanyName.toLowerCase();
                       const barColor = getCompanyBarColor(name);
                       const isSolExpanded = expandedSolCompany === name;
-                      const companyPosts = isSolExpanded ? data.posts.filter((p) => p.company_name === name && p.content_type !== "vagas") : [];
+                      const companyPosts = isSolExpanded ? activePosts.filter((p) => p.company_name === name && p.content_type !== "vagas") : [];
                       return (
                         <div key={name}>
                           <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setExpandedSolCompany(isSolExpanded ? null : name)}>
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform shrink-0 text-white/30 ${isSolExpanded ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
                             <span className={`text-xs w-32 truncate text-right ${isMain ? "text-[#ca98ff] font-bold" : "text-white/60"} group-hover:text-white/80`}>{name}</span>
-                            <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(pct, 3)}%`, backgroundColor: barColor }} />
+                            <div className="flex-1">
+                              <div className="h-6 bg-white/[0.03] rounded-full overflow-hidden" style={{ width: `${Math.max(pct, 3)}%` }}>
+                                <div className="h-full rounded-full transition-all" style={{ width: "100%", backgroundColor: barColor }} />
+                              </div>
                             </div>
-                            <span className="text-xs font-bold text-white/80 w-12 text-right tabular-nums">
+                            <span className="text-xs font-bold text-white/80 w-12 text-right tabular-nums" title="SOL Score: índice de 0-10 que combina volume de posts e engajamento">
                               {value.toFixed(1)}
                             </span>
                             {!isMain && mainMetrics && (() => {
@@ -820,12 +943,17 @@ export default function ReportPage() {
                               {companyPosts.slice(0, 10).map((p) => {
                                 const eng = p.reactions + p.comments;
                                 return (
-                                  <a key={p.id} href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
-                                    <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
-                                    {p.posted_at && <span className="text-[10px] text-white/30 shrink-0">{new Date(p.posted_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>}
-                                    <span className="text-white/40 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
-                                    {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
-                                  </a>
+                                  <div key={p.id} className="flex items-center gap-1">
+                                    <a href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors min-w-0" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
+                                      <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
+                                      {p.posted_at && <span className="text-[10px] text-white/30 shrink-0">{new Date(p.posted_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>}
+                                      <span className="text-white/40 tabular-nums shrink-0" title={`Reações: ${p.reactions} · Comentários: ${p.comments}`}>{eng.toLocaleString("pt-BR")} engaj.</span>
+                                      {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
+                                    </a>
+                                    <button onClick={(e) => { e.stopPropagation(); handleExcludePost(p.id, true); }} disabled={excludingPost === p.id} className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-colors" title="Excluir post">
+                                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                    </button>
+                                  </div>
                                 );
                               })}
                               {companyPosts.length > 10 && <p className="text-[10px] text-white/30 pl-3">+{companyPosts.length - 10} posts</p>}
@@ -842,7 +970,8 @@ export default function ReportPage() {
             {/* Insights Estratégicos */}
             {recommendationsPayload?.insights && ((recommendationsPayload.insights.positives?.length ?? 0) > 0 || (recommendationsPayload.insights.concerns?.length ?? 0) > 0) && (
               <div className="rounded-2xl border border-white/10 p-6">
-                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Insights Estratégicos</h3>
+                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)]">Insights Estratégicos</h3>
+                <p className="text-xs text-white/40 mt-0.5 mb-4">Oportunidades e alertas de comunicação e digital influencers identificados pela IA<InfoTooltip text="Análise automática dos dados de comunicação e influenciadores digitais, destacando vantagens competitivas e pontos que merecem atenção na estratégia de presença digital." /></p>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="bg-green-400/5 border border-green-400/15 rounded-xl p-4 space-y-3">
                     <p className="text-xs font-bold text-green-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -895,12 +1024,23 @@ export default function ReportPage() {
             {/* Recomendações Estratégicas */}
             {(recommendationsPayload?.recommendations?.length ?? 0) > 0 && (
               <div className="rounded-2xl border border-white/10 p-6">
-                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Recomendações Estratégicas</h3>
+                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)]">Recomendações Estratégicas</h3>
+                <p className="text-xs text-white/40 mt-0.5 mb-4">Ações sugeridas para comunicação e presença digital<InfoTooltip text="Sugestões práticas classificadas por tipo (defensiva, ofensiva, conteúdo) e urgência, focadas em comunicação e digital influencers." /></p>
+                <div className="flex items-center gap-3 mb-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={showOnlyLikedRecs} onChange={(e) => setShowOnlyLikedRecs(e.target.checked)} className="sr-only peer" />
+                    <div className="w-8 h-4 bg-white/10 rounded-full peer-checked:bg-green-400/30 relative transition-colors">
+                      <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full transition-transform ${showOnlyLikedRecs ? "translate-x-4 bg-green-400" : "bg-white/40"}`} />
+                    </div>
+                    <span className="text-[10px] text-white/40">Apenas curtidos</span>
+                  </label>
+                </div>
                 <div className="space-y-3">
-                  {recommendationsPayload!.recommendations!.map((rec) => {
+                  {recommendationsPayload!.recommendations!.filter((rec) => !showOnlyLikedRecs || hasAnyLike("recommendations", rec.id)).map((rec) => {
                     const tagColor = TAG_COLORS[rec.tag] ?? TAG_COLORS["CONTEÚDO"];
                     const isExpanded = expandedRec === rec.id;
-                    const vote = recVotes[rec.id];
+                    const vote = getMyVote("recommendations", rec.id);
+                    const voters = getVoters("recommendations", rec.id);
                     return (
                       <div key={rec.id} className="bg-white/[0.02] border border-white/10 rounded-xl p-4">
                         <div className="flex items-start gap-3">
@@ -910,7 +1050,17 @@ export default function ReportPage() {
                               <p className="text-sm font-bold text-white">{rec.title}</p>
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tagColor}`}>{rec.tag} · {rec.urgency}</span>
                             </div>
+                            {rec.baseline && (
+                              <div className="text-[10px] text-white/35 bg-white/[0.02] border border-white/[0.05] rounded px-2.5 py-1.5">
+                                <strong className="text-white/45">Situação atual:</strong> {rec.baseline}
+                              </div>
+                            )}
                             <p className="text-xs text-white/60">{rec.desc}</p>
+                            {rec.expected_impact && (
+                              <div className="text-[10px] text-[#ca98ff]/70 bg-[#ca98ff]/[0.05] border border-[#ca98ff]/10 rounded px-2.5 py-1.5">
+                                <strong className="text-[#ca98ff]/90">Resultado esperado:</strong> {rec.expected_impact}
+                              </div>
+                            )}
                             {rec.who && (
                               <p className="text-xs text-white/40"><strong className="text-white/60">Quem publica:</strong> {rec.who}</p>
                             )}
@@ -924,25 +1074,18 @@ export default function ReportPage() {
                             )}
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
+                            {voters.length > 0 && (
+                              <span className="text-[9px] text-white/30 mr-1" title={voters.map((v) => `${v.email}: ${v.vote}`).join("\n")}>{voters.filter((v) => v.vote === "like").length > 0 ? `${voters.filter((v) => v.vote === "like").length}` : ""}</span>
+                            )}
                             <button
-                              onClick={() => setRecVotes((v) => {
-                                const next = { ...v };
-                                if (next[rec.id] === "like") delete next[rec.id];
-                                else next[rec.id] = "like";
-                                return next;
-                              })}
+                              onClick={() => handleVote("recommendations", rec.id, vote === "like" ? null : "like")}
                               className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${vote === "like" ? "bg-green-400/20 text-green-400" : "text-white/30 hover:text-white/60"}`}
                               aria-label="Curtir"
                             >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7v-12l4.5-9.5a1.93 1.93 0 0 1 3.5 1.38z"/></svg>
                             </button>
                             <button
-                              onClick={() => setRecVotes((v) => {
-                                const next = { ...v };
-                                if (next[rec.id] === "dislike") delete next[rec.id];
-                                else next[rec.id] = "dislike";
-                                return next;
-                              })}
+                              onClick={() => handleVote("recommendations", rec.id, vote === "dislike" ? null : "dislike")}
                               className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${vote === "dislike" ? "bg-red-400/20 text-red-400" : "text-white/30 hover:text-white/60"}`}
                               aria-label="Não curtir"
                             >
@@ -1023,16 +1166,9 @@ export default function ReportPage() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)]">Análise de Conteúdo por Empresa</h3>
-                  <p className="text-xs text-white/40 mt-1">{conteudoMode === "conteudo" ? "Composição dos posts por categoria" : conteudoMode === "engagement" ? "Engajamento total por empresa" : "Volume de posts por empresa"}</p>
+                  <p className="text-xs text-white/40 mt-1">{conteudoMode === "conteudo" ? "Composição dos posts por categoria" : conteudoMode === "engagement" ? "Engajamento total por empresa" : "Volume de posts por empresa"}<InfoTooltip text={conteudoMode === "conteudo" ? "Distribuição proporcional dos posts de cada empresa entre as categorias: produto, institucional, vagas e outros." : conteudoMode === "engagement" ? "Total de reações e comentários recebidos nos posts de cada empresa no período." : "Quantidade total de posts publicados por cada empresa no período."} /></p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5">
-                    {(["conteudo", "engagement", "posts"] as const).map((m) => (
-                      <button key={m} onClick={() => setConteudoMode(m)} className={`px-3 py-1 rounded-full text-[10px] font-medium transition-colors ${conteudoMode === m ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "text-white/40 hover:text-white/60"}`}>
-                        {m === "conteudo" ? "Conteúdo" : m === "engagement" ? "Engajamento" : "Posts"}
-                      </button>
-                    ))}
-                  </div>
                   {conteudoMode === "conteudo" && (
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" checked={showVagas} onChange={(e) => setShowVagas(e.target.checked)} className="sr-only peer" />
@@ -1042,12 +1178,25 @@ export default function ReportPage() {
                       <span className="text-[10px] text-white/40">Mostrar vagas</span>
                     </label>
                   )}
+                  <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5">
+                    {(["conteudo", "engagement", "posts"] as const).map((m) => (
+                      <button key={m} onClick={() => setConteudoMode(m)} className={`px-3 py-1 rounded-full text-[10px] font-medium transition-colors ${conteudoMode === m ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "text-white/40 hover:text-white/60"}`}>
+                        {m === "conteudo" ? "Conteúdo" : m === "engagement" ? "Engajamento" : "Posts"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
               {conteudoMode === "engagement" || conteudoMode === "posts" ? (
                 <div className="space-y-3">
                   {metrics && Object.entries(metrics.companies)
-                    .sort((a, b) => conteudoMode === "engagement" ? b[1].engagement_total - a[1].engagement_total : b[1].posts_count - a[1].posts_count)
+                    .sort((a, b) => {
+                      const aMain = a[0].toLowerCase() === profileCompanyName.toLowerCase();
+                      const bMain = b[0].toLowerCase() === profileCompanyName.toLowerCase();
+                      if (aMain && !bMain) return -1;
+                      if (!aMain && bMain) return 1;
+                      return conteudoMode === "engagement" ? b[1].engagement_total - a[1].engagement_total : b[1].posts_count - a[1].posts_count;
+                    })
                     .map(([name, cm]) => {
                       const value = conteudoMode === "engagement" ? cm.engagement_total : cm.posts_count;
                       const maxValue = Math.max(...Object.values(metrics.companies).map((c) => conteudoMode === "engagement" ? c.engagement_total : c.posts_count), 1);
@@ -1058,10 +1207,12 @@ export default function ReportPage() {
                         <div key={name}>
                           <div className="flex items-center gap-3">
                             <span className={`text-xs w-32 truncate text-right ${isMain ? "text-[#ca98ff] font-bold" : "text-white/60"}`}>{name}</span>
-                            <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(pct, 3)}%`, backgroundColor: barColor }} />
+                            <div className="flex-1">
+                              <div className="h-6 bg-white/[0.03] rounded-full overflow-hidden" style={{ width: `${Math.max(pct, 3)}%` }}>
+                                <div className="h-full rounded-full transition-all" style={{ width: "100%", backgroundColor: barColor }} />
+                              </div>
                             </div>
-                            <span className="text-xs font-bold text-white/80 w-16 text-right tabular-nums">
+                            <span className="text-xs font-bold text-white/80 w-16 text-right tabular-nums" title={conteudoMode === "engagement" ? "Engajamento total (reações + comentários)" : "Total de posts publicados no período"}>
                               {value.toLocaleString("pt-BR")}
                             </span>
                             {!isMain && mainMetrics && (() => {
@@ -1076,11 +1227,18 @@ export default function ReportPage() {
                 </div>
               ) : (
               <div className="space-y-4">
-                {companyNames.map((name) => {
-                  const compPosts = data.posts.filter((p) => p.company_name === name);
+                {(() => {
+                  const maxTotal = Math.max(...companyNames.map((n) => {
+                    const cp = activePosts.filter((p) => p.company_name === n);
+                    const v = cp.filter((p) => p.content_type === "vagas").length;
+                    return showVagas ? cp.length : cp.length - v;
+                  }), 1);
+                  return companyNames.map((name) => {
+                  const compPosts = activePosts.filter((p) => p.company_name === name);
                   const counts: Record<string, number> = { produto: 0, institucional: 0, vagas: 0, outros: 0 };
                   compPosts.forEach((p) => { counts[p.content_type ?? "outros"] = (counts[p.content_type ?? "outros"] ?? 0) + 1; });
                   const total = showVagas ? compPosts.length : compPosts.length - counts.vagas;
+                  const barWidthPct = Math.max(Math.round((total / maxTotal) * 100), 3);
                   if (total === 0) return null;
                   const types = showVagas ? ["produto", "institucional", "vagas", "outros"] : ["produto", "institucional", "outros"];
                   const isContentExpanded = expandedContentCompany === name;
@@ -1096,14 +1254,14 @@ export default function ReportPage() {
                           {total} posts
                           {name.toLowerCase() !== profileCompanyName.toLowerCase() && mainMetrics && (() => {
                             const mainTotal = showVagas
-                              ? data.posts.filter((p) => p.company_name === profileCompanyName).length
-                              : data.posts.filter((p) => p.company_name === profileCompanyName && p.content_type !== "vagas").length;
+                              ? activePosts.filter((p) => p.company_name === profileCompanyName).length
+                              : activePosts.filter((p) => p.company_name === profileCompanyName && p.content_type !== "vagas").length;
                             const d = formatDelta(total, mainTotal);
                             return d ? <span className={`ml-1 ${d.color}`}>{d.text}</span> : null;
                           })()}
                         </span>
                       </div>
-                      <div className="flex h-5 rounded-full overflow-hidden bg-white/[0.03]">
+                      <div className="flex h-5 rounded-full overflow-hidden bg-white/[0.03]" style={{ width: `${barWidthPct}%` }}>
                         {types.map((type) => {
                           const count = counts[type] ?? 0;
                           const pct = total > 0 ? (count / total) * 100 : 0;
@@ -1126,12 +1284,17 @@ export default function ReportPage() {
                             const eng = p.reactions + p.comments;
                             const ct = CONTENT_TYPE_COLORS[p.content_type ?? "outros"];
                             return (
-                              <a key={p.id} href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded shrink-0 ${ct.color} ${ct.bg}/10`}>{ct.label}</span>
-                                <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
-                                <span className="text-white/40 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
-                                {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
-                              </a>
+                              <div key={p.id} className="flex items-center gap-1">
+                                <a href={p.post_url ?? "#"} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-[#ca98ff]/20 transition-colors min-w-0" onClick={(e) => { if (!p.post_url) e.preventDefault(); }}>
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded shrink-0 ${ct.color} ${ct.bg}/10`}>{ct.label}</span>
+                                  <span className="flex-1 text-white/60 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
+                                  <span className="text-white/40 tabular-nums shrink-0" title={`Reações: ${p.reactions} · Comentários: ${p.comments}`}>{eng.toLocaleString("pt-BR")} engaj.</span>
+                                  {p.post_url && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>}
+                                </a>
+                                <button onClick={(e) => { e.stopPropagation(); handleExcludePost(p.id, true); }} disabled={excludingPost === p.id} className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-colors" title="Excluir post">
+                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                </button>
+                              </div>
                             );
                           })}
                           {contentPosts.length > 10 && <p className="text-[10px] text-white/30 pl-3">+{contentPosts.length - 10} posts</p>}
@@ -1140,7 +1303,8 @@ export default function ReportPage() {
                       )}
                     </div>
                   );
-                })}
+                });
+                })()}
               </div>
               )}
             </div>
@@ -1150,7 +1314,7 @@ export default function ReportPage() {
               <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Posts em Destaque</h3>
               <div className="space-y-6">
                 {companyNames.map((name) => {
-                  const compPosts = data.posts.filter((p) => p.company_name === name && p.content_type !== "vagas");
+                  const compPosts = activePosts.filter((p) => p.company_name === name && p.content_type !== "vagas");
                   if (compPosts.length === 0) return null;
                   const sorted = [...compPosts].sort((a, b) => (b.reactions + b.comments) - (a.reactions + a.comments));
                   const bestEng = sorted[0] ?? null;
@@ -1198,32 +1362,39 @@ export default function ReportPage() {
             {/* Collaborator performance */}
             {metrics && (
               <div className="rounded-2xl border border-white/10 p-6">
-                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Desempenho dos Colaboradores</h3>
+                <h3 className="text-lg font-bold text-white font-[family-name:var(--font-lexend)]">Desempenho dos Colaboradores</h3>
+                <p className="text-xs text-white/40 mt-0.5 mb-4">Métricas individuais de posts e engajamento por empresa<InfoTooltip text="Mostra a contribuição de cada colaborador monitorado em volume de posts e engajamento total." /></p>
                 <div className="flex gap-1 bg-white/[0.02] border border-white/10 rounded-full p-0.5 w-fit mb-4">
-                  {companyNames.map((c) => (
+                  {["Todos", ...companyNames].map((c) => (
                     <button key={c} onClick={() => setCollabCompany(c)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${collabCompany === c ? "bg-[#ca98ff]/20 text-[#ca98ff]" : "text-white/40 hover:text-white/60"}`}>{c}</button>
                   ))}
                 </div>
-                {(metrics.collaborators[collabCompany] ?? []).length > 0 ? (
+                {(() => {
+                  const collabRows = collabCompany === "Todos"
+                    ? Object.entries(metrics.collaborators).flatMap(([company, cols]) => (cols ?? []).map((c) => ({ ...c, company }))).sort((a, b) => b.engagement - a.engagement)
+                    : (metrics.collaborators[collabCompany] ?? []).map((c) => ({ ...c, company: collabCompany }));
+                  return collabRows.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead>
                         <tr className="border-b border-white/10">
                           <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Nome</th>
+                          {collabCompany === "Todos" && <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Empresa</th>}
                           <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Posts</th>
                           <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase text-center">Engaj.</th>
                           <th className="py-2 text-[0.6rem] font-bold tracking-widest text-white/40 uppercase">Categoria</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
-                        {(metrics.collaborators[collabCompany] ?? []).map((col) => (
+                        {collabRows.map((col) => (
                             <tr key={col.slug}>
                               <td className="py-2.5">
                                 <p className="text-sm text-white/80 font-medium">{col.name}</p>
                                 {col.headline && <p className="text-[10px] text-white/30 truncate max-w-[200px]">{col.headline}</p>}
                               </td>
-                              <td className="py-2.5 text-center text-white/60 text-sm">{col.posts}</td>
-                              <td className="py-2.5 text-center text-white/60 text-sm">{col.engagement}</td>
+                              {collabCompany === "Todos" && <td className="py-2.5 text-white/50 text-xs">{col.company}</td>}
+                              <td className="py-2.5 text-center text-white/60 text-sm" title="Posts publicados no período">{col.posts}</td>
+                              <td className="py-2.5 text-center text-white/60 text-sm" title="Engajamento total (reações + comentários)">{col.engagement}</td>
                               <td className="py-2.5 text-white/50 text-xs capitalize">{col.main_category}</td>
                             </tr>
                         ))}
@@ -1232,7 +1403,8 @@ export default function ReportPage() {
                   </div>
                 ) : (
                   <p className="text-sm text-white/30">Nenhum colaborador com posts neste período.</p>
-                )}
+                );
+                })()}
               </div>
             )}
 
@@ -1292,14 +1464,36 @@ export default function ReportPage() {
 
               return (
                 <div className="space-y-4">
-                  {suggestedPosts.map((sp) => {
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={showOnlyLikedSuggested} onChange={(e) => setShowOnlyLikedSuggested(e.target.checked)} className="sr-only peer" />
+                      <div className="w-8 h-4 bg-white/10 rounded-full peer-checked:bg-green-400/30 relative transition-colors">
+                        <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full transition-transform ${showOnlyLikedSuggested ? "translate-x-4 bg-green-400" : "bg-white/40"}`} />
+                      </div>
+                      <span className="text-[10px] text-white/40">Apenas curtidos</span>
+                    </label>
+                  </div>
+                  {suggestedPosts.filter((sp) => !showOnlyLikedSuggested || hasAnyLike("suggested_posts", sp.id)).map((sp) => {
                     const confColor = sp.confidence > 70 ? "text-[#a2f31f] bg-[#a2f31f]/10" : sp.confidence >= 40 ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#ff946e] bg-[#ff946e]/10";
+                    const spVote = getMyVote("suggested_posts", sp.id);
+                    const spVoters = getVoters("suggested_posts", sp.id);
                     return (
                       <div key={sp.id} className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 py-4 space-y-3">
-                        {/* Header: confidence + title */}
+                        {/* Header: confidence + title + vote */}
                         <div className="flex items-center gap-3">
-                          <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${confColor}`}>{sp.confidence}%</span>
-                          <h4 className="text-sm font-semibold text-white/90">{sp.title}</h4>
+                          <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${confColor}`} title="Confiança da IA na relevância desta sugestão">{sp.confidence}%</span>
+                          <h4 className="text-sm font-semibold text-white/90 flex-1">{sp.title}</h4>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {spVoters.length > 0 && (
+                              <span className="text-[9px] text-white/30 mr-1" title={spVoters.map((v) => `${v.email}: ${v.vote}`).join("\n")}>{spVoters.filter((v) => v.vote === "like").length > 0 ? `${spVoters.filter((v) => v.vote === "like").length}` : ""}</span>
+                            )}
+                            <button onClick={() => handleVote("suggested_posts", sp.id, spVote === "like" ? null : "like")} className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${spVote === "like" ? "bg-green-400/20 text-green-400" : "text-white/30 hover:text-white/60"}`} aria-label="Curtir">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7v-12l4.5-9.5a1.93 1.93 0 0 1 3.5 1.38z"/></svg>
+                            </button>
+                            <button onClick={() => handleVote("suggested_posts", sp.id, spVote === "dislike" ? null : "dislike")} className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${spVote === "dislike" ? "bg-red-400/20 text-red-400" : "text-white/30 hover:text-white/60"}`} aria-label="Não curtir">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17v12l-4.5 9.5a1.93 1.93 0 0 1-3.5-1.38z"/></svg>
+                            </button>
+                          </div>
                         </div>
 
                         {/* Executives */}
@@ -1421,12 +1615,15 @@ export default function ReportPage() {
                         <p className="text-[10px] text-white/40 mt-0.5">{post.author_name ?? post.profile_slug}</p>
                       </div>
                       <span className="text-[10px] text-white/30 shrink-0 hidden sm:inline">{postedDate}</span>
-                      <span className="text-xs text-white/60 font-medium tabular-nums w-14 text-right shrink-0">{engagement.toLocaleString("pt-BR")}</span>
+                      <span className="text-xs text-white/60 font-medium tabular-nums w-14 text-right shrink-0" title={`Reações: ${post.reactions} · Comentários: ${post.comments}`}>{engagement.toLocaleString("pt-BR")}</span>
                       {post.post_url && (
                         <a href={post.post_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-white/30 hover:text-[#ca98ff] transition-colors shrink-0" title="Ver post no LinkedIn">
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                         </a>
                       )}
+                      <button onClick={(e) => { e.stopPropagation(); handleExcludePost(post.id, true); }} disabled={excludingPost === post.id} className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-colors" title="Excluir post">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
                     </div>
                     {isExpanded && (
                       <div className="mt-3 pl-8 border-t border-white/[0.06] pt-3 space-y-2">
@@ -1449,6 +1646,34 @@ export default function ReportPage() {
             )}
             <p className="text-center text-xs text-white/30">{filteredPosts.length} posts no período</p>
             </>}
+
+            {/* Excluded Posts */}
+            {excludedPostsList.length > 0 && (
+              <div className="rounded-2xl border border-white/10 p-6 mt-4">
+                <button onClick={() => setShowExcludedPosts((v) => !v)} className="flex items-center gap-2 w-full">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform text-white/30 ${showExcludedPosts ? "rotate-90" : ""}`}><path d="m9 18 6-6-6-6"/></svg>
+                  <h3 className="text-sm font-bold text-white/50">Posts Excluídos ({excludedPostsList.length})</h3>
+                </button>
+                {showExcludedPosts && (
+                  <div className="mt-3 space-y-1">
+                    {excludedPostsList.map((p) => {
+                      const eng = p.reactions + p.comments;
+                      return (
+                        <div key={p.id} className="flex items-center gap-3 text-xs py-1.5 px-3 rounded-lg bg-white/[0.01] border border-white/[0.04]">
+                          <span className="text-[10px] text-white/30 shrink-0">{p.company_name}</span>
+                          <span className="flex-1 text-white/40 truncate">{p.summary ?? (p.text_content ?? "").slice(0, 80)}</span>
+                          {p.posted_at && <span className="text-[10px] text-white/20 shrink-0">{new Date(p.posted_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>}
+                          <span className="text-white/30 tabular-nums shrink-0">{eng.toLocaleString("pt-BR")} engaj.</span>
+                          <button onClick={() => handleExcludePost(p.id, false)} disabled={excludingPost === p.id} className="shrink-0 text-[10px] text-green-400/70 hover:text-green-400 transition-colors font-medium">
+                            Restaurar
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* RER Upgrade Banner */}
             <div className="rounded-2xl border border-[#ca98ff]/20 bg-[#ca98ff]/[0.04] p-6 mt-4">

@@ -28,7 +28,8 @@ function generateInviteToken(): string {
 }
 
 function makeAcceptUrl(token: string, origin: string): string {
-  return `${origin}/accept-invite/${token}`;
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || origin;
+  return `${baseUrl}/accept-invite/${token}`;
 }
 
 export async function POST(request: NextRequest) {

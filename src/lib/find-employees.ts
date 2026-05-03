@@ -206,8 +206,14 @@ export async function findActiveEmployees(
           if (typeof c === "string" && c.startsWith("http")) { pic = c; break; }
         }
 
+        // Followers
+        const followers = typeof d.followers === "number" ? d.followers
+          : typeof d.follower_count === "number" ? (d.follower_count as number)
+          : typeof d.followersCount === "number" ? (d.followersCount as number)
+          : undefined;
+
         // Fetch posts to check activity
-        const empPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${empSlug}/`, 3);
+        const empPosts = await fetchProfilePosts(`https://www.linkedin.com/in/${empSlug}/`, 10);
         logApiCost({
           userId: costCtx?.userId ?? userId,
           source: costCtx?.source ?? "sol",
@@ -220,7 +226,7 @@ export async function findActiveEmployees(
 
         if (empPosts.length === 0) {
           console.log(`[find-employees]   inactive ${empSlug}: no posts`);
-          return { candidate: { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth: 0 }, inactive: true };
+          return { candidate: { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth: 0, followers }, inactive: true };
         }
 
         // Check if most recent post is within last 90 days
@@ -231,7 +237,7 @@ export async function findActiveEmployees(
 
         if (recentPostDate && now - recentPostDate.getTime() > ninetyDaysMs) {
           console.log(`[find-employees]   inactive ${empSlug}: last post ${recentPostDate.toISOString().slice(0, 10)}`);
-          return { candidate: { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth }, inactive: true };
+          return { candidate: { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth, followers }, inactive: true };
         }
 
         // Language check — at least one post must be in target language
@@ -248,7 +254,7 @@ export async function findActiveEmployees(
         }
 
         console.log(`[find-employees]   ✓ ${name} — ${headline.slice(0, 50)} — ${postsPerMonth}/mês`);
-        return { candidate: { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth }, inactive: false };
+        return { candidate: { name, slug: empSlug, headline, linkedinUrl: `https://www.linkedin.com/in/${empSlug}`, profilePicUrl: pic, postsPerMonth, followers }, inactive: false };
       } catch {
         return null;
       }

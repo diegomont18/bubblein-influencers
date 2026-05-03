@@ -6,6 +6,7 @@ import { notifyError } from "@/lib/error-notifier";
 import { extractPostDate, computePostsPerMonth } from "@/lib/find-employees";
 import { classifyPost, classifySentiment, generateSolRecommendations, generateSolSuggestedPosts, checkPublishLanguage } from "@/lib/ai";
 import { parseAbbreviatedNumber } from "@/lib/normalize";
+import { sendSolCompletionEmail } from "@/lib/emails/sol-completion";
 
 export const maxDuration = 600;
 
@@ -1229,6 +1230,21 @@ export async function POST(request: Request) {
     // Mark report as complete
     await service.from("sol_reports").update({ status: "complete" }).eq("id", reportId);
     console.log(`[sol-collect] Report ${reportId} complete`);
+
+    // Send completion email to user
+    try {
+      const { data: userData } = await service.auth.admin.getUserById(userId);
+      if (userData?.user?.email) {
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://app.bubblein.com.br";
+        sendSolCompletionEmail({
+          toEmail: userData.user.email,
+          companyName,
+          reportUrl: `${siteUrl}/casting/share-of-linkedin/${profileId}/report/${reportId}`,
+        }).catch((emailErr) => console.error("[sol-collect] Email send failed:", emailErr));
+      }
+    } catch (emailErr) {
+      console.error("[sol-collect] Email notification failed:", emailErr);
+    }
 
     return new Response("OK");
   } catch (err) {

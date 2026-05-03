@@ -498,6 +498,7 @@ Company: ${companyName} | ${industry} | ${specialties}${countryCtx}
 ${description.slice(0, 300)}${siteCtx}
 
 1) "themes": 10-15 B2B market themes this company discusses on LinkedIn. Comma-separated. Include BOTH the English term AND the local language term for each theme (e.g. for Brazil: "Marketing Automation, Automação de Marketing, CRM, Gestão de Relacionamento, Sales Enablement, Capacitação de Vendas"). This ensures we capture posts written in either language.
+IMPORTANT: Never use broad single-word generic terms. Always qualify with the company's specific market/industry context. BAD: "distribution", "logistics", "technology", "management", "innovation", "distribuição", "logística", "tecnologia". GOOD: "healthcare distribution", "pharmaceutical logistics", "HR technology", "supply chain management in FMCG", "distribuição na saúde", "logística farmacêutica". Each theme should be specific enough to filter LinkedIn posts relevant ONLY to this company's niche.
 2) "brands": array of proprietary product/brand names owned by this company (e.g. for HubSpot: ["HubSpot Marketing Hub","HubSpot CRM","HubSpot Service Hub"]). Keep the original product names even for Brazilian companies. Empty array if the company has no distinct product lines.
 
 {"themes":"English Theme 1, Tema em Português 1, English Theme 2, Tema em Português 2","brands":["Produto A","Produto B"]}`;
@@ -833,7 +834,9 @@ export interface SolRecommendation {
   tag: "DEFENSIVA" | "CONTEÚDO" | "OFENSIVA" | "CONSOLIDACAO" | "RELACIONAMENTO";
   urgency: "alta" | "média" | "baixa";
   desc: string;
-  who: string;
+  who?: string;
+  baseline?: string;
+  expected_impact?: string;
   details: string;
 }
 
@@ -876,42 +879,51 @@ export async function generateSolRecommendations(
     return fallback;
   }
 
-  const systemPrompt = `Você é um analista estratégico de presença no LinkedIn. Recebe métricas comparativas de uma empresa principal e seus concorrentes, mais menções externas e influenciadores, e gera insights estratégicos, recomendações priorizadas e movimentos competitivos observados.
+  const systemPrompt = `Você é um estrategista de presença digital no LinkedIn. Analise os dados comparativos e gere recomendações ESPECÍFICAS e EMBASADAS para melhorar o posicionamento da empresa principal.
 
-Responda APENAS com JSON válido (sem markdown), no formato exato:
+Responda APENAS com JSON válido (sem markdown), no formato:
 {
   "insights": {
     "positives": [{"title":"...","description":"..."}],
     "concerns":  [{"title":"...","description":"..."}]
   },
   "recommendations": [
-    {"id":1,"title":"...","tag":"DEFENSIVA|CONTEÚDO|OFENSIVA|CONSOLIDACAO|RELACIONAMENTO","urgency":"alta|média|baixa","desc":"...","who":"...","details":"..."}
+    {
+      "id": 1,
+      "title": "...",
+      "tag": "DEFENSIVA|CONTEÚDO|OFENSIVA|CONSOLIDACAO|RELACIONAMENTO",
+      "urgency": "alta|média|baixa",
+      "desc": "...",
+      "baseline": "...",
+      "expected_impact": "...",
+      "details": "..."
+    }
   ],
   "movements": [{"company":"...","text":"..."}]
 }
 
-Regras:
-- Tudo em português, voltado à empresa principal informada
-- 3 positives + 3 concerns (insights)
-- 5 a 8 recommendations priorizadas — cada uma com tag, urgência, "desc" curto (1-2 frases acionáveis), "who" (quem deve publicar — pessoas reais dos colaboradores quando possível), "details" multi-linha (justificativa + tópicos sugeridos, separados por \\n)
-- 3 a 5 movements — observações sobre concorrentes (volumes anormais, ataques diretos, articulação de pauta)
-- Tags possíveis (escolher a mais apropriada):
-  - DEFENSIVA: defender território perdido para concorrente
-  - CONTEÚDO: nova pauta a publicar
-  - OFENSIVA: atacar pauta de concorrente
-  - CONSOLIDACAO: aumentar liderança em pauta já vencida
-  - RELACIONAMENTO: ativar influenciadores externos para amplificação de conteúdo e PR
-- Use os dados quantitativos do bundle nas justificativas (% de SOL, engajamento, contagens)
-- ESCOPO OBRIGATÓRIO: Todas as recomendações, insights e movimentos devem ser EXCLUSIVAMENTE sobre:
-  1. Relações Públicas (PR) — posicionamento de porta-vozes, media training, gestão de crise, eventos, press releases
-  2. Marketing — campanhas, posicionamento de marca, awareness, lead generation via conteúdo
-  3. Conteúdo — pautas editoriais, formatos, frequência, calendário editorial, storytelling, tom de voz
-- NUNCA recomende:
-  - Monitoramento de concorrentes ou tracking de share of voice (a plataforma já faz isso automaticamente)
-  - Decisões de negócio genéricas (abertura de escritórios, expansão geográfica, contratações, reestruturação)
-  - Estratégias de produto, vendas ou operações que não sejam de conteúdo/marketing/PR
-  - Ações que requerem ferramentas externas de analytics ou monitoramento
-- Foque em ações PRÁTICAS e IMEDIATAS que a equipe de comunicação/marketing pode executar no LinkedIn`;
+REGRAS OBRIGATÓRIAS:
+- Tudo em português
+- 3 positives + 3 concerns nos insights — cada um DEVE citar números do bundle
+- 5 a 8 recommendations priorizadas:
+  - "title": ação estratégica concreta (não genérica)
+  - "desc": diagnóstico com NÚMEROS comparativos do bundle (posts, engajamento, SOL, temas, composição de conteúdo)
+    Exemplo BOM: "Concorrente X lidera o tema 'Logística Farmacêutica' com 15 posts e 4.200 engaj. vs. seus 3 posts e 310 engaj. Publicar 2 posts/semana com cases de operação."
+    Exemplo RUIM: "Aumentar frequência de posts para melhorar visibilidade."
+  - "baseline": situação atual da empresa nos indicadores relevantes (números exatos do bundle)
+  - "expected_impact": resultado esperado com estimativa de melhoria nos indicadores (SOL, engajamento, share of voice)
+  - "details": justificativa detalhada + temas específicos a abordar + formato recomendado (artigo, carrossel, case, vídeo) + frequência sugerida (separados por \\n)
+  - NÃO inclua campo "who" — isso já está em outra seção (Posts Sugeridos)
+- 3 a 5 movements — observações sobre movimentos competitivos COM números
+- Tags:
+  - DEFENSIVA: tema onde a empresa está perdendo posição para concorrente
+  - CONTEÚDO: tema novo ou sub-explorado com oportunidade
+  - OFENSIVA: tema onde pode atacar posição de concorrente
+  - CONSOLIDACAO: tema onde já lidera e deve reforçar
+  - RELACIONAMENTO: ativar influenciadores ou parcerias para amplificação
+- CADA recomendação deve referenciar dados específicos: números de posts, engajamento, scores SOL, temas, composição de conteúdo
+- NUNCA recomende: monitoramento (a plataforma já faz), decisões de negócio genéricas, estratégias de produto/vendas/operações, ferramentas externas
+- Foque em: temas específicos a abordar, frequência concreta, formato, posicionamento em relação aos concorrentes`;
 
   try {
     const content = await callOpenRouter({
@@ -954,7 +966,9 @@ Regras:
         tag,
         urgency,
         desc: String(r.desc ?? ""),
-        who: String(r.who ?? ""),
+        who: r.who ? String(r.who) : undefined,
+        baseline: r.baseline ? String(r.baseline) : undefined,
+        expected_impact: r.expected_impact ? String(r.expected_impact) : undefined,
         details: String(r.details ?? ""),
       };
     });

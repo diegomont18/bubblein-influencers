@@ -40,10 +40,10 @@ function DeleteButton({ onDelete, label }: { onDelete: () => void; label?: strin
   );
 }
 
-const TABS = ["Mapeamento", "Relatórios", "Influencers", "Leads"] as const;
+const TABS = ["Configuração", "Relatórios", "Influencers", "Leads"] as const;
 
 export default function RelatoriosPage() {
-  const [tab, setTab] = useState<typeof TABS[number]>("Mapeamento");
+  const [tab, setTab] = useState<typeof TABS[number]>("Configuração");
   const [loading, setLoading] = useState(true);
   const [mapeamentos, setMapeamentos] = useState<Mapeamento[]>([]);
   const [relatorios, setRelatorios] = useState<Relatorio[]>([]);
@@ -103,7 +103,7 @@ export default function RelatoriosPage() {
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200">
         {TABS.map((t) => {
-          const count = t === "Mapeamento" ? mapeamentos.length : t === "Relatórios" ? relatorios.length : t === "Influencers" ? influencers.length : leads.length;
+          const count = t === "Configuração" ? mapeamentos.length : t === "Relatórios" ? relatorios.length : t === "Influencers" ? influencers.length : leads.length;
           return (
             <button
               key={t}
@@ -116,8 +116,8 @@ export default function RelatoriosPage() {
         })}
       </div>
 
-      {/* Mapeamento */}
-      {tab === "Mapeamento" && (
+      {/* Configuração */}
+      {tab === "Configuração" && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead>
@@ -144,10 +144,10 @@ export default function RelatoriosPage() {
                       <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Pendente</span>
                     )}
                   </td>
-                  <td className="py-3"><DeleteButton onDelete={() => handleDelete("mapeamento", m.id)} label={`MAPEAMENTO "${m.name}" (e todos os relatórios associados)`} /></td>
+                  <td className="py-3"><DeleteButton onDelete={() => handleDelete("mapeamento", m.id)} label={`CONFIGURAÇÃO "${m.name}" (e todos os relatórios associados)`} /></td>
                 </tr>
               ))}
-              {mapeamentos.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-gray-400">Nenhum mapeamento encontrado.</td></tr>}
+              {mapeamentos.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-gray-400">Nenhuma configuração encontrada.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -179,7 +179,7 @@ export default function RelatoriosPage() {
                     <td className="py-3 pr-4 text-gray-500 capitalize">{period}</td>
                     <td className="py-3 pr-4"><StatusBadge status={r.status} /></td>
                     <td className="py-3 pr-4 text-center text-gray-500">{r.posts_count}</td>
-                    <td className="py-3"><DeleteButton onDelete={() => handleDelete("relatorio", r.id)} label={`RELATÓRIO "${r.profile_name} — ${period}" (mapeamento será mantido)`} /></td>
+                    <td className="py-3"><DeleteButton onDelete={() => handleDelete("relatorio", r.id)} label={`RELATÓRIO "${r.profile_name} — ${period}" (configuração será mantida)`} /></td>
                   </tr>
                 );
               })}

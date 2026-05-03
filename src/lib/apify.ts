@@ -1062,24 +1062,27 @@ function extractSlugFromUrl(slugOrUrl: string): string {
 export async function fetchLinkedInProfileCached(
   slugOrUrl: string,
   costCtx?: CostCtx,
+  opts?: { skipCache?: boolean },
 ): Promise<ApifyLinkedInProfileResult> {
   const slug = extractSlugFromUrl(slugOrUrl);
   const profileUrl = `https://www.linkedin.com/in/${slug}/`;
 
-  try {
-    const service = getServiceClientForCache();
-    const { data: row } = await service
-      .from("profiles")
-      .select("raw_data, last_enriched_at")
-      .eq("url", profileUrl)
-      .single();
+  if (!opts?.skipCache) {
+    try {
+      const service = getServiceClientForCache();
+      const { data: row } = await service
+        .from("profiles")
+        .select("raw_data, last_enriched_at")
+        .eq("url", profileUrl)
+        .single();
 
-    if (row?.last_enriched_at && row?.raw_data) {
-      console.log(`[apify-cache] profile HIT slug=${slug}`);
-      return { status: 200, data: row.raw_data as Record<string, unknown> };
+      if (row?.last_enriched_at && row?.raw_data) {
+        console.log(`[apify-cache] profile HIT slug=${slug}`);
+        return { status: 200, data: row.raw_data as Record<string, unknown> };
+      }
+    } catch {
+      // Cache miss or DB error — proceed to fetch
     }
-  } catch {
-    // Cache miss or DB error — proceed to fetch
   }
 
   console.log(`[apify-cache] profile MISS slug=${slug}`);

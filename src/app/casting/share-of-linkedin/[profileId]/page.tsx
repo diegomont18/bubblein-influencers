@@ -9,6 +9,29 @@ import { formatPostsPerMonth } from "@/lib/format-posts-frequency";
 import { ShareButton } from "@/components/share/share-button";
 import type { AccessRole } from "@/lib/resource-access";
 
+function formatFollowers(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(n);
+}
+
+const CONFIG_TIPS = [
+  { title: "Colaboradores Ativos", desc: "São os executivos e porta-vozes da empresa no LinkedIn. Analisamos os posts deles para medir a presença digital da marca." },
+  { title: "Concorrentes", desc: "Empresas do mesmo setor que serão comparadas. Quanto mais concorrentes, mais completa a análise competitiva." },
+  { title: "Temas de Mercado", desc: "Assuntos-chave identificados por IA no seu nicho. Usados para classificar cada post e medir relevância temática." },
+  { title: "Marcas Proprietárias", desc: "Produtos e marcas da sua empresa. Usados para medir Share of Voice — quantas vezes sua marca é mencionada vs. concorrentes." },
+  { title: "Frequência de Posts", desc: "Calculada com base nos últimos 20 posts de cada colaborador. Indica o ritmo de publicação e consistência no LinkedIn." },
+];
+
+const REPORT_TIPS = [
+  { title: "Share of LinkedIn (SOL)", desc: "Índice de 0 a 10 que mede a presença total da empresa no LinkedIn, combinando volume de posts e engajamento dos colaboradores." },
+  { title: "Share of Voice", desc: "Percentual de menções das suas marcas proprietárias em comparação com concorrentes. Mede visibilidade de marca no mercado." },
+  { title: "Engajamento por Post", desc: "Média de reações e comentários por publicação. Indica a qualidade e relevância do conteúdo para a audiência." },
+  { title: "Composição de Conteúdo", desc: "Distribuição dos posts por tipo: institucional, produto, vagas e outros. Revela a estratégia editorial de cada empresa." },
+  { title: "Temas Mais Discutidos", desc: "Ranking dos assuntos mais abordados. Identifica oportunidades de conteúdo e gaps temáticos em relação aos concorrentes." },
+  { title: "Influenciadores do Mercado", desc: "Pessoas fora das empresas monitoradas que mais publicam sobre temas do seu nicho. Potenciais parceiros ou vozes de referência." },
+];
+
 const COMPANY_SIZES = ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001+"];
 const ITEMS_PER_PAGE = 10;
 
@@ -195,6 +218,23 @@ export default function LeadsGenerationOptionsPage() {
   const solPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [processingCompetitorIdxs, setProcessingCompetitorIdxs] = useState<Set<number>>(new Set());
   const [processingEmployees, setProcessingEmployees] = useState(false);
+  const [configTipIdx, setConfigTipIdx] = useState(0);
+  const [reportTipIdx, setReportTipIdx] = useState(0);
+
+  // Rotate config tips while processing employees/competitors
+  const isProcessingConfig = processingEmployees || processingCompetitorIdxs.size > 0;
+  useEffect(() => {
+    if (!isProcessingConfig) return;
+    const timer = setInterval(() => setConfigTipIdx((i) => (i + 1) % CONFIG_TIPS.length), 5000);
+    return () => clearInterval(timer);
+  }, [isProcessingConfig]);
+
+  // Rotate report tips while processing report
+  useEffect(() => {
+    if (solReportStatus !== "processing") return;
+    const timer = setInterval(() => setReportTipIdx((i) => (i + 1) % REPORT_TIPS.length), 5000);
+    return () => clearInterval(timer);
+  }, [solReportStatus]);
 
   const loadData = useCallback(async () => {
     try {
@@ -440,6 +480,13 @@ export default function LeadsGenerationOptionsPage() {
     } finally {
       setProcessingEmployees(false);
     }
+  }
+
+  async function handleProcessAll() {
+    await Promise.all([
+      handleProcessEmployees(),
+      handleProcessAllCompetitors(),
+    ]);
   }
 
   const [discoveringCompetitors, setDiscoveringCompetitors] = useState(false);
@@ -800,7 +847,7 @@ export default function LeadsGenerationOptionsPage() {
             </div>
           </section>
 
-          {/* Mapeamento — collapsible */}
+          {/* Configuração — collapsible */}
           {!configExpanded ? (
             <button
               onClick={() => setConfigExpanded(true)}
@@ -811,19 +858,22 @@ export default function LeadsGenerationOptionsPage() {
                 <span>Concorrentes: <span className="text-white font-bold">{(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).length}</span></span>
                 <span>Temas: <span className="text-white font-bold">{options.market_context ? "preenchido" : "vazio"}</span></span>
               </div>
-              <span className="text-sm font-bold text-[#ca98ff] uppercase tracking-wider group-hover:translate-x-1 transition-transform">Editar mapeamento →</span>
+              <span className="text-sm font-bold text-[#ca98ff] uppercase tracking-wider group-hover:translate-x-1 transition-transform">Editar configuração →</span>
             </button>
           ) : (
           <div className="bg-white/[0.03] backdrop-blur-xl border border-[#ca98ff]/40 rounded-[2rem] p-8 md:p-10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] relative overflow-hidden">
             <div className="absolute -top-20 -right-20 w-60 h-60 bg-[#ca98ff]/20 blur-[80px] rounded-full pointer-events-none" />
             <button
               onClick={() => setConfigExpanded(false)}
-              aria-label="Fechar mapeamento"
+              aria-label="Fechar configuração"
               className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 flex items-center justify-center text-white/60 hover:text-white transition-all text-lg leading-none"
             >&times;</button>
-            <h2 className="text-2xl font-bold text-white font-[family-name:var(--font-lexend)] mb-8 relative z-10">
-              Mapeamento de Mercado
+            <h2 className="text-2xl font-bold text-white font-[family-name:var(--font-lexend)] mb-2 relative z-10">
+              Configuração do Relatório
             </h2>
+            <p className="text-sm text-white/50 mb-8 relative z-10">
+              Defina a empresa analisada, seus colaboradores ativos, concorrentes e temas de mercado. Essas configurações determinam o escopo e o conteúdo do relatório Share of LinkedIn.
+            </p>
 
             <div className="space-y-8 relative z-10">
               {/* Section 0: Marca (empresa analisada) */}
@@ -868,6 +918,15 @@ export default function LeadsGenerationOptionsPage() {
                       return (
                         <div className="mt-3">
                           <p className="text-[0.6rem] font-bold tracking-[0.15em] text-white/30 uppercase mb-1.5">Marcas proprietárias</p>
+                          <div className="flex items-baseline gap-1.5 -mt-0.5 mb-2">
+                            <p className="text-[0.6rem] text-white/25 normal-case tracking-normal font-normal">Termos que remetem aos produtos e marcas da empresa como podem ser citados no LinkedIn</p>
+                            <details className="inline-block shrink-0 [&>summary]:list-none">
+                              <summary className="cursor-pointer inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-white/15 text-[0.55rem] text-white/25 hover:text-white/40 hover:border-white/30 transition-colors select-none">?</summary>
+                              <p className="mt-1.5 text-[0.6rem] pl-2.5 border-l border-white/10 text-white/25 leading-relaxed">
+                                São os nomes exatos de produtos, serviços ou submarcas da empresa. Usamos para localizar posts no LinkedIn que mencionem essas marcas específicas — variações de grafia e abreviações comuns também podem ser incluídas.
+                              </p>
+                            </details>
+                          </div>
                           {brands.length > 0 && (
                             <div className="flex flex-wrap gap-2 mb-2">
                               {brands.map((b, i) => (
@@ -913,6 +972,7 @@ export default function LeadsGenerationOptionsPage() {
                         <div className="flex items-center gap-2">
                           <p className="text-sm text-white font-medium truncate">{emp.name}</p>
                           {empPending ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-[#f59e0b] bg-[#f59e0b]/10">Pendente</span> : <PostsFreqBadge ppm={(emp as Record<string,unknown>).postsPerMonth as number | undefined} size="md" />}
+                          {!empPending && typeof (emp as Record<string,unknown>).followers === "number" && <span className="text-[9px] text-white/30">{formatFollowers((emp as Record<string,unknown>).followers as number)} seg.</span>}
                         </div>
                         {emp.headline ? <p className="text-[10px] text-white/40 truncate">{emp.headline}</p> : <p className="text-[10px] text-white/20 italic">Processar para buscar dados</p>}
                         {emp.linkedinUrl && (
@@ -968,22 +1028,6 @@ export default function LeadsGenerationOptionsPage() {
                     + Adicionar
                   </button>
                 </div>
-                {(options.employee_profiles ?? []).filter(e => !(e as Record<string,unknown>).archived).some((e) => !e.headline && !e.profilePicUrl) && (
-                  <button
-                    onClick={handleProcessEmployees}
-                    disabled={processingEmployees}
-                    className="w-full py-2.5 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] text-xs font-bold hover:bg-[#ca98ff]/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {processingEmployees ? (
-                      <>
-                        <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                        Processando colaboradores...
-                      </>
-                    ) : (
-                      <>Processar {(options.employee_profiles ?? []).filter(e => !(e as Record<string,unknown>).archived).filter((e) => !e.headline && !e.profilePicUrl).length} colaborador(es) pendente(s)</>
-                    )}
-                  </button>
-                )}
                 {/* Inactive employees — executives found but without recent posts */}
                 {(() => {
                   const inactiveEmps = ((options.ai_response as Record<string,unknown>)?.inactive_employees as Array<{name:string;slug:string;headline:string;linkedinUrl:string;profilePicUrl:string;postsPerMonth:number}>) ?? [];
@@ -1007,6 +1051,7 @@ export default function LeadsGenerationOptionsPage() {
                               {emp.headline && <p className="text-[9px] text-white/25 truncate">{emp.headline}</p>}
                             </div>
                             <span className="text-[9px] text-white/20 shrink-0">{formatPostsPerMonth(emp.postsPerMonth) ?? "—"}</span>
+                            {typeof (emp as Record<string,unknown>).followers === "number" && <span className="text-[9px] text-white/20 shrink-0">{formatFollowers((emp as Record<string,unknown>).followers as number)}</span>}
                             <button
                               onClick={() => autoSave({ ...options, employee_profiles: [...(options.employee_profiles ?? []), emp] })}
                               className="text-[9px] font-bold px-2 py-1 rounded-lg bg-[#ca98ff]/10 text-[#ca98ff] hover:bg-[#ca98ff]/20 transition-colors shrink-0"
@@ -1038,6 +1083,7 @@ export default function LeadsGenerationOptionsPage() {
                               {emp.headline && <p className="text-[9px] text-white/25 truncate">{emp.headline}</p>}
                             </div>
                             <PostsFreqBadge ppm={(emp as Record<string,unknown>).postsPerMonth as number | undefined} />
+                            {typeof (emp as Record<string,unknown>).followers === "number" && <span className="text-[9px] text-white/20 shrink-0">{formatFollowers((emp as Record<string,unknown>).followers as number)}</span>}
                             <button
                               onClick={() => {
                                 const updated = (options.employee_profiles ?? []).map((e) =>
@@ -1058,34 +1104,6 @@ export default function LeadsGenerationOptionsPage() {
               {/* Section 2: Empresas Concorrentes */}
               <div className="space-y-3">
                 <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">Concorrentes Selecionados ({(options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected).length})</label>
-                {(() => {
-                  const selectedComps = (options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected) as Array<Record<string, unknown>>;
-                  const inactiveCompEmpsAll = ((options.ai_response as Record<string, unknown>)?.inactive_competitor_employees ?? {}) as Record<string, unknown>;
-                  const pendingCount = selectedComps.filter((c) => {
-                    const compPending = c._pending || (!c.logoUrl && c.postsPerMonth == null);
-                    const nm = String(c.name ?? "");
-                    const compEmps = ((options.ai_response as Record<string, unknown>)?.competitor_employees as Record<string, unknown[]>)?.[nm] ?? [];
-                    const hasInactiveCached = !!inactiveCompEmpsAll[nm];
-                    return compPending || compEmps.length === 0 || !hasInactiveCached;
-                  }).length;
-                  if (pendingCount === 0) return null;
-                  return (
-                    <button
-                      onClick={handleProcessAllCompetitors}
-                      disabled={processingCompetitorIdxs.size > 0}
-                      className="w-full py-2.5 rounded-xl bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-[#ca98ff] text-xs font-bold hover:bg-[#ca98ff]/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      {processingCompetitorIdxs.size > 0 ? (
-                        <>
-                          <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                          Processando {processingCompetitorIdxs.size} concorrente(s)...
-                        </>
-                      ) : (
-                        <>Processar todos ({pendingCount} pendente{pendingCount > 1 ? "s" : ""})</>
-                      )}
-                    </button>
-                  );
-                })()}
                 <div className="space-y-3">
                   {(options.competitors ?? []).map((comp, i) => {
                     const isObj = typeof comp === "object" && comp !== null;
@@ -1345,15 +1363,41 @@ export default function LeadsGenerationOptionsPage() {
               {/* Section 3: Temas de Interesse */}
               <div className="space-y-2">
                 <label className="text-[0.7rem] font-black tracking-[0.2em] text-white/40 uppercase block">Temas de Interesse do Mercado</label>
-                <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl focus-within:border-[#ca98ff]/50 transition-all">
-                  <textarea
-                    rows={3}
-                    value={options.market_context}
-                    onChange={(e) => updateField("market_context", e.target.value)}
-                    className="w-full bg-transparent border-none focus:ring-0 px-4 py-3.5 text-white text-sm font-medium outline-none placeholder-white/20 resize-y leading-relaxed"
-                    placeholder="Temas que o mercado discute no LinkedIn..."
-                  />
+                <div className="flex items-baseline gap-1.5 -mt-0.5">
+                  <p className="text-[0.65rem] text-white/30 normal-case tracking-normal font-normal">Termos do mercado da sua empresa como costumam ser citados no LinkedIn</p>
+                  <details className="inline-block shrink-0 [&>summary]:list-none">
+                    <summary className="cursor-pointer inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-white/15 text-[0.55rem] text-white/25 hover:text-white/40 hover:border-white/30 transition-colors select-none">?</summary>
+                    <p className="mt-1.5 text-[0.6rem] pl-2.5 border-l border-white/10 text-white/25 leading-relaxed">
+                      São os assuntos e termos técnicos que profissionais do seu mercado usam ao publicar no LinkedIn. Usamos para localizar e classificar posts relevantes ao seu setor. Evite termos genéricos — qualifique com o contexto do mercado (ex: &ldquo;distribuição na saúde&rdquo; em vez de &ldquo;distribuição&rdquo;).
+                    </p>
+                  </details>
                 </div>
+                {(() => {
+                  const topics = (options.market_context ?? "").split(",").map(t => t.trim()).filter(Boolean);
+                  const saveTopics = (updated: string[]) => updateField("market_context", updated.join(", "));
+                  return (
+                    <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3 focus-within:border-[#ca98ff]/50 transition-all">
+                      {topics.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {topics.map((topic, i) => (
+                            <span key={`${topic}-${i}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ca98ff]/10 border border-[#ca98ff]/20 text-xs text-[#ca98ff]">
+                              <span className="font-medium">{topic}</span>
+                              <button type="button" onClick={() => saveTopics(topics.filter((_, j) => j !== i))} className="text-[#ca98ff]/60 hover:text-[#ff946e] transition-colors text-sm leading-none">&times;</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <input type="text" placeholder="Adicionar tema e pressionar Enter" className="w-full bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 text-xs text-white placeholder-white/20 outline-none focus:border-[#ca98ff]/40 transition-colors" onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        e.preventDefault();
+                        const val = e.currentTarget.value.trim();
+                        if (!val || topics.some((t) => t.toLowerCase() === val.toLowerCase())) { e.currentTarget.value = ""; return; }
+                        saveTopics([...topics, val]);
+                        e.currentTarget.value = "";
+                      }} />
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* ICP section removed — now handled at leads scan level */}
@@ -1372,7 +1416,7 @@ export default function LeadsGenerationOptionsPage() {
                       disabled={!allProcessed}
                       className={`w-full py-4 rounded-2xl font-bold text-sm tracking-wide transition-all active:scale-[0.98] ${allProcessed ? "bg-gradient-to-r from-[#ca98ff] to-[#9c48ea] text-[#1a0033] shadow-[0_10px_30px_-5px_rgba(204,151,255,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(204,151,255,0.5)] hover:translate-y-[-2px]" : "bg-white/5 text-white/30 cursor-not-allowed"}`}
                     >
-                      CONFIRMAR MAPEAMENTO
+                      CONFIRMAR CONFIGURAÇÃO
                     </button>
                     {!allProcessed && (
                       <p className="text-center text-[11px] text-[#f59e0b]">
@@ -1383,15 +1427,23 @@ export default function LeadsGenerationOptionsPage() {
                 );
               })()}
               {solReportStatus === "processing" && (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div className="w-full py-4 rounded-2xl bg-[#ca98ff]/10 border border-[#ca98ff]/30 text-center">
                     <div className="flex items-center justify-center gap-3">
                       <svg className="animate-spin h-5 w-5 text-[#ca98ff]" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                       <span className="text-[#ca98ff] font-bold text-sm">Gerando relatório...</span>
                     </div>
                     <p className="text-white/40 text-xs mt-2">
-                      {solPostsCollected > 0 ? `${solPostsCollected} posts coletados` : "Coletando posts..."} — Você pode sair da página.
+                      {solPostsCollected > 0 ? `${solPostsCollected} posts coletados` : "Coletando posts..."}
                     </p>
+                    <p className="text-white/30 text-[10px] mt-1.5">
+                      Um email será enviado quando ficar pronto. Você pode sair da página.
+                    </p>
+                  </div>
+                  {/* Educational tip card */}
+                  <div className="w-full rounded-xl bg-white/[0.04] border border-white/[0.08] px-5 py-4 transition-all duration-500">
+                    <p className="text-[10px] font-bold text-[#ca98ff] uppercase tracking-wider mb-1">{REPORT_TIPS[reportTipIdx].title}</p>
+                    <p className="text-xs text-white/50 leading-relaxed">{REPORT_TIPS[reportTipIdx].desc}</p>
                   </div>
                   <button
                     onClick={handleCancelReport}
@@ -1463,15 +1515,68 @@ export default function LeadsGenerationOptionsPage() {
           </div>
           )}
 
-          {/* Mockup report removed — real report generated via CONFIRMAR MAPEAMENTO */}
+          {/* Mockup report removed — real report generated via CONFIRMAR CONFIGURAÇÃO */}
         </div>
       )}
+
+      {/* Floating "Process pending" button */}
+      {configExpanded && options && (() => {
+        const pendingEmps = (options.employee_profiles ?? [])
+          .filter(e => !(e as Record<string,unknown>).archived)
+          .filter(e => !e.headline && !e.profilePicUrl).length;
+        const selectedComps = (options.competitors ?? []).filter((c) => typeof c === "object" && c !== null && c.selected) as Array<Record<string, unknown>>;
+        const inactiveCompEmpsAll = ((options.ai_response as Record<string, unknown>)?.inactive_competitor_employees ?? {}) as Record<string, unknown>;
+        const pendingComps = selectedComps.filter((c) => {
+          const compPending = c._pending || (!c.logoUrl && c.postsPerMonth == null);
+          const nm = String(c.name ?? "");
+          const compEmps = ((options.ai_response as Record<string, unknown>)?.competitor_employees as Record<string, unknown[]>)?.[nm] ?? [];
+          const hasInactiveCached = !!inactiveCompEmpsAll[nm];
+          return compPending || compEmps.length === 0 || !hasInactiveCached;
+        }).length;
+        const totalPending = pendingEmps + pendingComps;
+        const isProcessing = processingEmployees || processingCompetitorIdxs.size > 0;
+        if (totalPending === 0 && !isProcessing) return null;
+        return (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2 max-w-sm w-full px-4">
+            {/* Educational tip card during processing */}
+            {isProcessing && (
+              <div className="w-full rounded-xl bg-[#1a1919]/95 backdrop-blur-sm border border-white/[0.08] px-5 py-4 transition-all duration-500 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+                <p className="text-[10px] font-bold text-[#ca98ff] uppercase tracking-wider mb-1">{CONFIG_TIPS[configTipIdx].title}</p>
+                <p className="text-xs text-white/50 leading-relaxed">{CONFIG_TIPS[configTipIdx].desc}</p>
+              </div>
+            )}
+            <button
+              onClick={handleProcessAll}
+              disabled={isProcessing}
+              className="w-full px-8 py-3.5 rounded-2xl bg-gradient-to-r from-[#a2f31f] to-[#7bc41f] text-[#0a1a00] font-bold text-sm shadow-[0_10px_30px_-5px_rgba(162,243,31,0.4)] hover:shadow-[0_15px_40px_-5px_rgba(162,243,31,0.5)] hover:translate-y-[-2px] transition-all active:scale-[0.98] tracking-wide disabled:opacity-70 flex items-center justify-center gap-2"
+            >
+              {isProcessing ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                  Processando...
+                </>
+              ) : (
+                <>Processar {totalPending} pendente{totalPending > 1 ? "s" : ""}</>
+              )}
+            </button>
+            {!isProcessing ? (
+              <p className="text-[9px] text-white/40 text-center">
+                Depois de cadastrar todos os executivos, clique para processar
+              </p>
+            ) : (
+              <p className="text-[9px] text-white/30 text-center">
+                Um email será enviado quando ficar pronto. Você pode sair da página.
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Confirmation Modal */}
       {showConfirmModal && options && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowConfirmModal(false)}>
           <div className="bg-[#1a1919] border border-[#ca98ff]/30 rounded-2xl p-8 max-w-lg w-full mx-4 shadow-[0_20px_60px_rgba(0,0,0,0.5)]" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Confirmar Mapeamento</h3>
+            <h3 className="text-xl font-bold text-white font-[family-name:var(--font-lexend)] mb-4">Confirmar Configuração</h3>
 
             <div className="space-y-3 mb-6">
               <div className="bg-white/[0.03] border border-white/10 rounded-xl p-4">

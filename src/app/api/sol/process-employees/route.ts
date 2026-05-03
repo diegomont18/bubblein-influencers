@@ -20,6 +20,7 @@ interface EmployeeProfile {
   linkedinUrl: string;
   profilePicUrl?: string;
   postsPerMonth?: number;
+  followers?: number;
 }
 
 export async function POST(request: Request) {
@@ -62,8 +63,31 @@ export async function POST(request: Request) {
 
     for (const emp of employees) {
       const isPending = !emp.headline && !emp.profilePicUrl;
-      if (!isPending) {
+      const needsPhotoRetry = !!emp.headline && !emp.profilePicUrl;
+
+      if (!isPending && !needsPhotoRetry) {
         enriched.push(emp);
+        continue;
+      }
+
+      // Photo-only retry: re-fetch profile (skip cache) but don't re-fetch posts
+      if (needsPhotoRetry) {
+        console.log(`[process-employees] Photo retry ${emp.slug}`);
+        try {
+          const result = await fetchLinkedInProfileCached(emp.slug, solCostCtx, { skipCache: true });
+          if (result.status === 200 && result.data) {
+            const pic = String(result.data.profilePicture ?? result.data.profile_pic_url ?? "");
+            const followers = typeof result.data.followers === "number" ? result.data.followers
+              : typeof result.data.follower_count === "number" ? (result.data.follower_count as number)
+              : emp.followers;
+            enriched.push({ ...emp, profilePicUrl: pic || emp.profilePicUrl, followers });
+          } else {
+            enriched.push(emp);
+          }
+        } catch (err) {
+          console.error(`[process-employees] Photo retry failed ${emp.slug}:`, err);
+          enriched.push(emp);
+        }
         continue;
       }
 
@@ -73,7 +97,7 @@ export async function POST(request: Request) {
 
         if (result.status === 200 && result.data) {
           const d = result.data;
-          const empPosts = await fetchProfilePostsCached(`https://www.linkedin.com/in/${emp.slug}/`, 5);
+          const empPosts = await fetchProfilePostsCached(`https://www.linkedin.com/in/${emp.slug}/`, 20);
           logApiCost({
             userId: ownerId,
             source: "sol",
@@ -83,6 +107,10 @@ export async function POST(request: Request) {
             metadata: { slug: emp.slug, context: "process-employees", actorUserId: user.id },
           });
 
+          const followers = typeof d.followers === "number" ? d.followers
+            : typeof d.follower_count === "number" ? (d.follower_count as number)
+            : undefined;
+
           enriched.push({
             name: String(d.name ?? d.fullName ?? emp.name),
             slug: emp.slug,
@@ -90,6 +118,7 @@ export async function POST(request: Request) {
             linkedinUrl: emp.linkedinUrl,
             profilePicUrl: String(d.profilePicture ?? d.profile_pic_url ?? ""),
             postsPerMonth: computePostsPerMonth(empPosts),
+            followers,
           });
         } else {
           enriched.push(emp);

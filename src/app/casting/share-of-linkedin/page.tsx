@@ -143,7 +143,7 @@ export default function LeadsGenerationPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "Erro ao mapear empresa. Tente novamente.");
+        setError(data.error ?? "Erro ao configurar empresa. Tente novamente.");
         return;
       }
 
@@ -158,7 +158,7 @@ export default function LeadsGenerationPage() {
       router.push(`/casting/share-of-linkedin/${data.profile.id}`);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setError("O mapeamento esta sendo processado em segundo plano. Voce pode sair desta pagina e voltar em alguns minutos — os dados serao salvos automaticamente.");
+        setError("A configuração esta sendo processada em segundo plano. Voce pode sair desta pagina e voltar em alguns minutos — os dados serao salvos automaticamente.");
         // Try to reload profiles after a delay to see if it completed
         setTimeout(async () => {
           try {
@@ -182,8 +182,8 @@ export default function LeadsGenerationPage() {
           onClick={() => setFormExpanded(true)}
           className="w-full max-w-2xl mx-auto group rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-[#ca98ff]/20 hover:border-[#ca98ff]/50 hover:bg-[#ca98ff]/[0.06] transition-all py-4 px-6 flex items-center justify-between font-[family-name:var(--font-lexend)]"
         >
-          <span className="text-sm text-white/60">Mapear nova empresa</span>
-          <span className="text-sm font-bold text-[#ca98ff] uppercase tracking-wider group-hover:translate-x-1 transition-transform">+ Nova análise →</span>
+          <span className="text-sm text-white/60">Configurar nova análise</span>
+          <span className="text-sm font-bold text-[#ca98ff] uppercase tracking-wider group-hover:translate-x-1 transition-transform">+ NOVA ANÁLISE →</span>
         </button>
       )}
 
@@ -191,7 +191,7 @@ export default function LeadsGenerationPage() {
       {formExpanded && (<>
       <div className="flex flex-col items-center text-center pt-8 pb-4">
         <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight leading-tight mb-6 font-[family-name:var(--font-lexend)]">
-          Mapeie o <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">Share of LinkedIn</span>
+          Configure o <span className="bg-gradient-to-r from-[#ca98ff] to-[#e197fc] bg-clip-text text-transparent">Share of LinkedIn</span>
           <br className="hidden md:block" />
           da sua empresa
         </h1>
@@ -269,11 +269,11 @@ export default function LeadsGenerationPage() {
           >
             {loading ? (
               <>
-                <span className="animate-pulse">Mapeando empresa... (pode levar ate 3 minutos)</span>
+                <span className="animate-pulse">Configurando análise... (pode levar até 3 minutos)</span>
               </>
             ) : (
               <>
-                Mapear Empresa
+                Configurar Análise
                 <span className="text-lg">→</span>
               </>
             )}
@@ -311,7 +311,7 @@ export default function LeadsGenerationPage() {
       {/* History */}
       <div className="max-w-2xl mx-auto pt-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-black tracking-[0.2em] text-white/20 uppercase">Empresas mapeadas</h3>
+          <h3 className="text-xs font-black tracking-[0.2em] text-white/20 uppercase">Empresas configuradas</h3>
           <ScopeFilter value={scope} onChange={setScope} />
         </div>
 
@@ -335,7 +335,7 @@ export default function LeadsGenerationPage() {
                   const canDelete = p.accessRole === undefined || p.accessRole === "owner";
                   const dateLabel = new Date(p.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
                   const isProcessing = p.latest_report?.status === "processing";
-                  const statusLabel = isProcessing ? "Processando" : p.latest_report?.status === "complete" ? "Completo" : "Mapeado";
+                  const statusLabel = isProcessing ? "Processando" : p.latest_report?.status === "complete" ? "Completo" : "Configurado";
                   const statusColor = isProcessing ? "text-[#f59e0b]" : p.latest_report?.status === "complete" ? "text-[#a2f31f]" : "text-white/40";
 
                   return (
@@ -417,7 +417,7 @@ export default function LeadsGenerationPage() {
             </p>
           </div>
         ) : scope === "mine" ? (
-          <p className="text-xs text-white/20">Você ainda não mapeou nenhum perfil.</p>
+          <p className="text-xs text-white/20">Você ainda não configurou nenhum perfil.</p>
         ) : (
           <p className="text-xs text-white/20">Nenhum perfil analisado ainda.</p>
         )}
